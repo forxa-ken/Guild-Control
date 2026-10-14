@@ -1,0 +1,12 @@
+## Interface: 120100
+## Title: GuildControl
+## Notes: Gestion modularizada de hermandad Lobo Gelido, rosters, anuncios y profesiones.
+## Author: IA Developer
+## Version: 4.5.0
+## SavedVariables: GuildControlDB
+
+Core.lua
+Modules\Professions.lua
+Modules\Announcements.lua
+Modules\CSV.lua
+Modules\UI.lua

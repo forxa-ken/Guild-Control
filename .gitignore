@@ -1,0 +1,4 @@
+# Ignorar respaldos locales
+versiones/
+*.bak
+*.tmp
