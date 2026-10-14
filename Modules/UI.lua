@@ -597,6 +597,12 @@ end
 -- quiet = true: sin mensaje de confirmación en el chat (invitación masiva)
 local function InviteToGuild(name, quiet)
     if not name or name == "" then return false end
+    -- Nunca se invita a alguien de la lista negra
+    local blacklisted = addonTable.Blacklist and addonTable.Blacklist.Get(name)
+    if blacklisted then
+        PrintGC("|cFFFF3333No se invita a " .. name .. ": está en la lista negra (" .. addonTable.Blacklist.GetReasonLabel(blacklisted.reason) .. ").|r")
+        return false
+    end
     if not IsInGuild() or (CanGuildInvite and not CanGuildInvite()) then
         PrintGC("|cFFFF3333Tu rango no tiene permiso para invitar a la hermandad.|r")
         return false
@@ -888,11 +894,20 @@ local function BuildMembersView(parent)
         return text
     end
 
+    -- Aviso en la vista previa si el miembro está en la lista negra
+    local function BlacklistPreviewLine(fullName)
+        local entry = addonTable.Blacklist and addonTable.Blacklist.Get(fullName)
+        if not entry then return "" end
+        return "|cFFFF3333¡En la lista negra! " .. addonTable.Blacklist.GetReasonLabel(entry.reason)
+            .. ((entry.note and entry.note ~= "") and (": " .. entry.note) or "") .. "|r\n\n"
+    end
+
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
         selectedFullName = fullName
         SetPreviewText(
             "|cFFFFD100" .. fullName .. "|r\n\n" ..
+            BlacklistPreviewLine(fullName) ..
             "Nivel: " .. (data.level or 0) .. "\n" ..
             "Clase: " .. (data.class or "Desconocida") .. "\n" ..
             "Rango: " .. (data.rank or "Recluta") .. "\n" ..
@@ -3038,6 +3053,7 @@ local MASS_STATUS_TEXT = {
     member  = "|cFF808080Ya es miembro|r",
     recent  = "|cFF808080Invitado hace poco|r",
     failed  = "|cFFFF3333Mensaje demasiado largo|r",
+    blacklist = "|cFFFF3333Lista negra|r",
 }
 
 local function BuildMassInvitePanel(panel)
@@ -3291,7 +3307,9 @@ local function BuildMassInvitePanel(panel)
         local now = time()
         for _, item in ipairs(queue) do
             if item.status == "pending" then
-                if GuildControlDB.members[item.name] then
+                if addonTable.Blacklist and addonTable.Blacklist.IsBlacklisted(item.name) then
+                    item.status = "blacklist"
+                elseif GuildControlDB.members[item.name] then
                     item.status = "member"
                 elseif history[item.name] and now - history[item.name] < REINVITE_DAYS * 86400 then
                     item.status = "recent"
@@ -3850,6 +3868,33 @@ local function BuildMyProfileView(parent)
         root:CreateRadio("Sin especificar", function() return specValue == "" end, function() SetSpec("") end)
     end)
 
+    -- Especialización off: otra de la clase que también puede jugar (solo con equipo para ella)
+    local offSpecValue = ""
+    local offSpecLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    offSpecLabel:SetPoint("LEFT", specLabel, "LEFT", 260, 0)
+    offSpecLabel:SetText("Especialización off |cFFFF7F00(solo si tienes equipo)|r")
+
+    local offSpecDropdown = CreateFrame("DropdownButton", "GC_ProfileOffSpec", view, "WowStyle1DropdownTemplate")
+    offSpecDropdown:SetPoint("TOPLEFT", offSpecLabel, "BOTTOMLEFT", 0, -6)
+    offSpecDropdown:SetWidth(240)
+
+    local function SetOffSpec(name)
+        offSpecValue = name or ""
+        offSpecDropdown:SetText(offSpecValue ~= "" and offSpecValue or "Ninguna")
+    end
+
+    offSpecDropdown:SetupMenu(function(_, root)
+        root:CreateTitle("Elígela solo si tienes equipo para jugarla")
+        root:CreateRadio("Ninguna", function() return offSpecValue == "" end, function() SetOffSpec("") end)
+        for _, spec in ipairs(GetMySpecs()) do
+            if spec.name ~= specValue then
+                local label = (spec.icon and ("|T" .. spec.icon .. ":16:16|t ") or "") .. spec.name
+                    .. (spec.role and ("  " .. RoleIcon(spec.role) .. " |cFF808080" .. spec.role .. "|r") or "")
+                root:CreateRadio(label, function() return offSpecValue == spec.name end, function() SetOffSpec(spec.name) end)
+            end
+        end
+    end)
+
     local noteLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     noteLabel:SetPoint("TOPLEFT", specDropdown, "BOTTOMLEFT", 0, -16)
     noteLabel:SetText("Nota para los oficiales")
@@ -3890,7 +3935,7 @@ local function BuildMyProfileView(parent)
             return
         end
         local charType = charChoice.Get() == "Alter" and "alt" or "main"
-        P.SaveMyProfile(main, secondaryChoice.Get(), specValue, noteInput:GetText(), charType, mainNameInput:GetText(), focusChoice.Get())
+        P.SaveMyProfile(main, secondaryChoice.Get(), specValue, noteInput:GetText(), charType, mainNameInput:GetText(), focusChoice.Get(), offSpecValue)
         noteInput:ClearFocus()
         saveStatus:SetText("|cFF00FF00Guardado y enviado a las " .. date("%H:%M") .. ".|r")
     end)
@@ -3962,6 +4007,7 @@ local function BuildMyProfileView(parent)
         mainNameInput:SetText(profile.mainName or "")
         mainNameInput:SetShown(profile.charType == "alt")
         SetSpec(profile.spec)
+        SetOffSpec(profile.offSpec)
         specLabel:SetText("Especialización (" .. (UnitClass("player") or "") .. ")")
         noteInput:SetText(profile.note or "")
         saveStatus:SetText("")
@@ -4244,7 +4290,7 @@ local function BuildSummaryView(parent)
     view:SetAllPoints()
     view:Hide()
 
-    local currentFilter = "all"
+    local currentFilter = "achievement"
     local Refresh
 
     -- ---------------------------------------------------------------------
@@ -4269,7 +4315,7 @@ local function BuildSummaryView(parent)
     local previous = nil
     for _, filter in ipairs(N.FILTERS) do
         local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
-        btn:SetSize(filter.key == "members" and 110 or 80, 20)
+        btn:SetSize(80, 20)
         if previous then
             btn:SetPoint("LEFT", previous, "RIGHT", 4, 0)
         else
@@ -4295,15 +4341,29 @@ local function BuildSummaryView(parent)
     emptyText:SetPoint("CENTER", feedBox, "CENTER", 0, -20)
     emptyText:SetWidth(460)
 
+    -- Vista previa de una noticia en el panel derecho (logro u objeto)
+    local function ShowNewsPreview(item)
+        if item.achievementId then
+            SetPreviewText(BuildAchievementPreviewText(item.achievementId))
+        elseif item.link then
+            SetPreviewText("|cFFFFD100Botín|r\n\n" .. item.link .. "\n\nObtenido por: |cFFFFFFFF" .. (item.who or "-") .. "|r\n"
+                .. "Fecha: " .. (item.dateText or "-") .. "\n\n|cFF808080Pasa el ratón por la noticia para ver el objeto.|r")
+        else
+            SetPreviewText("|cFFFFD100" .. (item.title or "") .. "|r\n\n" .. (item.detail or "") .. "\n\nFecha: " .. (item.dateText or "-"))
+        end
+    end
+
     local cards = {}
     local function AcquireCard(index)
         local card = cards[index]
         if card then return card end
-        card = CreateFrame("Frame", nil, feedChild)
-        card:SetSize(524, NEWS_CARD_HEIGHT - 4)
+        card = CreateFrame("Button", nil, feedChild)
+        card:SetWidth(524)
         card.bg = card:CreateTexture(nil, "BACKGROUND")
         card.bg:SetAllPoints()
-        card.bg:SetColorTexture(1, 1, 1, 0.04)
+        card.highlight = card:CreateTexture(nil, "HIGHLIGHT")
+        card.highlight:SetAllPoints()
+        card.highlight:SetColorTexture(1, 1, 1, 0.06)
         card.bar = card:CreateTexture(nil, "ARTWORK")
         card.bar:SetPoint("TOPLEFT", card, "TOPLEFT", 0, 0)
         card.bar:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 0, 0)
@@ -4312,8 +4372,6 @@ local function BuildSummaryView(parent)
         card.icon:SetSize(32, 32)
         card.icon:SetPoint("LEFT", card, "LEFT", 10, 0)
         card.title = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        card.title:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, -1)
-        card.title:SetPoint("RIGHT", card, "RIGHT", -60, 0)
         card.title:SetJustifyH("LEFT")
         card.title:SetWordWrap(false)
         card.detail = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -4323,12 +4381,58 @@ local function BuildSummaryView(parent)
         card.detail:SetWordWrap(false)
         card.date = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         card.date:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -6)
+
+        -- Tooltip del logro o del objeto, y vista previa al hacer clic
+        card:SetScript("OnEnter", function(self)
+            local item = self.item
+            if not item then return end
+            local link = item.link
+            if not link and item.achievementId and GetAchievementLink then link = GetAchievementLink(item.achievementId) end
+            if link then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                pcall(GameTooltip.SetHyperlink, GameTooltip, link)
+                GameTooltip:Show()
+            end
+        end)
+        card:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        card:SetScript("OnClick", function(self) if self.item then ShowNewsPreview(self.item) end end)
         cards[index] = card
         return card
     end
 
+    -- Una tarjeta puede ser noticia o cabecera de semana
+    local function SetupCard(card, item, headerText)
+        local isHeader = headerText ~= nil
+        card.item = item
+        card:SetHeight(isHeader and 24 or (NEWS_CARD_HEIGHT - 4))
+        card:EnableMouse(not isHeader)
+        card.icon:SetShown(not isHeader)
+        card.bar:SetShown(not isHeader)
+        card.detail:SetShown(not isHeader)
+        card.date:SetShown(not isHeader)
+        card.title:ClearAllPoints()
+        if isHeader then
+            card.bg:SetColorTexture(1, 0.82, 0, 0.08)
+            card.title:SetPoint("LEFT", card, "LEFT", 10, 0)
+            card.title:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+            card.title:SetText("|cFFFFD100" .. headerText .. "|r")
+        else
+            card.bg:SetColorTexture(1, 1, 1, 0.04)
+            card.title:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, -1)
+            card.title:SetPoint("RIGHT", card, "RIGHT", -60, 0)
+            local color = NEWS_KIND_COLORS[item.kind] or NEWS_KIND_COLORS.other
+            card.bar:SetColorTexture(color[1], color[2], color[3], 0.9)
+            card.icon:SetTexture(item.icon)
+            card.title:SetText(item.title or "")
+            card.detail:SetText(item.detail or "")
+            card.date:SetText(item.dateText or "")
+        end
+        card:Show()
+    end
+
+
     -- ---------------------------------------------------------------------
-    -- Columna derecha: mensaje del día, próximas bandas, rosters y cifras
+    -- Columna derecha: mensaje del día, próximas bandas, rosters y oficiales
     -- ---------------------------------------------------------------------
     local function SideBox(titleText, height, anchor)
         local box = CreateBackdropBox(view, 304, height)
@@ -4352,7 +4456,7 @@ local function BuildSummaryView(parent)
     local motdBox = SideBox("Mensaje del día", 84)
     local raidsBox = SideBox("Próximas bandas", 118, motdBox)
     local rostersBox = SideBox("Rosters", 118, raidsBox)
-    local statsBox = SideBox("La hermandad en cifras", 162, rostersBox)
+    local officersBox = SideBox("Oficiales", 162, rostersBox)
 
     local WEEKDAYS = { "Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb" }
     local function ShortEventDate(event)
@@ -4386,31 +4490,46 @@ local function BuildSummaryView(parent)
         end
         rostersBox.text:SetText(#rosterLines > 0 and table.concat(rosterLines, "\n") or "|cFF808080Todavía no hay rosters.|r")
 
-        local s = N.GetStats()
-        statsBox.text:SetText(
-            "Miembros: |cFFFFD100" .. s.members .. "|r   ·   En línea: |cFF00FF00" .. s.online .. "|r\n"
-            .. "Altas esta semana: |cFF00FF00" .. s.joins .. "|r   ·   Bajas: |cFFFF3333" .. s.leaves .. "|r\n"
-            .. "Roles declarados: |cFF00FFFF" .. s.declared .. "|r de " .. s.members .. "\n"
-            .. "Puntos de logros de hermandad: |cFFFFD100" .. s.achievementPoints .. "|r")
+        -- Oficiales de la hermandad con su rango (conectados en verde)
+        local officerLines = {}
+        local officers = N.GetOfficers()
+        for i, o in ipairs(officers) do
+            if i > 8 then
+                table.insert(officerLines, "|cFF808080y " .. (#officers - 8) .. " más...|r")
+                break
+            end
+            local short = string.match(o.name, "^([^-]+)") or o.name
+            local dot = o.online and "|TInterface\\COMMON\\Indicator-Green:12:12|t " or "|TInterface\\COMMON\\Indicator-Gray:12:12|t "
+            table.insert(officerLines, dot .. "|cFF" .. addonTable.GetClassColorHex(o.class) .. short .. "|r  |cFFBFBFBF" .. o.rank .. "|r")
+        end
+        officersBox.text:SetText(#officerLines > 0 and table.concat(officerLines, "\n")
+            or "|cFF808080No se han encontrado oficiales. El rango de oficial se ajusta en Mi perfil.|r")
     end
 
+    -- Noticias agrupadas por semana (cabecera "Esta semana", "Semana pasada", "Semana del...")
     local function RefreshFeed()
         for key, btn in pairs(filterButtons) do btn:SetEnabled(key ~= currentFilter) end
         for _, card in ipairs(cards) do card:Hide() end
 
         local feed = N.GetFeed(currentFilter)
-        for i, item in ipairs(feed) do
-            local card = AcquireCard(i)
-            card:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, -(i - 1) * NEWS_CARD_HEIGHT)
-            local color = NEWS_KIND_COLORS[item.kind] or NEWS_KIND_COLORS.other
-            card.bar:SetColorTexture(color[1], color[2], color[3], 0.9)
-            card.icon:SetTexture(item.icon)
-            card.title:SetText(item.title or "")
-            card.detail:SetText(item.detail or "")
-            card.date:SetText(item.dateText or "")
-            card:Show()
+        local index, y, lastWeek = 0, 0, nil
+        for _, item in ipairs(feed) do
+            local weekKey, weekLabel = N.GetWeek(item.sortKey)
+            if weekKey ~= lastWeek then
+                lastWeek = weekKey
+                index = index + 1
+                local header = AcquireCard(index)
+                header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, -y)
+                SetupCard(header, nil, weekLabel)
+                y = y + 28
+            end
+            index = index + 1
+            local card = AcquireCard(index)
+            card:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, -y)
+            SetupCard(card, item)
+            y = y + NEWS_CARD_HEIGHT
         end
-        feedChild:SetHeight(math.max(1, #feed * NEWS_CARD_HEIGHT))
+        feedChild:SetHeight(math.max(1, y))
         emptyText:SetShown(#feed == 0)
         emptyText:SetText(IsInGuild() and "No hay noticias para este filtro todavía. Pulsa Actualizar para pedirlas al servidor."
             or "No estás en una hermandad.")
@@ -4429,6 +4548,262 @@ local function BuildSummaryView(parent)
     end)
     uiModule.RefreshSummary = Refresh
     containers.views["Resumen"] = view
+end
+
+-- =========================================================================
+-- 8f. VISTA BLACK LIST (CONSUME MODULES/BLACKLIST.LUA)
+-- =========================================================================
+local BLACKLIST_ROW_HEIGHT = 22
+
+local function BuildBlacklistView(parent)
+    local B = addonTable.Blacklist
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local Refresh
+    local searchQuery = ""
+    local selectedReason = "ninja"
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
+    title:SetText("Lista negra")
+
+    local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    subtitle:SetPoint("LEFT", title, "RIGHT", 14, 0)
+    subtitle:SetText("Personajes no deseados: avisa si entran en la hermandad o en tu grupo, los marca en su tooltip y bloquea invitarlos.")
+
+    -- ---------------------------------------------------------------------
+    -- Formulario para añadir
+    -- ---------------------------------------------------------------------
+    local form = CreateBackdropBox(view, 880, 64, "TOPLEFT", view, "TOPLEFT", 10, -36)
+
+    local nameLabel = form:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    nameLabel:SetPoint("TOPLEFT", form, "TOPLEFT", 14, -10)
+    nameLabel:SetText("Personaje (Nombre o Nombre-Reino)")
+    local nameInput = CreateFrame("EditBox", nil, form, "InputBoxTemplate")
+    nameInput:SetSize(180, 20)
+    nameInput:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 6, -4)
+    nameInput:SetAutoFocus(false)
+    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local btnTarget = CreateFrame("Button", nil, form, "UIPanelButtonTemplate")
+    btnTarget:SetSize(90, 22)
+    btnTarget:SetPoint("LEFT", nameInput, "RIGHT", 8, 0)
+    btnTarget:SetText("Objetivo")
+    btnTarget:SetScript("OnClick", function()
+        if UnitIsPlayer("target") then
+            local name, realm = UnitName("target")
+            nameInput:SetText((realm and realm ~= "") and (name .. "-" .. realm) or name)
+        else
+            PrintGC("No tienes a ningún jugador como objetivo.")
+        end
+    end)
+
+    local reasonLabel = form:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    reasonLabel:SetPoint("TOPLEFT", form, "TOPLEFT", 312, -10)
+    reasonLabel:SetText("Motivo")
+    local dropReason = CreateFrame("DropdownButton", "GC_BlacklistReason", form, "WowStyle1DropdownTemplate")
+    dropReason:SetPoint("TOPLEFT", reasonLabel, "BOTTOMLEFT", 0, -2)
+    dropReason:SetWidth(140)
+    dropReason:SetupMenu(function(_, root)
+        for _, reason in ipairs(B.REASONS) do
+            local key = reason.key
+            root:CreateRadio(reason.label, function() return selectedReason == key end,
+                function() selectedReason = key; dropReason:SetText(reason.label) end)
+        end
+    end)
+    dropReason:SetText(B.GetReasonLabel(selectedReason))
+
+    local noteLabel = form:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    noteLabel:SetPoint("TOPLEFT", form, "TOPLEFT", 470, -10)
+    noteLabel:SetText("Nota (qué pasó, cuándo...)")
+    local noteInput = CreateFrame("EditBox", nil, form, "InputBoxTemplate")
+    noteInput:SetSize(280, 20)
+    noteInput:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 6, -4)
+    noteInput:SetAutoFocus(false)
+    noteInput:SetMaxLetters(120)
+    noteInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local btnAdd = CreateFrame("Button", nil, form, "UIPanelButtonTemplate")
+    btnAdd:SetSize(90, 22)
+    btnAdd:SetPoint("LEFT", noteInput, "RIGHT", 10, 0)
+    btnAdd:SetText("Añadir")
+
+    local function AddEntry()
+        local entry, err = B.Add(nameInput:GetText(), selectedReason, noteInput:GetText())
+        if not entry then
+            PrintGC("|cFFFF3333" .. err .. "|r")
+            return
+        end
+        PrintGC("|cFFFFD100" .. entry.name .. "|r añadido a la lista negra (" .. B.GetReasonLabel(entry.reason) .. ").")
+        nameInput:SetText("")
+        noteInput:SetText("")
+        nameInput:ClearFocus()
+        noteInput:ClearFocus()
+    end
+    btnAdd:SetScript("OnClick", AddEntry)
+    nameInput:SetScript("OnEnterPressed", function() noteInput:SetFocus() end)
+    noteInput:SetScript("OnEnterPressed", AddEntry)
+
+    -- ---------------------------------------------------------------------
+    -- Tabla
+    -- ---------------------------------------------------------------------
+    local COLS = {
+        { title = "Personaje",   x = 8,   w = 180 },
+        { title = "Motivo",      x = 192, w = 110 },
+        { title = "Nota",        x = 306, w = 340 },
+        { title = "Añadido por", x = 650, w = 110 },
+        { title = "Fecha",       x = 764, w = 80 },
+    }
+
+    local listBox = CreateBackdropBox(view, 880, 370, "TOPLEFT", form, "BOTTOMLEFT", 0, -6)
+    local headerRow = CreateFrame("Frame", nil, listBox)
+    headerRow:SetSize(850, 18)
+    headerRow:SetPoint("TOPLEFT", listBox, "TOPLEFT", 6, -8)
+    for _, col in ipairs(COLS) do
+        local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
+        fs:SetText(col.title)
+    end
+
+    local scroll = CreateFrame("ScrollFrame", "GC_BlacklistScroll", listBox, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
+    scroll:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -28, 8)
+    local child = CreateFrame("Frame")
+    child:SetSize(846, 1)
+    scroll:SetScrollChild(child)
+
+    local emptyText = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", listBox, "CENTER", 0, 0)
+    emptyText:SetText("La lista negra está vacía.")
+
+    local rows = {}
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, child)
+        row:SetSize(846, BLACKLIST_ROW_HEIGHT - 2)
+        row:RegisterForClicks("RightButtonUp")
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 0.2, 0.2, 0.12)
+        row.cells = {}
+        for i, col in ipairs(COLS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
+            fs:SetWidth(col.w - 4)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            row.cells[i] = fs
+        end
+        row:SetScript("OnEnter", function(self)
+            local entry = self.entry
+            if not entry then return end
+            GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+            GameTooltip:SetText(entry.name, 1, 0.2, 0.2)
+            GameTooltip:AddDoubleLine("Motivo", B.GetReasonLabel(entry.reason), 0.7, 0.7, 0.7, 1, 1, 1)
+            if entry.note and entry.note ~= "" then GameTooltip:AddLine(entry.note, 1, 1, 1, true) end
+            GameTooltip:AddDoubleLine("Añadido por", entry.addedBy or "-", 0.7, 0.7, 0.7, 1, 1, 1)
+            if entry.sharedBy then GameTooltip:AddDoubleLine("Compartido por", entry.sharedBy, 0.7, 0.7, 0.7, 1, 1, 1) end
+            if GuildControlDB.members[entry.name] then GameTooltip:AddLine("¡Está en la hermandad!", 1, 0.2, 0.2) end
+            GameTooltip:AddLine("Clic derecho: opciones", 0.5, 0.5, 0.5)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row:SetScript("OnClick", function(self)
+            local entry = self.entry
+            if not entry then return end
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle(entry.name)
+                root:CreateButton("Editar (cargar en el formulario)", function()
+                    nameInput:SetText(entry.name)
+                    noteInput:SetText(entry.note or "")
+                    selectedReason = entry.reason
+                    dropReason:SetText(B.GetReasonLabel(entry.reason))
+                end)
+                root:CreateButton("|cFFFF3333Quitar de la lista negra|r", function() B.Remove(entry.name) end)
+            end)
+        end)
+        rows[index] = row
+        return row
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Barra inferior: buscador, compartir y recuento
+    -- ---------------------------------------------------------------------
+    local bottom = CreateFrame("Frame", nil, view)
+    bottom:SetSize(880, 24)
+    bottom:SetPoint("TOPLEFT", listBox, "BOTTOMLEFT", 0, -6)
+
+    local searchBox = CreateFrame("EditBox", nil, bottom, "InputBoxTemplate")
+    searchBox:SetSize(200, 20)
+    searchBox:SetPoint("LEFT", bottom, "LEFT", 8, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
+    searchPlaceholder:SetText("Buscar en la lista...")
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = self:GetText() or ""
+        searchPlaceholder:SetShown(searchQuery == "")
+        Refresh()
+    end)
+
+    local btnShare = CreateFrame("Button", nil, bottom, "UIPanelButtonTemplate")
+    btnShare:SetSize(170, 22)
+    btnShare:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
+    btnShare:SetText("Compartir con oficiales")
+    btnShare:SetScript("OnClick", function()
+        local count = B.Share()
+        PrintGC(count > 0 and ("Enviando |cFFFFD100" .. count .. "|r entradas a los oficiales conectados con GuildControl.")
+            or "No hay nada que compartir (o ya se está enviando).")
+    end)
+    btnShare:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Compartir con oficiales", 1, 1, 1)
+        GameTooltip:AddLine("Los oficiales que la reciben añaden las entradas que no tenían. Nunca se borra nada de otro cliente.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnShare:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local countText = bottom:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("RIGHT", bottom, "RIGHT", -8, 0)
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        for _, row in ipairs(rows) do row:Hide() end
+        local list = B.GetAll(searchQuery)
+        for i, entry in ipairs(list) do
+            local row = AcquireRow(i)
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * BLACKLIST_ROW_HEIGHT)
+            row.bg:SetShown(i % 2 == 0)
+            row.entry = entry
+            local inGuild = GuildControlDB.members[entry.name] ~= nil
+            local y, mo, d = string.match(entry.date or "", "^(%d+)-(%d+)-(%d+)$")
+            row.cells[1]:SetText((inGuild and "|cFFFF3333" or "|cFFFFFFFF") .. entry.name .. "|r" .. (inGuild and " |cFFFF3333(en la hermandad)|r" or ""))
+            row.cells[2]:SetText("|cFFFF7F7F" .. B.GetReasonLabel(entry.reason) .. "|r")
+            row.cells[3]:SetText(entry.note or "")
+            row.cells[4]:SetText(entry.addedBy or "-")
+            row.cells[5]:SetText(y and (d .. "/" .. mo .. "/" .. y) or (entry.date or ""))
+            row:Show()
+        end
+        child:SetHeight(math.max(1, #list * BLACKLIST_ROW_HEIGHT))
+        emptyText:SetShown(#list == 0)
+        local inGuild = B.CountInGuild()
+        countText:SetText(#B.GetAll() .. " personajes en la lista"
+            .. (inGuild > 0 and ("   ·   |cFFFF3333" .. inGuild .. " en la hermandad|r") or ""))
+    end
+
+    B.AddListener(function()
+        Refresh()
+        if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+    end)
+    view:SetScript("OnShow", Refresh)
+    containers.views["Black list"] = view
 end
 
 -- =========================================================================
@@ -4987,7 +5362,7 @@ function uiModule.CreateUI()
     BuildRosterView(mainContent)
     BuildPlaceholderView(mainContent, "Warning")
     BuildInviteView(mainContent)
-    BuildPlaceholderView(mainContent, "Black list")
+    BuildBlacklistView(mainContent)
     BuildConfigView(mainContent)
 
     BuildChatPanel(GC_UI)
@@ -5140,6 +5515,8 @@ function uiModule.UpdateMemberCounter()
         end
     end
     containers.header.membersBox.value:SetText(total)
+    -- Warnings: personajes de la lista negra que están en la hermandad
+    containers.header.warningsBox.value:SetText(addonTable.Blacklist and addonTable.Blacklist.CountInGuild() or 0)
     containers.header.onlineBox.value:SetText(online)
 end
 

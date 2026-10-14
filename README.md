@@ -14,16 +14,17 @@
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
+- **`Modules/Blacklist.lua`**: Lista negra: datos, avisos (entrada en la hermandad o en tu grupo, tooltip), bloqueo de invitaciones y compartir con oficiales.
 
 ## 📰 Resumen
 
 La pestaña **Resumen** funciona como un tablón de noticias:
 
-- **Noticias de la hermandad**: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Se pueden filtrar por Logros, Jefes, Botín o Altas y bajas.
+- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa.
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** de los rosters (los propios si eres oficial, los publicados si eres jugador).
 - **Rosters** con su dificultad, tamaño y titulares.
-- **La hermandad en cifras**: miembros, conectados, altas y bajas de la semana, roles declarados y puntos de logros.
+- **Oficiales** de la hermandad con su rango (conectados en verde).
 
 ## 🏆 Panel de logros
 
@@ -74,7 +75,7 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
-- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** (elegida entre las de su clase, con icono; al elegirla se ajusta el rol principal), si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
+- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** (elegida entre las de su clase, con icono; al elegirla se ajusta el rol principal), una **especialización off** (solo si tiene equipo para ella; se ve en la vista previa de Miembros), si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
 - **Perfil de oficial**: rango igual o superior al configurado en Mi perfil (por defecto el rango 1) o permiso de chat de oficiales del juego. Ve todas las pestañas.
 - **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil, **Mis rosters** y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
@@ -82,6 +83,15 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 - En **Miembros**, la columna Rol muestra el rol de cada uno: icono y nombre, en cian si lo declaró el propio jugador, en blanco si lo fijó un oficial y en naranja con `*` si el oficial puso uno distinto al declarado. Si nadie lo ha definido, queda vacía.
 - **Mis rosters** (solo jugadores): muestra los rosters que publican los oficiales con **Compartir**, en solo lectura y con el jefe seleccionable. Resalta tu nombre e indica tu puesto, las próximas fechas con tu marca de asistencia y tu porcentaje. Al entrar se piden a los oficiales conectados (también con **Actualizar**); si un oficial elimina un roster publicado, desaparece.
 - El perfil solo cambia lo que se ve: los datos de cada cliente son locales y nadie puede modificar los de otro.
+
+## ⛔ Lista negra
+
+La pestaña **Black list** (oficiales) guarda los personajes no deseados: ninjas, racistas, tóxicos, estafadores...
+
+- Añade el personaje (o usa tu **objetivo**), el motivo y una nota. Clic derecho en una entrada para editarla o quitarla.
+- **Avisos**: mensaje y sonido si alguno entra en la hermandad o en tu grupo, línea roja en su tooltip y aviso en la vista previa de Miembros. La caja **Warnings** del encabezado cuenta cuántos están en la hermandad.
+- **Nunca se les invita**: la invitación individual y la masiva los saltan.
+- **Compartir con oficiales** envía la lista a los oficiales conectados con GuildControl; ellos solo añaden las entradas que no tenían.
 
 ## ✉️ Invitar nuevos miembros
 

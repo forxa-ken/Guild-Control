@@ -127,7 +127,7 @@ end
 
 -- Guarda una declaración en la ficha del miembro. "at" es la fecha (time()) en que el
 -- jugador la guardó: una declaración más antigua nunca pisa a una más nueva.
--- extra = { charType = "main"|"alt", mainName = "Nombre del principal", focus = "PvE"|"PvP"|"Social" }
+-- extra = { charType = "main"|"alt", mainName = "Nombre del principal", focus = "PvE"|"PvP"|"Social", offSpec = "Especialización" }
 local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     local m = GuildControlDB.members[fullName]
     if not m or not main then return false end
@@ -136,15 +136,16 @@ local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     local charType = (extra.charType == "alt" or extra.charType == "main") and extra.charType or nil
     local mainName = charType == "alt" and extra.mainName ~= "" and extra.mainName or nil
     local focus = VALID_FOCUS[extra.focus] and extra.focus or nil
+    local offSpec = (extra.offSpec and extra.offSpec ~= "") and extra.offSpec or nil
     local previous = m.declared
     if previous and previous.at and previous.at > at then return false end
     if previous and previous.at == at and previous.main == main and previous.secondary == secondary
         and previous.spec == spec and previous.note == note
-        and previous.charType == charType and previous.mainName == mainName and previous.focus == focus then
+        and previous.charType == charType and previous.mainName == mainName and previous.focus == focus and previous.offSpec == offSpec then
         return false
     end
     m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = at,
-                   charType = charType, mainName = mainName, focus = focus }
+                   charType = charType, mainName = mainName, focus = focus, offSpec = offSpec }
     -- El enfoque declarado es el que muestra la columna Enfoque
     if focus then m.focus = focus end
     if m.roleSource ~= "officer" then
@@ -155,7 +156,7 @@ local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
 end
 
 local function ProfileExtra(profile)
-    return { charType = profile.charType, mainName = profile.mainName, focus = profile.focus }
+    return { charType = profile.charType, mainName = profile.mainName, focus = profile.focus, offSpec = profile.offSpec }
 end
 
 -- Los personajes de esta misma cuenta comparten SavedVariables: sus perfiles se aplican
@@ -175,7 +176,7 @@ end
 
 -- Guarda mi perfil, lo aplica a mi propia ficha y lo envía a la hermandad.
 -- charType = "main" (personaje principal) o "alt"; mainName = principal si es un alter.
-function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mainName, focus)
+function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mainName, focus, offSpec)
     local profile = profilesModule.GetMyProfile()
     profile.main = VALID_ROLES[main] and main or nil
     profile.secondary = (VALID_ROLES[secondary] and secondary ~= profile.main) and secondary or nil
@@ -184,6 +185,8 @@ function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mai
     profile.charType = charType == "alt" and "alt" or "main"
     profile.mainName = profile.charType == "alt" and Clean(mainName, 40) or nil
     profile.focus = VALID_FOCUS[focus] and focus or nil
+    profile.offSpec = Clean(offSpec, 30)
+    if profile.offSpec == "" or profile.offSpec == profile.spec then profile.offSpec = nil end
     profile.savedAt = time()
     ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note,
         profile.savedAt, ProfileExtra(profile))
@@ -205,7 +208,7 @@ function profilesModule.Broadcast(force)
     if not profile.main then return end
     lastBroadcast = GetTime()
     SendRole(table.concat({ "v2", profile.main, profile.secondary or "", profile.spec or "",
-        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "", profile.focus or "" }, ";"))
+        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "", profile.focus or "", profile.offSpec or "" }, ";"))
 end
 
 function profilesModule.RequestRoles()
@@ -233,8 +236,16 @@ local function StartRelay()
     for fullName, m in pairs(GuildControlDB.members) do
         local d = m.declared
         if d and d.main then
-            table.insert(queue, table.concat({ "R", fullName, d.main, d.secondary or "", d.spec or "",
-                d.note or "", tostring(d.at or 0), d.charType or "", d.mainName or "", d.focus or "" }, ";"))
+            local function Build(note)
+                return table.concat({ "R", fullName, d.main, d.secondary or "", d.spec or "",
+                    note, tostring(d.at or 0), d.charType or "", d.mainName or "", d.focus or "", d.offSpec or "" }, ";")
+            end
+            -- Un mensaje de addon admite 255 bytes: si no cabe, se recorta la nota
+            local msg = Build(d.note or "")
+            if #msg > 250 then
+                msg = Build(string.sub(d.note or "", 1, math.max(0, #(d.note or "") - (#msg - 250))))
+            end
+            table.insert(queue, msg)
         end
     end
     if #queue == 0 or relayTicker then return end
@@ -263,6 +274,7 @@ function profilesModule.GetDeclaredText(m)
     local text = d.main
     if d.secondary then text = text .. " (secundario " .. d.secondary .. ")" end
     if d.spec and d.spec ~= "" then text = text .. " · " .. d.spec end
+    if d.offSpec and d.offSpec ~= "" then text = text .. " · Off: " .. d.offSpec end
     return text
 end
 
@@ -351,14 +363,14 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         local main, secondary, spec, note = ParseRoleFields(fields[3], fields[4], fields[5], fields[6])
         if main and fields[2] then
             changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0,
-                { charType = fields[8], mainName = Clean(fields[9], 40), focus = fields[10] })
+                { charType = fields[8], mainName = Clean(fields[9], 40), focus = fields[10], offSpec = Clean(fields[11], 30) })
         end
     elseif fields[1] == "v1" or fields[1] == "v2" then
         local main, secondary, spec, note = ParseRoleFields(fields[2], fields[3], fields[4], fields[5])
         if main then
             -- v1 no llevaba fecha: se considera actual
             changed = ApplyDeclared(fullSender, main, secondary, spec, note, tonumber(fields[6]) or time(),
-                { charType = fields[7], mainName = Clean(fields[8], 40), focus = fields[9] })
+                { charType = fields[7], mainName = Clean(fields[8], 40), focus = fields[9], offSpec = Clean(fields[10], 30) })
         end
     end
     if changed then NotifyChange() end

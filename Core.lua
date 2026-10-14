@@ -247,6 +247,7 @@ function addonTable.ScanGuildRosterForChanges()
                     rankIndex = rankIndex
                 }
                 addonTable.LogHistoryEvent("ALTA", fullName, "Ingreso detectado automáticamente del servidor")
+                if addonTable.Blacklist and addonTable.Blacklist.CheckJoin then addonTable.Blacklist.CheckJoin(fullName) end
             else
                 local m = GuildControlDB.members[fullName]
                 if rankName and rankName ~= "" then m.rank = rankName end

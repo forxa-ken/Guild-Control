@@ -33,17 +33,18 @@ local ICONS = {
 
 -- Filtros de la pestaña: qué clases de noticia entran en cada uno
 newsModule.FILTERS = {
-    { key = "all", label = "Todo" },
     { key = "achievement", label = "Logros" },
     { key = "boss", label = "Jefes" },
     { key = "loot", label = "Botín" },
-    { key = "members", label = "Altas y bajas" },
+    { key = "join", label = "Altas" },
+    { key = "leave", label = "Bajas" },
 }
 local FILTER_KINDS = {
     achievement = { achievement = true, guildAchievement = true },
     boss = { boss = true },
     loot = { loot = true },
-    members = { join = true, leave = true },
+    join = { join = true },
+    leave = { leave = true },
 }
 
 local listeners = {}
@@ -103,13 +104,14 @@ local function GuildNewsItems()
         if ok and info and not info.isHeader then
             local who = ShortName(info.whoText)
             local what = info.whatText or ""
-            local item = { icon = ICONS.other, title = what, detail = "" }
+            local item = { icon = ICONS.other, title = what, detail = "" , who = who }
             local t = info.newsType
 
             if t == NEWS.PLAYER_ACHIEVEMENT or t == NEWS.GUILD_ACHIEVEMENT then
                 local _, name, points, _, _, _, _, _, _, icon = GetAchievementInfo(info.newsID or 0)
                 item.kind = (t == NEWS.GUILD_ACHIEVEMENT) and "guildAchievement" or "achievement"
                 item.icon = icon or ICONS.achievement
+                item.achievementId = info.newsID
                 item.title = (t == NEWS.GUILD_ACHIEVEMENT) and "La hermandad ha conseguido un logro"
                     or (who .. " ha conseguido un logro")
                 item.detail = "|cFFFFD100" .. (name or what) .. "|r" .. ((points and points > 0) and (" |cFF808080(" .. points .. " puntos)|r") or "")
@@ -121,7 +123,9 @@ local function GuildNewsItems()
                 item.detail = (present and present > 0) and ("Con " .. present .. " miembros de la hermandad") or ("Con " .. who)
             elseif t == NEWS.ITEM_LOOTED or t == NEWS.ITEM_CRAFTED or t == NEWS.ITEM_PURCHASED then
                 item.kind = "loot"
-                item.icon = ItemIcon(info.newsID) or ICONS.loot
+                -- El icono sale del identificador del enlace del objeto
+                item.link = what
+                item.icon = ItemIcon(tonumber(string.match(what, "item:(%d+)"))) or ItemIcon(info.newsID) or ICONS.loot
                 local verb = (t == NEWS.ITEM_CRAFTED) and "ha fabricado" or ((t == NEWS.ITEM_PURCHASED) and "ha comprado" or "ha obtenido")
                 item.title = who .. " " .. verb
                 item.detail = what   -- enlace del objeto con su color de calidad
@@ -243,6 +247,43 @@ end
 function newsModule.GetMOTD()
     local motd = GetGuildRosterMOTD and GetGuildRosterMOTD() or ""
     return motd or ""
+end
+
+-- Semana (lunes a domingo) de una clave de fecha "AAAAMMDD...": devuelve clave y texto
+function newsModule.GetWeek(sortKey)
+    local y, mo, d = string.match(sortKey or "", "^(%d%d%d%d)(%d%d)(%d%d)")
+    if not y then return "0", "Sin fecha" end
+    local t = time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
+    local weekday = tonumber(date("%w", t))           -- 0 = domingo
+    local monday = t - ((weekday + 6) % 7) * 86400
+    local sunday = monday + 6 * 86400
+    local thisMonday = time() - ((tonumber(date("%w")) + 6) % 7) * 86400
+    local label
+    if date("%Y%m%d", monday) == date("%Y%m%d", thisMonday) then
+        label = "Esta semana"
+    elseif date("%Y%m%d", monday) == date("%Y%m%d", thisMonday - 7 * 86400) then
+        label = "Semana pasada"
+    else
+        label = "Semana del " .. date("%d/%m", monday) .. " al " .. date("%d/%m", sunday)
+    end
+    return date("%Y%m%d", monday), label
+end
+
+-- Oficiales de la hermandad (rango igual o superior al configurado), por rango y nombre
+function newsModule.GetOfficers()
+    local maxRank = addonTable.Profiles and addonTable.Profiles.GetOfficerRankIndex() or 1
+    local list = {}
+    for fullName, m in pairs(GuildControlDB.members or {}) do
+        if m.rankIndex and m.rankIndex <= maxRank then
+            table.insert(list, { name = fullName, rank = m.rank or "-", rankIndex = m.rankIndex,
+                                 class = m.class, online = m.isOnline })
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end
+        return a.name < b.name
+    end)
+    return list
 end
 
 -- =========================================================================
