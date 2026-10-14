@@ -498,6 +498,11 @@ local function BuildMembersView(parent)
     btnCSV:SetPoint("RIGHT", view, "RIGHT", -12, 0)
     btnCSV:SetPoint("TOP", searchBox, "TOP", 0, 1)
     btnCSV:SetText("Sheets / CSV")
+
+    -- Misma tipografía y separación que la etiqueta "Buscar miembros"
+    local exportLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    exportLabel:SetPoint("BOTTOMLEFT", btnCSV, "TOPLEFT", 2, 3)
+    exportLabel:SetText("Exportar")
     btnCSV:SetScript("OnClick", function()
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
     end)
@@ -1252,8 +1257,29 @@ local function BuildConfigView(parent)
         self:SetText(GuildControlDB.settings.greetMessage or "")
     end)
 
+    -- 9.4 Ventana (columna derecha)
+    local windowLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    windowLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 660, -70)
+    windowLabel:SetText("Ventana")
+
+    local chkOnTop = CreateFrame("CheckButton", "GC_CfgWindowOnTop", view, "UICheckButtonTemplate")
+    chkOnTop:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", -4, -4)
+    _G[chkOnTop:GetName() .. "Text"]:SetText("Siempre por encima")
+
+    local onTopHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    onTopHint:SetPoint("TOPLEFT", chkOnTop, "BOTTOMLEFT", 4, -2)
+    onTopHint:SetWidth(210)
+    onTopHint:SetJustifyH("LEFT")
+    onTopHint:SetText("Muestra la ventana del addon por encima de las barras de acción y otros botones del juego.")
+
+    chkOnTop:SetScript("OnClick", function(self)
+        GuildControlDB.settings.windowOnTop = self:GetChecked() and true or false
+        uiModule.ApplyWindowStrata()
+    end)
+
     view:SetScript("OnShow", function()
         RefreshConfigFields()
+        chkOnTop:SetChecked(GuildControlDB.settings.windowOnTop)
         chkGreet:SetChecked(GuildControlDB.settings.autoGreet)
         greetInput:SetText(GuildControlDB.settings.greetMessage or "")
     end)
@@ -1398,6 +1424,7 @@ function uiModule.CreateUI()
     BuildConfigView(mainContent)
 
     BuildChatPanel(GC_UI)
+    uiModule.ApplyWindowStrata()
 
     SwitchTab("Miembros")
     GC_UI:Hide()
@@ -1512,6 +1539,15 @@ function uiModule.ShowBajas()
     CreateBajasFrame(GC_UI)
     GC_BajasFrame.Refresh()
     GC_BajasFrame:Show()
+end
+
+-- HIGH queda por encima de las barras de acción y botones del juego (MEDIUM/LOW);
+-- los paneles CSV y Bajas usan DIALOG y siguen por encima de la ventana
+function uiModule.ApplyWindowStrata()
+    if not GC_UI then return end
+    local onTop = GuildControlDB.settings and GuildControlDB.settings.windowOnTop
+    GC_UI:SetFrameStrata(onTop and "HIGH" or "MEDIUM")
+    GC_UI:SetToplevel(true)
 end
 
 function uiModule.UpdateMemberCounter()
