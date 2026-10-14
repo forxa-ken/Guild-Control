@@ -6,6 +6,7 @@ local uiModule = addonTable.UI
 local GC_UI = nil
 local activeTab = "Miembros"
 local selectedMember = nil
+local selectedAchievementId = nil
 
 -- Referencias a los contenedores principales
 local containers = {
@@ -16,6 +17,8 @@ local containers = {
     preview = nil,
     views = {} -- Vistas específicas (Resumen, Miembros, Logros, etc.)
 }
+
+local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 local function CreateBackdropBox(parent, width, height, point, relativeTo, relativePoint, x, y)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -46,7 +49,7 @@ end
 -- =========================================================================
 local function BuildHeader(parent)
     local header = CreateBackdropBox(parent, 1280, 50, "TOPLEFT", parent, "TOPLEFT", 10, -25)
-    
+
     local logoBg = header:CreateTexture(nil, "OVERLAY")
     logoBg:SetSize(36, 36)
     logoBg:SetPoint("LEFT", header, "LEFT", 10, 0)
@@ -155,6 +158,12 @@ end
 -- =========================================================================
 -- 3. CAMBIO DE PESTAÑAS Y NAVEGACIÓN
 -- =========================================================================
+local function SetPreviewText(text)
+    if containers.preview and containers.preview.infoText then
+        containers.preview.infoText:SetText(text or PREVIEW_DEFAULT_TEXT)
+    end
+end
+
 local function SwitchTab(tabName)
     activeTab = tabName
     for name, viewFrame in pairs(containers.views) do
@@ -164,6 +173,13 @@ local function SwitchTab(tabName)
             viewFrame:Hide()
         end
     end
+
+    -- La vista previa se reinicia al cambiar de pestaña para no mostrar datos de otra sección
+    if tabName ~= "Logros" then
+        selectedAchievementId = nil
+    end
+    SetPreviewText(PREVIEW_DEFAULT_TEXT)
+
     if tabName == "Miembros" and uiModule.RefreshList then
         uiModule.RefreshList()
     elseif tabName == "Logros" and uiModule.RefreshAchievements then
@@ -213,10 +229,102 @@ local function BuildPreviewPanel(parent)
     infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 15)
     infoText:SetJustifyH("LEFT")
     infoText:SetJustifyV("TOP")
-    infoText:SetText("Selecciona un elemento para ver su información detallada.")
+    infoText:SetText(PREVIEW_DEFAULT_TEXT)
 
     preview.infoText = infoText
     containers.preview = preview
+end
+
+-- Construye el texto de detalle de un logro para la vista previa
+local function BuildAchievementPreviewText(id)
+    local ach = addonTable.Achievements
+    if not ach then return PREVIEW_DEFAULT_TEXT end
+
+    local d = ach.GetDetails(id)
+    if not d then return PREVIEW_DEFAULT_TEXT end
+
+    local lines = {}
+    table.insert(lines, "|cFFFFD100" .. d.name .. "|r")
+    table.insert(lines, "")
+
+    if d.description ~= "" then
+        table.insert(lines, d.description)
+        table.insert(lines, "")
+    end
+
+    table.insert(lines, "Puntos: |cFFFFD100" .. d.points .. "|r")
+
+    if d.completed then
+        table.insert(lines, "Estado: |cFF00FF00Completado|r")
+        table.insert(lines, "Fecha: " .. (d.date or "-"))
+        table.insert(lines, "Completado por: |cFF00FFFF" .. (d.earnedBy or "No disponible") .. "|r")
+    else
+        table.insert(lines, "Estado: |cFFFF3333Pendiente|r")
+    end
+
+    if d.rewardText ~= "" then
+        table.insert(lines, "")
+        table.insert(lines, "|cFF66FF66Recompensa:|r " .. d.rewardText)
+    end
+
+    -- Participantes (si la API del cliente lo permite)
+    if d.completed then
+        local names, total, available = ach.GetMembers(id)
+        table.insert(lines, "")
+        if not available then
+            table.insert(lines, "|cFF808080Participantes: no disponible|r")
+        elseif #names == 0 then
+            table.insert(lines, "|cFF808080Participantes: sin datos aún|r")
+        else
+            local maxShown = ach.GetMaxMembersShown()
+            local shown = {}
+            for i = 1, math.min(#names, maxShown) do
+                table.insert(shown, names[i])
+            end
+            table.insert(lines, "Participantes (" .. #names .. "):")
+            local extra = #names > maxShown and (" |cFF808080y " .. (#names - maxShown) .. " más|r") or ""
+            table.insert(lines, "|cFF00FFFF" .. table.concat(shown, ", ") .. "|r" .. extra)
+        end
+    end
+
+    -- Criterios
+    if #d.criteria > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Criterios: " .. d.criteriaDone .. "/" .. #d.criteria)
+        for i = 1, math.min(#d.criteria, 8) do
+            local c = d.criteria[i]
+            local mark = c.done and "|cFF00FF00+|r " or "|cFFFF3333-|r "
+            local progress = (c.req > 1) and (" (" .. c.qty .. "/" .. c.req .. ")") or ""
+            table.insert(lines, mark .. c.name .. progress)
+        end
+        if #d.criteria > 8 then
+            table.insert(lines, "|cFF808080... y " .. (#d.criteria - 8) .. " más|r")
+        end
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "|cFF808080Clic derecho: abrir en Blizzard|r")
+
+    return table.concat(lines, "\n")
+end
+
+function uiModule.ShowAchievementPreview(id)
+    if not id then return end
+    selectedAchievementId = id
+
+    if addonTable.Achievements then
+        addonTable.Achievements.RequestMembers(id)
+    end
+    SetPreviewText(BuildAchievementPreviewText(id))
+
+    -- La lista de participantes puede tardar en llegar del servidor: reintento único
+    if C_Timer and C_Timer.After then
+        C_Timer.After(1, function()
+            if selectedAchievementId == id and activeTab == "Logros" then
+                SetPreviewText(BuildAchievementPreviewText(id))
+            end
+        end)
+    end
 end
 
 -- =========================================================================
@@ -348,20 +456,18 @@ local function BuildMembersView(parent)
 
                 row:SetScript("OnClick", function()
                     selectedMember = data
-                    if containers.preview and containers.preview.infoText then
-                        containers.preview.infoText:SetText(
-                            "|cFFFFD100" .. fullName .. "|r\n\n" ..
-                            "Nivel: " .. (data.level or 0) .. "\n" ..
-                            "Clase: " .. (data.class or "Desconocida") .. "\n" ..
-                            "Rango: " .. (data.rank or "Recluta") .. "\n" ..
-                            "Rol: " .. (data.role or "DPS") .. "\n" ..
-                            "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
-                            "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
-                            "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
-                            "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
-                            "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
-                        )
-                    end
+                    SetPreviewText(
+                        "|cFFFFD100" .. fullName .. "|r\n\n" ..
+                        "Nivel: " .. (data.level or 0) .. "\n" ..
+                        "Clase: " .. (data.class or "Desconocida") .. "\n" ..
+                        "Rango: " .. (data.rank or "Recluta") .. "\n" ..
+                        "Rol: " .. (data.role or "DPS") .. "\n" ..
+                        "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
+                        "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
+                        "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
+                        "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
+                        "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
+                    )
                 end)
 
                 table.insert(scrollChild.rows, row)
@@ -375,8 +481,45 @@ local function BuildMembersView(parent)
 end
 
 -- =========================================================================
--- 7. VISTA DE LOGROS (DESACOPLADA - CONSUME MODULES/ACHIEVEMENTS.LUA)
+-- 7. VISTA DE LOGROS (CONSUME MODULES/ACHIEVEMENTS.LUA)
 -- =========================================================================
+local function ShowAchievementTooltip(row)
+    if not row.achId or not addonTable.Achievements then return end
+    local d = addonTable.Achievements.GetDetails(row.achId)
+    if not d then return end
+
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(d.name, 1, 0.82, 0)
+
+    if d.description ~= "" then
+        GameTooltip:AddLine(d.description, 1, 1, 1, true)
+    end
+
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddDoubleLine("Puntos", tostring(d.points), 0.7, 0.7, 0.7, 1, 0.82, 0)
+
+    if d.rewardText ~= "" then
+        GameTooltip:AddLine("Recompensa: " .. d.rewardText, 0.4, 1, 0.4, true)
+    end
+
+    if d.completed then
+        GameTooltip:AddDoubleLine("Completado", d.date or "-", 0.7, 0.7, 0.7, 0, 1, 0)
+        if d.earnedBy then
+            GameTooltip:AddDoubleLine("Por", d.earnedBy, 0.7, 0.7, 0.7, 0, 1, 1)
+        end
+    else
+        if #d.criteria > 0 then
+            GameTooltip:AddDoubleLine("Criterios", d.criteriaDone .. "/" .. #d.criteria, 0.7, 0.7, 0.7, 1, 1, 1)
+        end
+        GameTooltip:AddLine("Pendiente", 1, 0.2, 0.2)
+    end
+
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Clic: vista previa  |  Clic derecho: abrir en Blizzard", 0.5, 0.5, 0.5)
+    GameTooltip:Show()
+end
+
 local function BuildAchievementsView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
@@ -385,8 +528,12 @@ local function BuildAchievementsView(parent)
     local currentCategoryId = nil
     local searchQuery = ""
     local filterState = "TODOS"
-    local filterSeasonalOnly = false
+    local filterWithPoints = false
 
+    local achRows = {}      -- pool de filas de logros
+    local catButtons = {}   -- pool de botones de categoría
+
+    -- 7.1 Encabezado de estadísticas de Hermandad
     local headerFrame = CreateBackdropBox(view, 880, 45, "TOPLEFT", view, "TOPLEFT", 10, -10)
 
     local pointsText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -401,15 +548,18 @@ local function BuildAchievementsView(parent)
     lastAchText:SetPoint("RIGHT", headerFrame, "RIGHT", -15, 0)
     lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
 
+    -- 7.2 Panel Izquierdo: Categorías de Hermandad
     local catPanel = CreateBackdropBox(view, 200, 445, "TOPLEFT", headerFrame, "BOTTOMLEFT", 0, -5)
+
     local catScroll = CreateFrame("ScrollFrame", "GC_AchCatScroll", catPanel, "UIPanelScrollFrameTemplate")
     catScroll:SetPoint("TOPLEFT", catPanel, "TOPLEFT", 5, -5)
     catScroll:SetPoint("BOTTOMRIGHT", catPanel, "BOTTOMRIGHT", -25, 5)
 
     local catChild = CreateFrame("Frame")
-    catChild:SetSize(catScroll:GetWidth(), catScroll:GetHeight())
+    catChild:SetSize(165, 1)
     catScroll:SetScrollChild(catChild)
 
+    -- 7.3 Panel Derecho: Buscador, Filtros y Lista de Logros
     local rightPanel = CreateBackdropBox(view, 675, 445, "TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, -5)
 
     local searchBox = CreateFrame("EditBox", "GC_AchSearchBox", rightPanel, "InputBoxTemplate")
@@ -422,18 +572,25 @@ local function BuildAchievementsView(parent)
     searchLabel:SetText("Buscador por nombre...")
 
     local btnFilterAll = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
-    btnFilterAll:SetSize(65, 22) btnFilterAll:SetPoint("LEFT", searchBox, "RIGHT", 10, 0) btnFilterAll:SetText("Todos")
+    btnFilterAll:SetSize(65, 22)
+    btnFilterAll:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
+    btnFilterAll:SetText("Todos")
 
     local btnFilterDone = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
-    btnFilterDone:SetSize(85, 22) btnFilterDone:SetPoint("LEFT", btnFilterAll, "RIGHT", 4, 0) btnFilterDone:SetText("Completados")
+    btnFilterDone:SetSize(85, 22)
+    btnFilterDone:SetPoint("LEFT", btnFilterAll, "RIGHT", 4, 0)
+    btnFilterDone:SetText("Completados")
 
     local btnFilterPending = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
-    btnFilterPending:SetSize(75, 22) btnFilterPending:SetPoint("LEFT", btnFilterDone, "RIGHT", 4, 0) btnFilterPending:SetText("Pendientes")
+    btnFilterPending:SetSize(75, 22)
+    btnFilterPending:SetPoint("LEFT", btnFilterDone, "RIGHT", 4, 0)
+    btnFilterPending:SetText("Pendientes")
 
-    local chkSeasonal = CreateFrame("CheckButton", "GC_ChkSeasonalAch", rightPanel, "UICheckButtonTemplate")
-    chkSeasonal:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
-    _G[chkSeasonal:GetName() .. "Text"]:SetText("Temporada")
+    local chkPoints = CreateFrame("CheckButton", "GC_ChkPointsAch", rightPanel, "UICheckButtonTemplate")
+    chkPoints:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
+    _G[chkPoints:GetName() .. "Text"]:SetText("Solo con puntos")
 
+    -- Encabezados de la Tabla
     local achHeader = CreateFrame("Frame", nil, rightPanel)
     achHeader:SetSize(655, 20)
     achHeader:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -12)
@@ -448,170 +605,210 @@ local function BuildAchievementsView(parent)
     AddAchHeader("Título del Logro", 90, 360)
     AddAchHeader("Fecha / Progreso", 460, 180)
 
+    -- ScrollFrame de Logros
     local achScroll = CreateFrame("ScrollFrame", "GC_AchScrollFrame", rightPanel, "UIPanelScrollFrameTemplate")
     achScroll:SetPoint("TOPLEFT", achHeader, "BOTTOMLEFT", 0, -5)
     achScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -25, 10)
 
     local achChild = CreateFrame("Frame")
-    achChild:SetSize(achScroll:GetWidth(), achScroll:GetHeight())
+    achChild:SetSize(650, 1)
     achScroll:SetScrollChild(achChild)
 
-    -- Extraer el árbol usando los IDs oficiales de Hermandad
-    local function BuildGuildCategories()
-        if catChild.buttons then for _, b in pairs(catChild.buttons) do b:Hide() end end
-        catChild.buttons = {}
+    -- ---------------------------------------------------------------------
+    -- Pool de filas de logros (se reutilizan, no se recrean)
+    -- ---------------------------------------------------------------------
+    local function AcquireAchRow(index)
+        local row = achRows[index]
+        if row then return row end
 
-        -- Orden oficial exacto: General, Misiones, JcJ, Mazmorras, Profesiones, Reputación, Proezas
-        local roots = { 15076, 15428, 15078, 15077, 15079, 15080, 15088 }
-        local yOffset = -5
-        local firstSet = false
+        row = CreateFrame("Button", nil, achChild)
+        row:SetSize(650, 24)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 
-        for _, catId in ipairs(roots) do
-            local title = GetCategoryInfo(catId)
-            
-            if title then
-                if not firstSet then
-                    currentCategoryId = catId
-                    firstSet = true
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+
+        row.statusFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.statusFs:SetPoint("LEFT", row, "LEFT", 5, 0)
+        row.statusFs:SetWidth(80)
+        row.statusFs:SetJustifyH("LEFT")
+
+        row.iconTex = row:CreateTexture(nil, "ARTWORK")
+        row.iconTex:SetSize(20, 20)
+        row.iconTex:SetPoint("LEFT", row, "LEFT", 90, 0)
+
+        row.titleFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.titleFs:SetPoint("LEFT", row.iconTex, "RIGHT", 8, 0)
+        row.titleFs:SetWidth(330)
+        row.titleFs:SetJustifyH("LEFT")
+
+        row.dateFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.dateFs:SetPoint("LEFT", row, "LEFT", 460, 0)
+        row.dateFs:SetWidth(180)
+        row.dateFs:SetJustifyH("LEFT")
+
+        row:SetScript("OnClick", function(self, button)
+            if not self.achId then return end
+            if button == "RightButton" or IsShiftKeyDown() then
+                if addonTable.Achievements then
+                    addonTable.Achievements.OpenAchievement(self.achId)
                 end
+            else
+                uiModule.ShowAchievementPreview(self.achId)
+            end
+        end)
 
-                local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
-                btn:SetSize(165, 22)
-                btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", 5, yOffset)
-                btn:SetText(title)
+        row:SetScript("OnEnter", ShowAchievementTooltip)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-                btn:SetScript("OnClick", function()
-                    currentCategoryId = catId
-                    uiModule.RefreshAchievements()
-                end)
+        achRows[index] = row
+        return row
+    end
 
-                table.insert(catChild.buttons, btn)
-                yOffset = yOffset - 25
+    -- ---------------------------------------------------------------------
+    -- Categorías de hermandad
+    -- ---------------------------------------------------------------------
+    local function UpdateCategorySelection()
+        for _, btn in ipairs(catButtons) do
+            if btn:IsShown() then
+                btn:SetEnabled(btn.catId ~= currentCategoryId)
             end
         end
     end
 
-    local function CalculateGuildSummary()
+    local function BuildGuildCategories()
+        for _, b in ipairs(catButtons) do b:Hide() end
+
+        if not addonTable.Achievements then return end
+        local categories = addonTable.Achievements.GetCategories()
+        local yOffset = -5
+
+        for i, cat in ipairs(categories) do
+            local btn = catButtons[i]
+            if not btn then
+                btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
+                btn:SetSize(165, 22)
+                btn:SetScript("OnClick", function(self)
+                    currentCategoryId = self.catId
+                    selectedAchievementId = nil
+                    SetPreviewText(PREVIEW_DEFAULT_TEXT)
+                    uiModule.RefreshAchievements()
+                end)
+                catButtons[i] = btn
+            end
+
+            btn.catId = cat.id
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", cat.isChild and 15 or 5, yOffset)
+            btn:SetWidth(cat.isChild and 150 or 165)
+            btn:SetText(cat.title)
+            btn:Show()
+
+            if not currentCategoryId then currentCategoryId = cat.id end
+            yOffset = yOffset - 25
+        end
+
+        catChild:SetHeight(math.max(1, #categories * 25 + 10))
+        UpdateCategorySelection()
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Encabezado de estadísticas
+    -- ---------------------------------------------------------------------
+    local function UpdateGuildSummary()
         local stats = addonTable.Achievements and addonTable.Achievements.GetStats()
         if not stats then return end
 
         pointsText:SetText("Puntos: |cFFFFD100" .. (stats.totalPoints or 0) .. "|r")
         completedText:SetText("Completados: |cFF00FF00" .. (stats.completedCount or 0) .. "/" .. (stats.totalCount or 0) .. "|r")
-        
+
         if stats.latestName and stats.latestName ~= "Ninguno" then
-            lastAchText:SetText("Último logro: |cFFFFD100" .. stats.latestName .. "|r (" .. (stats.latestDate or "") .. ")")
+            local dateStr = (stats.latestDate and stats.latestDate ~= "") and (" (" .. stats.latestDate .. ")") or ""
+            lastAchText:SetText("Último logro: |cFFFFD100" .. stats.latestName .. "|r" .. dateStr)
         else
             lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
         end
     end
 
+    -- ---------------------------------------------------------------------
+    -- Renderizado de la tabla de logros
+    -- ---------------------------------------------------------------------
     uiModule.RefreshAchievements = function()
-        if not achChild then return end
-        if achChild.rows then for _, r in pairs(achChild.rows) do r:Hide() end end
-        achChild.rows = {}
+        if not achChild or not addonTable.Achievements then return end
 
-        if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
-            AchievementFrame_LoadUI()
+        addonTable.Achievements.EnsureLoaded()
+
+        if #catButtons == 0 or not catButtons[1]:IsShown() then
+            BuildGuildCategories()
+        else
+            UpdateCategorySelection()
         end
 
-        CalculateGuildSummary()
-        if not currentCategoryId then return end
+        UpdateGuildSummary()
 
-        -- Localizar la categoría actual y TODAS sus subcategorías (Recursivo)
-        local targetCategories = {}
-        local allCategories = GetCategoryList()
-        
-        local function CollectCategories(cat)
-            table.insert(targetCategories, cat)
-            for _, subCatId in ipairs(allCategories or {}) do
-                local _, parentID = GetCategoryInfo(subCatId)
-                if parentID == cat then
-                    CollectCategories(subCatId)
-                end
-            end
+        for _, r in ipairs(achRows) do r:Hide() end
+        if not currentCategoryId then
+            achChild:SetHeight(1)
+            return
         end
-        CollectCategories(currentCategoryId)
 
+        local numAchievements = GetCategoryNumAchievements(currentCategoryId, true) or 0
         local yOffset = -5
-        local rowIndex = 1
+        local rowIndex = 0
 
-        for _, catId in ipairs(targetCategories) do
-            local numAchievements = GetCategoryNumAchievements(catId, true) or 0
-            for i = 1, numAchievements do
-                local id, name, points, completed, month, day, year, description, flags, icon = GetAchievementInfo(catId, i)
-                
-                if id then
-                    local passSearch = (searchQuery == "") or string.find(string.lower(name or ""), searchQuery, 1, true)
-                    local passState = true
-                    if filterState == "COMPLETADOS" and not completed then passState = false end
-                    if filterState == "PENDIENTES" and completed then passState = false end
+        for i = 1, numAchievements do
+            local id, name, points, completed, month, day, year, _, _, icon = GetAchievementInfo(currentCategoryId, i)
 
-                    local isSeasonalOrAvailable = bit.band(flags or 0, ACHIEVEMENT_FLAGS_ACCOUNT or 0) == 0
-                    local passSeasonal = (not filterSeasonalOnly) or isSeasonalOrAvailable
+            if id then
+                local passSearch = (searchQuery == "") or string.find(string.lower(name or ""), searchQuery, 1, true)
 
-                    if passSearch and passState and passSeasonal then
-                        local row = CreateFrame("Button", nil, achChild)
-                        row:SetSize(650, 24)
-                        row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
+                local passState = true
+                if filterState == "COMPLETADOS" and not completed then passState = false end
+                if filterState == "PENDIENTES" and completed then passState = false end
 
-                        if rowIndex % 2 == 0 then
-                            local bg = row:CreateTexture(nil, "BACKGROUND")
-                            bg:SetAllPoints()
-                            bg:SetColorTexture(1, 1, 1, 0.05)
-                        end
+                local passPoints = (not filterWithPoints) or ((points or 0) > 0)
 
-                        local iconTex = row:CreateTexture(nil, "ARTWORK")
-                        iconTex:SetSize(20, 20)
-                        iconTex:SetPoint("LEFT", row, "LEFT", 90, 0)
-                        iconTex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                if passSearch and passState and passPoints then
+                    rowIndex = rowIndex + 1
+                    local row = AcquireAchRow(rowIndex)
 
-                        local titleFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                        titleFs:SetPoint("LEFT", iconTex, "RIGHT", 8, 0)
-                        titleFs:SetWidth(330)
-                        titleFs:SetJustifyH("LEFT")
-                        titleFs:SetText(name or "Desconocido")
+                    row.achId = id
+                    row:ClearAllPoints()
+                    row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
+                    row.bg:SetShown(rowIndex % 2 == 0)
+                    row.iconTex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                    row.titleFs:SetText(name or "Desconocido")
+                    row.statusFs:SetText(completed and "|cFF00FF00Completado|r" or "|cFFFF3333Pendiente|r")
+                    row.dateFs:SetText(completed and addonTable.Achievements.FormatDate(day, month, year) or "|cFF808080En progreso|r")
+                    row:Show()
 
-                        local statusFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                        statusFs:SetPoint("LEFT", row, "LEFT", 5, 0)
-                        statusFs:SetWidth(80)
-                        statusFs:SetJustifyH("LEFT")
-                        statusFs:SetText(completed and "|cFF00FF00Completado|r" or "|cFFFF3333Pendiente|r")
-
-                        local dateFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                        dateFs:SetPoint("LEFT", row, "LEFT", 460, 0)
-                        dateFs:SetWidth(180)
-                        dateFs:SetJustifyH("LEFT")
-                        dateFs:SetText(completed and string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0) or "|cFF808080En progreso|r")
-
-                        row:SetScript("OnClick", function()
-                            if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then AchievementFrame_LoadUI() end
-                            if AchievementFrame then
-                                ShowUIPanel(AchievementFrame)
-                                if AchievementFrame_ToggleGuildTab then AchievementFrame_ToggleGuildTab(true) end
-                                if AchievementFrame_SelectAchievement then AchievementFrame_SelectAchievement(id) end
-                            end
-                        end)
-
-                        table.insert(achChild.rows, row)
-                        yOffset = yOffset - 26
-                        rowIndex = rowIndex + 1
-                    end
+                    yOffset = yOffset - 26
                 end
             end
+        end
+
+        achChild:SetHeight(math.max(1, rowIndex * 26 + 10))
+
+        -- Si hay un logro seleccionado, mantener la vista previa actualizada
+        if selectedAchievementId and activeTab == "Logros" then
+            SetPreviewText(BuildAchievementPreviewText(selectedAchievementId))
         end
     end
 
-    searchBox:SetScript("OnTextChanged", function(self) searchQuery = string.lower(self:GetText() or ""); uiModule.RefreshAchievements() end)
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = string.lower(self:GetText() or "")
+        uiModule.RefreshAchievements()
+    end)
+
     btnFilterAll:SetScript("OnClick", function() filterState = "TODOS"; uiModule.RefreshAchievements() end)
     btnFilterDone:SetScript("OnClick", function() filterState = "COMPLETADOS"; uiModule.RefreshAchievements() end)
     btnFilterPending:SetScript("OnClick", function() filterState = "PENDIENTES"; uiModule.RefreshAchievements() end)
-    chkSeasonal:SetScript("OnClick", function(self) filterSeasonalOnly = self:GetChecked(); uiModule.RefreshAchievements() end)
+    chkPoints:SetScript("OnClick", function(self) filterWithPoints = self:GetChecked(); uiModule.RefreshAchievements() end)
 
-    BuildGuildCategories()
     containers.views["Logros"] = view
 end
-
-
 
 -- =========================================================================
 -- 8. VISTAS PLACEHOLDER
