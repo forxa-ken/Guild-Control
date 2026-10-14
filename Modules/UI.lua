@@ -449,7 +449,8 @@ local function InviteToGroup(name)
     end
 end
 
-local function InviteToGuild(name)
+-- quiet = true: sin mensaje de confirmación en el chat (invitación masiva)
+local function InviteToGuild(name, quiet)
     if not name or name == "" then return false end
     if not IsInGuild() or (CanGuildInvite and not CanGuildInvite()) then
         PrintGC("|cFFFF3333Tu rango no tiene permiso para invitar a la hermandad.|r")
@@ -460,7 +461,7 @@ local function InviteToGuild(name)
     elseif GuildInvite then
         GuildInvite(name)
     end
-    PrintGC("Invitación a la hermandad enviada a |cFFFFD100" .. name .. "|r.")
+    if not quiet then PrintGC("Invitación a la hermandad enviada a |cFFFFD100" .. name .. "|r.") end
     return true
 end
 
@@ -1185,9 +1186,12 @@ local function BuildPlaceholderView(parent, tabName)
 end
 
 -- =========================================================================
--- 8b. VISTA INVITAR (GENERADOR DEL MENSAJE PARA NUEVOS MIEMBROS)
+-- 8b. VISTA INVITAR: MODO INDIVIDUAL Y MODO MASIVO
 -- =========================================================================
 local MAX_CHAT_BYTES = 255
+local MASS_BATCH_SIZE = 10          -- jugadores por lote
+local MASS_BATCH_INTERVAL = 3       -- segundos entre invitaciones de un lote
+local REINVITE_DAYS = 7             -- no volver a invitar a la misma persona en 7 días
 
 local RECRUIT_ROLES = {
     { key = "tank",   label = "Tanques" },
@@ -1203,6 +1207,9 @@ local RECRUIT_ACTIVITIES = {
     { key = "leveling", label = "Subir de nivel" },
 }
 
+-- Iconos de banda que el chat convierte en imagen: {rt1} ... {rt8}
+local RAID_ICONS = { "Estrella", "Círculo", "Diamante", "Triángulo", "Luna", "Cuadrado", "Cruz", "Calavera" }
+
 -- { "a", "b", "c" } -> "a, b y c"
 local function JoinWithY(list)
     if #list == 0 then return "" end
@@ -1217,7 +1224,7 @@ local function EndSentence(text)
     return text
 end
 
--- Construye el mensaje a partir de las opciones guardadas en settings.recruit
+-- Construye el mensaje de reclutamiento a partir de settings.recruit
 local function ComposeRecruitMessage(recruit)
     local guild = addonTable.GetDisplayGuildName()
     local _, faction = UnitFactionGroup("player")
@@ -1241,30 +1248,137 @@ local function ComposeRecruitMessage(recruit)
     return table.concat(parts, " ")
 end
 
-local function BuildInviteView(parent)
-    local view = CreateFrame("Frame", nil, parent)
-    view:SetAllPoints()
-    view:Hide()
+-- Sustituye {nombre} (sin reino) y {hermandad}; nil si el resultado no cabe en el chat
+local function ExpandMessage(template, name)
+    local short = string.match(name or "", "^([^-]+)") or name or ""
+    local msg = string.gsub(template, "{nombre}", function() return short end)
+    msg = string.gsub(msg, "{hermandad}", function() return addonTable.GetDisplayGuildName() end)
+    if #msg > MAX_CHAT_BYTES then return nil end
+    return msg
+end
 
+-- Muestra los {rtN} como iconos para la vista previa
+local function RenderRaidIcons(text)
+    return (string.gsub(text, "{rt(%d)}", "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_%1:0|t"))
+end
+
+-- Caja de mensaje editable (multilínea visual, una línea al enviar) con paleta de iconos,
+-- vista previa y contador. onChange(text) se llama con el texto limpio.
+local function CreateMessageEditor(parent, anchor, labelText, height, onChange)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -20)
+    label:SetText(labelText)
+
+    local box = CreateBackdropBox(parent, 850, height, "TOPLEFT", label, "BOTTOMLEFT", 0, -6)
+    local edit = CreateFrame("EditBox", nil, box)
+    edit:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -8)
+    edit:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -8, 8)
+    edit:SetMultiLine(true)
+    edit:SetFontObject(ChatFontNormal)
+    edit:SetAutoFocus(false)
+    edit:SetMaxLetters(0)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    box:EnableMouse(true)
+    box:SetScript("OnMouseDown", function() edit:SetFocus() end)
+
+    -- Paleta de iconos a la derecha de la etiqueta
+    local iconsLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    iconsLabel:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", -8 - #RAID_ICONS * 22, 4)
+    iconsLabel:SetText("Iconos:")
+    for i, iconName in ipairs(RAID_ICONS) do
+        local btn = CreateFrame("Button", nil, parent)
+        btn:SetSize(18, 18)
+        btn:SetPoint("BOTTOMLEFT", iconsLabel, "BOTTOMRIGHT", 6 + (i - 1) * 22, -3)
+        btn:SetNormalTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. i)
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        btn:SetScript("OnClick", function()
+            edit:SetFocus()
+            edit:Insert("{rt" .. i .. "}")
+        end)
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(iconName .. "  {rt" .. i .. "}", 1, 1, 1)
+            GameTooltip:AddLine("Clic para insertarlo en el mensaje", 0.7, 0.7, 0.7)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    local preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    preview:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 2, -5)
+    preview:SetWidth(760)
+    preview:SetJustifyH("LEFT")
+    preview:SetWordWrap(false)
+
+    local counter = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    counter:SetPoint("TOPRIGHT", box, "BOTTOMRIGHT", 0, -5)
+
+    local editor = { label = label, box = box, edit = edit }
+
+    -- El chat no admite saltos de línea
+    function editor.GetText()
+        return strtrim((string.gsub(edit:GetText() or "", "[\r\n]+", " ")))
+    end
+
+    function editor.SetText(text)
+        edit:SetText(text or "")
+    end
+
+    edit:SetScript("OnTextChanged", function()
+        local text = editor.GetText()
+        local bytes = #text
+        local color = bytes > MAX_CHAT_BYTES and "|cFFFF3333" or "|cFFBFBFBF"
+        counter:SetText(color .. bytes .. "/" .. MAX_CHAT_BYTES .. "|r")
+        preview:SetText("|cFF808080Vista previa:|r " .. RenderRaidIcons(text))
+        if onChange then onChange(text) end
+    end)
+
+    return editor
+end
+
+-- Etiqueta pequeña + caja de texto con texto de ayuda dentro mientras está vacía
+local function CreateLabeledInput(parent, labelText, width, placeholderText)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetText(labelText)
+
+    local input = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    input:SetSize(width, 20)
+    input:SetPoint("LEFT", label, "LEFT", 86, 0)
+    input:SetAutoFocus(false)
+    input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    if placeholderText then
+        local placeholder = input:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        placeholder:SetPoint("LEFT", input, "LEFT", 2, 0)
+        placeholder:SetText(placeholderText)
+        input.placeholder = placeholder
+    end
+    return label, input
+end
+
+local function SetPlaceholderVisibility(input)
+    if input.placeholder then input.placeholder:SetShown((input:GetText() or "") == "") end
+end
+
+-- -------------------------------------------------------------------------
+-- Modo individual: generador del mensaje y envío a un jugador
+-- -------------------------------------------------------------------------
+local function BuildSingleInvitePanel(panel)
     local recruit = function() return GuildControlDB.settings.recruit end
 
-    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
-    title:SetText("Invitar nuevos miembros")
-
-    -- 1. Qué busca la hermandad -------------------------------------------
-    local step1 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step1:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
+    local step1 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step1:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
     step1:SetText("1. ¿Qué buscáis?")
 
     local function CreateCheckRow(labelText, yOffset, items, tableKey)
-        local label = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, yOffset)
         label:SetText(labelText)
 
         local checks = {}
         for i, item in ipairs(items) do
-            local chk = CreateFrame("CheckButton", "GC_Recruit_" .. tableKey .. "_" .. item.key, view, "UICheckButtonTemplate")
+            local chk = CreateFrame("CheckButton", "GC_Recruit_" .. tableKey .. "_" .. item.key, panel, "UICheckButtonTemplate")
             chk:SetSize(24, 24)
             chk:SetPoint("LEFT", label, "LEFT", 80 + (i - 1) * 135, 0)
             _G[chk:GetName() .. "Text"]:SetText(item.label)
@@ -1279,92 +1393,38 @@ local function BuildInviteView(parent)
     local roleChecks = CreateCheckRow("Roles:", -14, RECRUIT_ROLES, "roles")
     local activityChecks = CreateCheckRow("Actividades:", -44, RECRUIT_ACTIVITIES, "activities")
 
-    local scheduleLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local scheduleLabel, scheduleInput = CreateLabeledInput(panel, "Horario:", 320, "Ej.: miércoles y jueves de 21:00 a 00:00")
     scheduleLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -78)
-    scheduleLabel:SetText("Horario:")
-
-    local scheduleInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    scheduleInput:SetSize(320, 20)
-    scheduleInput:SetPoint("LEFT", scheduleLabel, "LEFT", 86, 0)
-    scheduleInput:SetAutoFocus(false)
     scheduleInput:SetMaxLetters(80)
 
-    local schedulePlaceholder = scheduleInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    schedulePlaceholder:SetPoint("LEFT", scheduleInput, "LEFT", 2, 0)
-    schedulePlaceholder:SetText("Ej.: miércoles y jueves de 21:00 a 00:00")
-
-    local extraLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local extraLabel, extraInput = CreateLabeledInput(panel, "Texto final:", 520)
     extraLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -108)
-    extraLabel:SetText("Texto final:")
-
-    local extraInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    extraInput:SetSize(520, 20)
-    extraInput:SetPoint("LEFT", extraLabel, "LEFT", 86, 0)
-    extraInput:SetAutoFocus(false)
     extraInput:SetMaxLetters(120)
 
     scheduleInput:SetScript("OnTextChanged", function(self)
         recruit().schedule = self:GetText() or ""
-        schedulePlaceholder:SetShown(recruit().schedule == "")
+        SetPlaceholderVisibility(self)
     end)
     extraInput:SetScript("OnTextChanged", function(self) recruit().extra = self:GetText() or "" end)
-    for _, box in ipairs({ scheduleInput, extraInput }) do
-        box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    end
 
-    local btnGenerate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    local btnGenerate = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btnGenerate:SetSize(150, 22)
     btnGenerate:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -136)
     btnGenerate:SetText("Generar mensaje")
 
-    -- 2. Mensaje editable ---------------------------------------------------
-    local step2 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step2:SetPoint("TOPLEFT", btnGenerate, "BOTTOMLEFT", 0, -20)
-    step2:SetText("2. Mensaje (puedes retocarlo a mano)")
-
-    local msgBox = CreateBackdropBox(view, 850, 62, "TOPLEFT", step2, "BOTTOMLEFT", 0, -6)
-    local msgInput = CreateFrame("EditBox", nil, msgBox)
-    msgInput:SetPoint("TOPLEFT", msgBox, "TOPLEFT", 8, -8)
-    msgInput:SetPoint("BOTTOMRIGHT", msgBox, "BOTTOMRIGHT", -8, 8)
-    msgInput:SetMultiLine(true)
-    msgInput:SetFontObject(ChatFontNormal)
-    msgInput:SetAutoFocus(false)
-    msgInput:SetMaxLetters(0)
-    msgInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    msgBox:EnableMouse(true)
-    msgBox:SetScript("OnMouseDown", function() msgInput:SetFocus() end)
-
-    local counterText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    counterText:SetPoint("TOPRIGHT", msgBox, "BOTTOMRIGHT", 0, -4)
-
-    local function CurrentMessage()
-        -- El chat no admite saltos de línea
-        return strtrim((string.gsub(msgInput:GetText() or "", "[\r\n]+", " ")))
-    end
-
-    local function UpdateCounter()
-        local bytes = #CurrentMessage()
-        local color = bytes > MAX_CHAT_BYTES and "|cFFFF3333" or "|cFFBFBFBF"
-        counterText:SetText(color .. bytes .. "/" .. MAX_CHAT_BYTES .. "|r")
-    end
-
-    msgInput:SetScript("OnTextChanged", function()
-        recruit().message = CurrentMessage()
-        UpdateCounter()
-    end)
+    local editor = CreateMessageEditor(panel, btnGenerate, "2. Mensaje (puedes retocarlo a mano)", 62,
+        function(text) recruit().message = text end)
 
     btnGenerate:SetScript("OnClick", function()
-        msgInput:SetText(ComposeRecruitMessage(recruit()))
-        msgInput:ClearFocus()
+        editor.SetText(ComposeRecruitMessage(recruit()))
+        editor.edit:ClearFocus()
     end)
 
-    -- 3. Enviar -------------------------------------------------------------
-    local step3 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step3:SetPoint("TOPLEFT", msgBox, "BOTTOMLEFT", 0, -22)
+    local step3 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step3:SetPoint("TOPLEFT", editor.box, "BOTTOMLEFT", 0, -26)
     step3:SetText("3. Enviar a un jugador")
 
-    local nameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    local nameInput = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
     nameInput:SetSize(200, 20)
     nameInput:SetPoint("TOPLEFT", step3, "BOTTOMLEFT", 6, -8)
     nameInput:SetAutoFocus(false)
@@ -1376,7 +1436,7 @@ local function BuildInviteView(parent)
     namePlaceholder:SetText("Nombre o Nombre-Reino")
     nameInput:SetScript("OnTextChanged", function(self) namePlaceholder:SetShown((self:GetText() or "") == "") end)
 
-    local btnTarget = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    local btnTarget = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btnTarget:SetSize(120, 22)
     btnTarget:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
     btnTarget:SetText("Usar objetivo")
@@ -1398,18 +1458,15 @@ local function BuildInviteView(parent)
         return name
     end
 
-    -- {nombre} se sustituye por el nombre (sin reino) del destinatario
     local function MessageFor(name)
-        local msg = CurrentMessage()
-        if msg == "" then
+        local template = editor.GetText()
+        if template == "" then
             PrintGC("|cFFFF3333El mensaje está vacío: pulsa \"Generar mensaje\" o escríbelo.|r")
             return nil
         end
-        local short = string.match(name, "^([^-]+)") or name
-        msg = string.gsub(msg, "{nombre}", function() return short end)
-        if #msg > MAX_CHAT_BYTES then
+        local msg = ExpandMessage(template, name)
+        if not msg then
             PrintGC("|cFFFF3333El mensaje supera los " .. MAX_CHAT_BYTES .. " caracteres del chat.|r")
-            return nil
         end
         return msg
     end
@@ -1431,7 +1488,7 @@ local function BuildInviteView(parent)
 
     local previous = nil
     for _, action in ipairs(actions) do
-        local btn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+        local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
         btn:SetSize(170, 22)
         if previous then
             btn:SetPoint("LEFT", previous, "RIGHT", 8, 0)
@@ -1447,31 +1504,420 @@ local function BuildInviteView(parent)
     end
 
     -- Para canales (Comercio, Reclutamiento...): se abre en el chat y el jugador elige dónde enviarlo
-    local btnOpenChat = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    local btnOpenChat = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btnOpenChat:SetSize(170, 22)
     btnOpenChat:SetPoint("LEFT", previous, "RIGHT", 8, 0)
     btnOpenChat:SetText("Abrir en el chat")
     btnOpenChat:SetScript("OnClick", function()
-        local msg = CurrentMessage()
-        if msg ~= "" then OpenChatWith(msg) end
+        local msg = ExpandMessage(editor.GetText(), "")
+        if msg and msg ~= "" then OpenChatWith(msg) end
     end)
 
-    local hint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -44)
     hint:SetWidth(850)
     hint:SetJustifyH("LEFT")
-    hint:SetText("{nombre} se sustituye por el nombre del jugador al susurrar. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio).")
+    hint:SetText("{nombre} = nombre del jugador, {hermandad} = nombre de la hermandad. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio).")
 
-    view:SetScript("OnShow", function()
+    panel:SetScript("OnShow", function()
         local r = recruit()
         for key, chk in pairs(roleChecks) do chk:SetChecked(r.roles[key]) end
         for key, chk in pairs(activityChecks) do chk:SetChecked(r.activities[key]) end
         scheduleInput:SetText(r.schedule or "")
         extraInput:SetText(r.extra or "")
         if (r.message or "") == "" then r.message = ComposeRecruitMessage(r) end
-        msgInput:SetText(r.message)
-        UpdateCounter()
+        editor.SetText(r.message)
     end)
+end
+
+-- -------------------------------------------------------------------------
+-- Modo masivo: cola de jugadores, búsqueda /who y envío por lotes
+-- -------------------------------------------------------------------------
+local function NormalizePlayerName(name)
+    name = strtrim(name or "")
+    if name == "" then return nil end
+    if not string.find(name, "-", 1, true) then
+        local realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
+        name = name .. "-" .. realm
+    end
+    return (string.gsub(name, "%s+", ""))
+end
+
+local MASS_STATUS_TEXT = {
+    pending = "|cFFBFBFBFPendiente|r",
+    invited = "|cFF00FF00Invitado|r",
+    member  = "|cFF808080Ya es miembro|r",
+    recent  = "|cFF808080Invitado hace poco|r",
+    failed  = "|cFFFF3333Mensaje demasiado largo|r",
+}
+
+local function BuildMassInvitePanel(panel)
+    local recruit = function() return GuildControlDB.settings.recruit end
+    local queue = {}            -- { {name, status}, ... }
+    local batchTicker = nil
+
+    -- 1. Lista de jugadores --------------------------------------------------
+    local step1 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step1:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
+    step1:SetText("1. Jugadores a invitar")
+
+    -- 1a. Pegar nombres
+    local pasteLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pasteLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -10)
+    pasteLabel:SetText("Pega nombres (uno por línea o separados por comas):")
+
+    local pasteBox = CreateBackdropBox(panel, 270, 112, "TOPLEFT", pasteLabel, "BOTTOMLEFT", 0, -4)
+    local pasteScroll = CreateFrame("ScrollFrame", nil, pasteBox, "UIPanelScrollFrameTemplate")
+    pasteScroll:SetPoint("TOPLEFT", pasteBox, "TOPLEFT", 6, -6)
+    pasteScroll:SetPoint("BOTTOMRIGHT", pasteBox, "BOTTOMRIGHT", -26, 6)
+    local pasteEdit = CreateFrame("EditBox", nil, pasteScroll)
+    pasteEdit:SetMultiLine(true)
+    pasteEdit:SetFontObject(ChatFontNormal)
+    pasteEdit:SetWidth(232)
+    pasteEdit:SetHeight(100)
+    pasteEdit:SetAutoFocus(false)
+    pasteEdit:SetMaxLetters(0)
+    pasteEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    pasteScroll:SetScrollChild(pasteEdit)
+    pasteBox:EnableMouse(true)
+    pasteBox:SetScript("OnMouseDown", function() pasteEdit:SetFocus() end)
+
+    local btnAddPasted = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnAddPasted:SetSize(130, 22)
+    btnAddPasted:SetPoint("TOPLEFT", pasteBox, "BOTTOMLEFT", 0, -4)
+    btnAddPasted:SetText("Añadir a la cola")
+
+    -- 1b. Búsqueda /who de jugadores sin hermandad
+    local whoTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    whoTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 300, -10)
+    whoTitle:SetText("O busca jugadores sin hermandad (/who):")
+
+    local minLabel, minInput = CreateLabeledInput(panel, "Nivel mínimo:", 40)
+    minLabel:SetPoint("TOPLEFT", whoTitle, "BOTTOMLEFT", 0, -14)
+    minInput:SetNumeric(true)
+    minInput:SetMaxLetters(3)
+
+    local maxLabel, maxInput = CreateLabeledInput(panel, "Nivel máximo:", 40)
+    maxLabel:SetPoint("TOPLEFT", minLabel, "BOTTOMLEFT", 0, -16)
+    maxInput:SetNumeric(true)
+    maxInput:SetMaxLetters(3)
+
+    local extraWhoLabel, extraWhoInput = CreateLabeledInput(panel, "Filtro extra:", 120, "Clase, zona...")
+    extraWhoLabel:SetPoint("TOPLEFT", maxLabel, "BOTTOMLEFT", 0, -16)
+    extraWhoInput:SetScript("OnTextChanged", SetPlaceholderVisibility)
+
+    local btnWho = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnWho:SetSize(130, 22)
+    btnWho:SetPoint("TOPLEFT", extraWhoLabel, "BOTTOMLEFT", 0, -12)
+    btnWho:SetText("Buscar y añadir")
+
+    -- 1c. Cola
+    local queueTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    queueTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 540, -10)
+
+    local queueBox = CreateBackdropBox(panel, 320, 112, "TOPLEFT", queueTitle, "BOTTOMLEFT", 0, -4)
+    local queueScroll = CreateFrame("ScrollFrame", nil, queueBox, "UIPanelScrollFrameTemplate")
+    queueScroll:SetPoint("TOPLEFT", queueBox, "TOPLEFT", 6, -6)
+    queueScroll:SetPoint("BOTTOMRIGHT", queueBox, "BOTTOMRIGHT", -26, 6)
+    local queueChild = CreateFrame("Frame")
+    queueChild:SetSize(286, 1)
+    queueScroll:SetScrollChild(queueChild)
+
+    local btnClear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnClear:SetSize(100, 22)
+    btnClear:SetPoint("TOPLEFT", queueBox, "BOTTOMLEFT", 0, -4)
+    btnClear:SetText("Vaciar cola")
+
+    local btnClearDone = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnClearDone:SetSize(130, 22)
+    btnClearDone:SetPoint("LEFT", btnClear, "RIGHT", 6, 0)
+    btnClearDone:SetText("Quitar procesados")
+
+    local queueRows = {}
+
+    local function CountByStatus()
+        local pending, invited = 0, 0
+        for _, item in ipairs(queue) do
+            if item.status == "pending" then pending = pending + 1 end
+            if item.status == "invited" then invited = invited + 1 end
+        end
+        return pending, invited
+    end
+
+    local statusText   -- se crea más abajo
+
+    local function RefreshQueue()
+        for _, row in ipairs(queueRows) do row:Hide() end
+        for i, item in ipairs(queue) do
+            local row = queueRows[i]
+            if not row then
+                row = CreateFrame("Frame", nil, queueChild)
+                row:SetSize(286, 16)
+                row.nameFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.nameFs:SetPoint("LEFT", row, "LEFT", 2, 0)
+                row.nameFs:SetWidth(160)
+                row.nameFs:SetJustifyH("LEFT")
+                row.nameFs:SetWordWrap(false)
+                row.statusFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.statusFs:SetPoint("LEFT", row, "LEFT", 166, 0)
+                row.statusFs:SetWidth(118)
+                row.statusFs:SetJustifyH("LEFT")
+                queueRows[i] = row
+            end
+            row:SetPoint("TOPLEFT", queueChild, "TOPLEFT", 0, -(i - 1) * 16)
+            row.nameFs:SetText(item.name)
+            row.statusFs:SetText(MASS_STATUS_TEXT[item.status] or item.status)
+            row:Show()
+        end
+        queueChild:SetHeight(math.max(1, #queue * 16))
+
+        local pending, invited = CountByStatus()
+        queueTitle:SetText("Cola: " .. #queue .. " jugadores")
+        if statusText then
+            statusText:SetText("Pendientes: |cFFFFD100" .. pending .. "|r   Invitados: |cFF00FF00" .. invited .. "|r")
+        end
+    end
+
+    local function AddToQueue(rawName)
+        local name = NormalizePlayerName(rawName)
+        if not name then return false end
+        for _, item in ipairs(queue) do
+            if item.name == name then return false end
+        end
+        table.insert(queue, { name = name, status = "pending" })
+        return true
+    end
+
+    btnAddPasted:SetScript("OnClick", function()
+        local added = 0
+        for token in string.gmatch(pasteEdit:GetText() or "", "[^,;\r\n]+") do
+            token = strtrim(token)
+            if token ~= "" and not string.find(token, "%s") and AddToQueue(token) then added = added + 1 end
+        end
+        pasteEdit:SetText("")
+        pasteEdit:ClearFocus()
+        PrintGC("Añadidos a la cola: |cFFFFD100" .. added .. "|r.")
+        RefreshQueue()
+    end)
+
+    btnClear:SetScript("OnClick", function()
+        wipe(queue)
+        RefreshQueue()
+    end)
+
+    btnClearDone:SetScript("OnClick", function()
+        for i = #queue, 1, -1 do
+            if queue[i].status ~= "pending" then table.remove(queue, i) end
+        end
+        RefreshQueue()
+    end)
+
+    -- /who: SendWho exige un clic del jugador; el resultado llega con WHO_LIST_UPDATE
+    local whoFrame = CreateFrame("Frame")
+    local awaitingWho = false
+    whoFrame:SetScript("OnEvent", function()
+        if not awaitingWho then return end
+        awaitingWho = false
+        whoFrame:UnregisterEvent("WHO_LIST_UPDATE")
+
+        local added, total = 0, 0
+        local num = C_FriendList.GetNumWhoResults and C_FriendList.GetNumWhoResults() or 0
+        for i = 1, num do
+            local info = C_FriendList.GetWhoInfo(i)
+            if info and info.fullName then
+                total = total + 1
+                if (info.fullGuildName or "") == "" and AddToQueue(info.fullName) then added = added + 1 end
+            end
+        end
+        PrintGC("/who: " .. total .. " resultados, |cFFFFD100" .. added .. "|r sin hermandad añadidos a la cola.")
+        RefreshQueue()
+    end)
+
+    btnWho:SetScript("OnClick", function()
+        if not (C_FriendList and C_FriendList.SendWho) then return end
+        local minLevel, maxLevel = tonumber(minInput:GetText()), tonumber(maxInput:GetText())
+        local parts = {}
+        if minLevel or maxLevel then
+            table.insert(parts, (minLevel or 1) .. "-" .. (maxLevel or minLevel or 90))
+        end
+        local extra = strtrim(extraWhoInput:GetText() or "")
+        if extra ~= "" then table.insert(parts, extra) end
+
+        awaitingWho = true
+        whoFrame:RegisterEvent("WHO_LIST_UPDATE")
+        if C_FriendList.SetWhoToUi then pcall(C_FriendList.SetWhoToUi, true) end
+        local ok = pcall(C_FriendList.SendWho, table.concat(parts, " "))
+        if not ok then
+            awaitingWho = false
+            whoFrame:UnregisterEvent("WHO_LIST_UPDATE")
+            PrintGC("|cFFFF3333No se pudo lanzar la búsqueda /who.|r")
+        end
+    end)
+
+    -- 2. Susurro editable ----------------------------------------------------
+    local editor = CreateMessageEditor(panel, btnAddPasted, "2. Susurro que recibe cada jugador al invitarlo", 50,
+        function(text) recruit().massMessage = text end)
+    editor.label:ClearAllPoints()
+    editor.label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -186)
+
+    -- 3. Envío ---------------------------------------------------------------
+    local step3 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step3:SetPoint("TOPLEFT", editor.box, "BOTTOMLEFT", 0, -26)
+    step3:SetText("3. Invitar")
+
+    local chkWhisper = CreateFrame("CheckButton", "GC_MassInviteWhisper", panel, "UICheckButtonTemplate")
+    chkWhisper:SetSize(24, 24)
+    chkWhisper:SetPoint("LEFT", step3, "RIGHT", 20, 0)
+    _G[chkWhisper:GetName() .. "Text"]:SetText("Enviar el susurro con cada invitación")
+    chkWhisper:SetScript("OnClick", function(self) recruit().massWhisper = self:GetChecked() and true or false end)
+
+    local btnNext = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnNext:SetSize(150, 22)
+    btnNext:SetPoint("TOPLEFT", step3, "BOTTOMLEFT", 0, -10)
+    btnNext:SetText("Invitar siguiente")
+
+    local btnBatch = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnBatch:SetSize(190, 22)
+    btnBatch:SetPoint("LEFT", btnNext, "RIGHT", 8, 0)
+    btnBatch:SetText("Invitar lote (" .. MASS_BATCH_SIZE .. ")")
+
+    local btnStop = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnStop:SetSize(100, 22)
+    btnStop:SetPoint("LEFT", btnBatch, "RIGHT", 8, 0)
+    btnStop:SetText("Detener")
+    btnStop:Disable()
+
+    statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    statusText:SetPoint("LEFT", btnStop, "RIGHT", 20, 0)
+
+    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", btnNext, "BOTTOMLEFT", 0, -10)
+    hint:SetWidth(850)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("Se omiten los miembros de la hermandad y a quien ya se invitó en los últimos " .. REINVITE_DAYS .. " días. El lote envía una invitación cada " .. MASS_BATCH_INTERVAL .. " s. Muchos susurros a desconocidos pueden acabar en denuncias por spam: úsalo con moderación.")
+
+    -- Procesa el siguiente pendiente. Devuelve false si ya no quedan.
+    local function ProcessNext()
+        local history = GuildControlDB.inviteHistory
+        local now = time()
+        for _, item in ipairs(queue) do
+            if item.status == "pending" then
+                if GuildControlDB.members[item.name] then
+                    item.status = "member"
+                elseif history[item.name] and now - history[item.name] < REINVITE_DAYS * 86400 then
+                    item.status = "recent"
+                else
+                    local msg = nil
+                    if recruit().massWhisper then
+                        msg = ExpandMessage(editor.GetText(), item.name)
+                        if not msg then
+                            item.status = "failed"
+                            RefreshQueue()
+                            return true
+                        end
+                    end
+                    -- Primero la invitación (falla si el rango no tiene permiso) y luego el susurro
+                    if not InviteToGuild(item.name, true) then
+                        RefreshQueue()
+                        return false
+                    end
+                    if msg and msg ~= "" then SendWhisper(item.name, msg) end
+                    history[item.name] = now
+                    item.status = "invited"
+                    RefreshQueue()
+                    return true
+                end
+            end
+        end
+        RefreshQueue()
+        return false
+    end
+
+    local function StopBatch()
+        if batchTicker then
+            batchTicker:Cancel()
+            batchTicker = nil
+        end
+        btnStop:Disable()
+        btnBatch:Enable()
+    end
+
+    btnNext:SetScript("OnClick", function()
+        if not ProcessNext() then PrintGC("No quedan jugadores pendientes en la cola.") end
+    end)
+
+    btnBatch:SetScript("OnClick", function()
+        if batchTicker then return end
+        local remaining = MASS_BATCH_SIZE
+        if not ProcessNext() then
+            PrintGC("No quedan jugadores pendientes en la cola.")
+            return
+        end
+        remaining = remaining - 1
+        btnBatch:Disable()
+        btnStop:Enable()
+        batchTicker = C_Timer.NewTicker(MASS_BATCH_INTERVAL, function()
+            if remaining <= 0 or not ProcessNext() then
+                StopBatch()
+                return
+            end
+            remaining = remaining - 1
+            if remaining <= 0 then StopBatch() end
+        end)
+    end)
+
+    btnStop:SetScript("OnClick", StopBatch)
+    panel:SetScript("OnHide", StopBatch)
+
+    panel:SetScript("OnShow", function()
+        local r = recruit()
+        editor.SetText(r.massMessage or "")
+        chkWhisper:SetChecked(r.massWhisper)
+        RefreshQueue()
+    end)
+end
+
+local function BuildInviteView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetText("Invitar nuevos miembros")
+
+    -- Dos modos en el mismo marco: se cambia con los botones de arriba a la derecha
+    local singlePanel = CreateFrame("Frame", nil, view)
+    singlePanel:SetAllPoints()
+    BuildSingleInvitePanel(singlePanel)
+
+    local massPanel = CreateFrame("Frame", nil, view)
+    massPanel:SetAllPoints()
+    massPanel:Hide()
+    BuildMassInvitePanel(massPanel)
+
+    local btnMass = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnMass:SetSize(160, 22)
+    btnMass:SetPoint("TOPRIGHT", view, "TOPRIGHT", -15, -16)
+    btnMass:SetText("Invitación masiva")
+
+    local btnSingle = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnSingle:SetSize(160, 22)
+    btnSingle:SetPoint("RIGHT", btnMass, "LEFT", -6, 0)
+    btnSingle:SetText("Invitación individual")
+
+    local function ShowMode(mode)
+        GuildControlDB.settings.recruit.mode = mode
+        singlePanel:SetShown(mode == "single")
+        massPanel:SetShown(mode == "mass")
+        -- El botón del modo activo queda deshabilitado, como las categorías de Logros
+        btnSingle:SetEnabled(mode ~= "single")
+        btnMass:SetEnabled(mode ~= "mass")
+    end
+
+    btnSingle:SetScript("OnClick", function() ShowMode("single") end)
+    btnMass:SetScript("OnClick", function() ShowMode("mass") end)
+    view:SetScript("OnShow", function() ShowMode(GuildControlDB.settings.recruit.mode or "single") end)
 
     containers.views["Invitar"] = view
 end

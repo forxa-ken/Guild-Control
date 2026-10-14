@@ -46,6 +46,14 @@ La pestaña **Invitar** (debajo de Warning) genera el mensaje de reclutamiento:
 
 Invitar a la hermandad requiere que tu rango tenga ese permiso.
 
+**Invitación masiva** (botón arriba a la derecha de la pestaña Invitar):
+
+1. Llena la cola pegando nombres (uno por línea o separados por comas) o buscando con /who por rango de nivel y filtro extra (clase, zona...). De la búsqueda solo se añaden jugadores sin hermandad.
+2. Edita el susurro que recibe cada jugador. Admite `{nombre}`, `{hermandad}` e iconos de banda.
+3. **Invitar siguiente** procesa un jugador; **Invitar lote** procesa 10, uno cada 3 s (**Detener** lo corta). Se omiten los miembros y a quien ya se invitó en los últimos 7 días.
+
+En los dos modos, la fila **Iconos** inserta los iconos de banda (`{rt1}` a `{rt8}`: estrella, círculo, diamante...) en el mensaje y la vista previa los muestra como se verán en el chat. Muchos susurros a desconocidos pueden acabar en denuncias por spam: usa la invitación masiva con moderación.
+
 ## 🚀 Comandos
 
 - `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.

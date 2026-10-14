@@ -77,6 +77,14 @@ function addonTable.InitDB()
     if type(recruit.schedule) ~= "string" then recruit.schedule = "" end
     if type(recruit.extra) ~= "string" then recruit.extra = "¡Susúrrame para más información!" end
     if type(recruit.message) ~= "string" then recruit.message = "" end
+    if type(recruit.massMessage) ~= "string" or recruit.massMessage == "" then
+        recruit.massMessage = "¡Hola, {nombre}! {rt1} Te he invitado a <{hermandad}>. Si te interesa, acepta la invitación o susúrrame."
+    end
+    if type(recruit.massWhisper) ~= "boolean" then recruit.massWhisper = true end
+    if recruit.mode ~= "single" and recruit.mode ~= "mass" then recruit.mode = "single" end
+
+    -- Fecha (time()) de la última invitación masiva a cada jugador, para no repetirla
+    if type(GuildControlDB.inviteHistory) ~= "table" then GuildControlDB.inviteHistory = {} end
 end
 
 -- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico
