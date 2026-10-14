@@ -48,11 +48,14 @@ end
 -- 1. HEADER (BARRA SUPERIOR)
 -- =========================================================================
 local HEADER_HEIGHT = 64
+local ANN_BAR_HEIGHT = 64
+local CELL_HEIGHT = 52   -- alto de las cajas planas dentro del header y de la barra de anuncios
 
--- Caja de estadística: número grande arriba y etiqueta pequeña debajo
-local function CreateStatBox(parent, label, width)
+-- Caja plana (fondo oscuro y borde de 1 px) con una etiqueta pequeña abajo.
+-- El contenido (número, campo de texto, etc.) se ancla a su parte superior.
+local function CreateCellBox(parent, label, width)
     local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    box:SetSize(width, HEADER_HEIGHT - 12)
+    box:SetSize(width, CELL_HEIGHT)
     box:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -61,14 +64,21 @@ local function CreateStatBox(parent, label, width)
     box:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
     box:SetBackdropBorderColor(0.3, 0.3, 0.32, 1)
 
-    box.value = box:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    box.value:SetPoint("TOP", box, "TOP", 0, -6)
-    box.value:SetText("0")
-
     box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     box.label:SetPoint("BOTTOM", box, "BOTTOM", 0, 6)
     box.label:SetTextColor(0.75, 0.75, 0.75)
     box.label:SetText(label)
+
+    return box
+end
+
+-- Caja de estadística: número grande arriba y etiqueta pequeña debajo
+local function CreateStatBox(parent, label, width)
+    local box = CreateCellBox(parent, label, width)
+
+    box.value = box:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    box.value:SetPoint("TOP", box, "TOP", 0, -6)
+    box.value:SetText("0")
 
     return box
 end
@@ -104,6 +114,10 @@ local function BuildHeader(parent)
     verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -30, -6)
     verText:SetText("v4.5.0")
 
+    local authorText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    authorText:SetPoint("RIGHT", verText, "LEFT", -12, 0)
+    authorText:SetText("|cFF808080Autor:|r Forxaken  |cFF808080·  Guild:|r Lobo Gélido")
+
     containers.header = header
     uiModule.UpdateHeader()
 end
@@ -128,40 +142,61 @@ end
 -- 2. SUB-HEADER (ANUNCIOS MÚLTIPLES)
 -- =========================================================================
 local function BuildAnnouncementsBar(parent)
-    local annBar = CreateBackdropBox(parent, 1280, 45, "TOPLEFT", containers.header, "BOTTOMLEFT", 0, -5)
+    local annBar = CreateBackdropBox(parent, 1280, ANN_BAR_HEIGHT, "TOPLEFT", containers.header, "BOTTOMLEFT", 0, -5)
 
-    local label = annBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("TOPLEFT", annBar, "TOPLEFT", 10, -4)
-    label:SetText("Configuración de mensajes múltiples")
+    -- Mismo esquema que las estadísticas del header: una caja por campo con su etiqueta debajo
+    local gap = 6
+    local slotWidth, timeWidth, stateWidth = 180, 130, 150
+    local msgWidth = 1280 - 2 * gap - slotWidth - timeWidth - stateWidth - 3 * gap
 
-    local dropAnn = CreateFrame("DropdownButton", "GC_DropAnnSelect_New", annBar, "WowStyle1DropdownTemplate")
-    dropAnn:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
-    dropAnn:SetWidth(140)
+    local slotBox = CreateCellBox(annBar, "Anuncio", slotWidth)
+    slotBox:SetPoint("LEFT", annBar, "LEFT", gap, 0)
 
-    local msgInput = CreateFrame("EditBox", "GC_AnnMsgInput_New", annBar, "InputBoxTemplate")
-    msgInput:SetSize(620, 20)
-    msgInput:SetPoint("LEFT", dropAnn, "RIGHT", 15, 0)
+    local msgBox = CreateCellBox(annBar, "Texto que se publica en el chat de hermandad", msgWidth)
+    msgBox:SetPoint("LEFT", slotBox, "RIGHT", gap, 0)
+
+    local timeBox = CreateCellBox(annBar, "Intervalo (min)", timeWidth)
+    timeBox:SetPoint("LEFT", msgBox, "RIGHT", gap, 0)
+
+    local stateBox = CreateCellBox(annBar, "Estado", stateWidth)
+    stateBox:SetPoint("LEFT", timeBox, "RIGHT", gap, 0)
+
+    local dropAnn = CreateFrame("DropdownButton", "GC_DropAnnSelect_New", slotBox, "WowStyle1DropdownTemplate")
+    dropAnn:SetPoint("TOP", slotBox, "TOP", 0, -5)
+    dropAnn:SetWidth(slotWidth - 20)
+
+    local msgInput = CreateFrame("EditBox", "GC_AnnMsgInput_New", msgBox, "InputBoxTemplate")
+    msgInput:SetSize(msgWidth - 30, 20)
+    msgInput:SetPoint("TOP", msgBox, "TOP", 0, -8)
     msgInput:SetAutoFocus(false)
 
-    local timeLabel = annBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    timeLabel:SetPoint("LEFT", msgInput, "RIGHT", 15, 10)
-    timeLabel:SetText("Tiempo")
-
-    local timeInput = CreateFrame("EditBox", "GC_AnnTimeInput_New", annBar, "InputBoxTemplate")
-    timeInput:SetSize(50, 20)
-    timeInput:SetPoint("TOPLEFT", timeLabel, "BOTTOMLEFT", 0, -2)
+    local timeInput = CreateFrame("EditBox", "GC_AnnTimeInput_New", timeBox, "InputBoxTemplate")
+    timeInput:SetSize(60, 20)
+    timeInput:SetPoint("TOP", timeBox, "TOP", 0, -8)
+    timeInput:SetJustifyH("CENTER")
     timeInput:SetNumeric(true)
     timeInput:SetAutoFocus(false)
 
-    local chkEnable = CreateFrame("CheckButton", "GC_AnnEnable_New", annBar, "UICheckButtonTemplate")
-    chkEnable:SetPoint("LEFT", timeInput, "RIGHT", 15, 0)
+    local chkEnable = CreateFrame("CheckButton", "GC_AnnEnable_New", stateBox, "UICheckButtonTemplate")
+    chkEnable:SetSize(26, 26)
+    chkEnable:SetPoint("TOP", stateBox, "TOP", -24, -3)
     _G[chkEnable:GetName() .. "Text"]:SetText("Activar")
+
+    -- La etiqueta de la caja Estado indica si el anuncio seleccionado se está publicando
+    local function UpdateStateLabel(enabled)
+        if enabled then
+            stateBox.label:SetText("|cFF00FF00Publicando|r")
+        else
+            stateBox.label:SetText("Desactivado")
+        end
+    end
 
     local function RefreshFields()
         if addonTable.Announcements then
             local data = addonTable.Announcements.GetAnnouncementData()
             if data then
                 chkEnable:SetChecked(data.enabled)
+                UpdateStateLabel(data.enabled)
                 msgInput:SetText(data.message or "")
                 timeInput:SetText(tostring(data.interval or 15))
             end
@@ -185,6 +220,7 @@ local function BuildAnnouncementsBar(parent)
         if addonTable.Announcements then
             addonTable.Announcements.UpdateAnnouncementData(addonTable.Announcements.GetSelectedIndex(), self:GetChecked(), nil, nil)
         end
+        UpdateStateLabel(self:GetChecked())
     end)
     msgInput:SetScript("OnTextChanged", function(self)
         if addonTable.Announcements then
@@ -1013,7 +1049,7 @@ function uiModule.CreateUI()
     if GC_UI then return end
 
     GC_UI = CreateFrame("Frame", "GuildControlMainFrame", UIParent, "BasicFrameTemplateWithInset")
-    GC_UI:SetSize(1300, 650 + (HEADER_HEIGHT - 50))
+    GC_UI:SetSize(1300, 650 + (HEADER_HEIGHT - 50) + (ANN_BAR_HEIGHT - 45))
     GC_UI:SetPoint("CENTER")
     GC_UI:SetMovable(true)
     GC_UI:EnableMouse(true)
