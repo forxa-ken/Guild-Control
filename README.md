@@ -25,7 +25,7 @@ En la pestaña **Configuración** puedes personalizar el encabezado del panel:
 
 - **Nombre de la hermandad**: escribe el nombre que quieres mostrar. Si lo dejas vacío (o pulsas "Usar nombre del juego") se usa el nombre real de la hermandad.
 - **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
-- **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Los segundos de espera y los minutos sin repetir saludo a la misma persona se configuran en la columna derecha (por defecto 2 s y 30 min). Si varios miembros usan GuildControl, solo responde uno.
+- **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) y **acaba de conectarse** (por defecto, en los 5 minutos siguientes) sin que nadie le haya saludado todavía, el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Los segundos de espera, los minutos sin repetir saludo, los minutos tras conectarse y las **palabras de saludo** se configuran en la columna derecha. A quien ya estaba conectado cuando entraste no se le saluda. Si varios miembros usan GuildControl, solo responde uno.
 - **Siempre por encima**: muestra la ventana del addon por encima de las barras de acción y otros botones del juego.
 
 ## 👥 Miembros y chat

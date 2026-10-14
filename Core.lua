@@ -65,6 +65,9 @@ function addonTable.InitDB()
     if type(GuildControlDB.settings.autoGreet) ~= "boolean" then GuildControlDB.settings.autoGreet = true end
     if type(GuildControlDB.settings.greetDelay) ~= "number" then GuildControlDB.settings.greetDelay = 2 end        -- segundos
     if type(GuildControlDB.settings.greetCooldown) ~= "number" then GuildControlDB.settings.greetCooldown = 30 end -- minutos
+    if type(GuildControlDB.settings.greetLoginWindow) ~= "number" then GuildControlDB.settings.greetLoginWindow = 5 end -- minutos
+    -- Palabras de saludo separadas por comas; vacío = lista por defecto de GuildChat.lua
+    if type(GuildControlDB.settings.greetWords) ~= "string" then GuildControlDB.settings.greetWords = "" end
     if type(GuildControlDB.settings.greetMessage) ~= "string" or GuildControlDB.settings.greetMessage == "" then
         GuildControlDB.settings.greetMessage = "¡Hola, {nombre}!"
     end
@@ -180,6 +183,9 @@ end
 
 local isSyncingRoster = false
 local lastExecutionTimestamp = 0
+-- El primer escaneo de la sesión solo fija el estado inicial: quien ya estaba conectado
+-- antes de entrar no cuenta como recién conectado (saludo automático)
+local rosterBaselineDone = false
 
 function addonTable.ScanGuildRosterForChanges()
     local currentTime = GetTime()
@@ -235,11 +241,20 @@ function addonTable.ScanGuildRosterForChanges()
                 m.class = classFileName or m.class or "Desconocida"
                 m.zone = zoneName or m.zone or "Desconocida"
                 m.lastOnline = lastOnlineStr
+                if rosterBaselineDone and addonTable.GuildChat then
+                    if isReallyOnline and not m.isOnline and addonTable.GuildChat.MarkOnline then
+                        addonTable.GuildChat.MarkOnline(fullName)
+                    elseif not isReallyOnline and m.isOnline and addonTable.GuildChat.MarkOffline then
+                        addonTable.GuildChat.MarkOffline(fullName)
+                    end
+                end
                 m.isOnline = isReallyOnline
                 m.guid = guid or m.guid
             end
         end
     end
+
+    rosterBaselineDone = true
 
     for existingMember, _ in pairs(GuildControlDB.members) do
         if not currentGuildOnlineMap[existingMember] then

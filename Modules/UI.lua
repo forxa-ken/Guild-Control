@@ -2152,16 +2152,50 @@ local function BuildConfigView(parent)
     local delayInput = CreateNumberSetting(timesLabel, 6, -8, "Segundos de espera antes de responder (1-60)", "greetDelay", 1, 60)
     local cooldownInput = CreateNumberSetting(delayInput, 0, -18, "Minutos sin volver a saludar a la misma persona (1-1440)", "greetCooldown", 1, 1440)
 
+    local loginInput = CreateNumberSetting(cooldownInput, 0, -18, "Minutos tras conectarse en los que se le saluda (1-30)", "greetLoginWindow", 1, 30)
+
     local timesHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    timesHint:SetPoint("TOPLEFT", cooldownInput, "BOTTOMLEFT", -6, -10)
+    timesHint:SetPoint("TOPLEFT", loginInput, "BOTTOMLEFT", -6, -10)
     timesHint:SetWidth(210)
     timesHint:SetJustifyH("LEFT")
-    timesHint:SetText("A la espera se suman hasta 4 s aleatorios para que, si varios miembros usan GuildControl, solo responda uno.")
+    timesHint:SetText("Solo se saluda a quien acaba de conectarse y aún no ha sido saludado. A la espera se suman hasta 4 s aleatorios.")
+
+    -- Palabras que cuentan como saludo
+    local wordsLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    wordsLabel:SetPoint("TOPLEFT", timesHint, "BOTTOMLEFT", 0, -16)
+    wordsLabel:SetText("Palabras de saludo")
+
+    local wordsBox = CreateBackdropBox(view, 220, 64, "TOPLEFT", wordsLabel, "BOTTOMLEFT", 0, -4)
+    local wordsInput = CreateFrame("EditBox", nil, wordsBox)
+    wordsInput:SetPoint("TOPLEFT", wordsBox, "TOPLEFT", 6, -6)
+    wordsInput:SetPoint("BOTTOMRIGHT", wordsBox, "BOTTOMRIGHT", -6, 6)
+    wordsInput:SetMultiLine(true)
+    wordsInput:SetFontObject(GameFontHighlightSmall)
+    wordsInput:SetAutoFocus(false)
+    wordsInput:SetMaxLetters(0)
+    wordsInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    wordsInput:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then GuildControlDB.settings.greetWords = self:GetText() or "" end
+    end)
+    wordsBox:EnableMouse(true)
+    wordsBox:SetScript("OnMouseDown", function() wordsInput:SetFocus() end)
+
+    local wordsHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    wordsHint:SetPoint("TOPLEFT", wordsBox, "BOTTOMLEFT", 0, -4)
+    wordsHint:SetWidth(220)
+    wordsHint:SetJustifyH("LEFT")
+    wordsHint:SetText("Separadas por comas. El mensaje debe empezar por una de ellas. Vacío = lista por defecto.")
 
     view:SetScript("OnShow", function()
         RefreshConfigFields()
         delayInput:SetText(tostring(GuildControlDB.settings.greetDelay))
         cooldownInput:SetText(tostring(GuildControlDB.settings.greetCooldown))
+        loginInput:SetText(tostring(GuildControlDB.settings.greetLoginWindow))
+        local words = GuildControlDB.settings.greetWords
+        if not words or strtrim(words) == "" then
+            words = addonTable.GuildChat and addonTable.GuildChat.DEFAULT_GREET_WORDS or ""
+        end
+        wordsInput:SetText(words)
         chkOnTop:SetChecked(GuildControlDB.settings.windowOnTop)
         chkGreet:SetChecked(GuildControlDB.settings.autoGreet)
         greetInput:SetText(GuildControlDB.settings.greetMessage or "")
