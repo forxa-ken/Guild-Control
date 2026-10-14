@@ -17,6 +17,13 @@
 - Clic izquierdo: muestra el detalle en el panel de vista previa (estado, fecha, completado por, participantes y criterios).
 - Clic derecho o Shift+clic: abre el logro en la ventana de logros de Blizzard.
 
+## ⚙️ Configuración
+
+En la pestaña **Configuración** puedes personalizar el encabezado del panel:
+
+- **Nombre de la hermandad**: escribe el nombre que quieres mostrar. Si lo dejas vacío (o pulsas "Usar nombre del juego") se usa el nombre real de la hermandad.
+- **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
+
 ## 🚀 Comandos
 
 - `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.

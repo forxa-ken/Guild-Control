@@ -47,35 +47,81 @@ end
 -- =========================================================================
 -- 1. HEADER (BARRA SUPERIOR)
 -- =========================================================================
+local HEADER_HEIGHT = 64
+
+-- Caja de estadística: número grande arriba y etiqueta pequeña debajo
+local function CreateStatBox(parent, label, width)
+    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    box:SetSize(width, HEADER_HEIGHT - 12)
+    box:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    box:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
+    box:SetBackdropBorderColor(0.3, 0.3, 0.32, 1)
+
+    box.value = box:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    box.value:SetPoint("TOP", box, "TOP", 0, -6)
+    box.value:SetText("0")
+
+    box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    box.label:SetPoint("BOTTOM", box, "BOTTOM", 0, 6)
+    box.label:SetTextColor(0.75, 0.75, 0.75)
+    box.label:SetText(label)
+
+    return box
+end
+
 local function BuildHeader(parent)
-    local header = CreateBackdropBox(parent, 1280, 50, "TOPLEFT", parent, "TOPLEFT", 10, -25)
+    local header = CreateBackdropBox(parent, 1280, HEADER_HEIGHT, "TOPLEFT", parent, "TOPLEFT", 10, -25)
 
-    local logoBg = header:CreateTexture(nil, "OVERLAY")
-    logoBg:SetSize(36, 36)
-    logoBg:SetPoint("LEFT", header, "LEFT", 10, 0)
-    logoBg:SetTexture("Interface\\Icons\\Achievement_GuildPerk_MobileBanking")
+    local logo = header:CreateTexture(nil, "OVERLAY")
+    logo:SetSize(44, 44)
+    logo:SetPoint("LEFT", header, "LEFT", 12, 0)
+    header.logo = logo
 
-    local titleText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    titleText:SetPoint("LEFT", logoBg, "RIGHT", 10, 0)
-    titleText:SetText("|cFFFFD100Lobo Gélido|r  |cFF808080[Horda]|r")
+    local titleText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    titleText:SetPoint("LEFT", logo, "RIGHT", 12, 0)
+    header.titleText = titleText
 
-    local onlineText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    onlineText:SetPoint("RIGHT", header, "RIGHT", -220, 0)
-    header.onlineText = onlineText
+    -- Cajas de estadísticas alineadas a la derecha
+    local statWidth, statGap = 170, 6
+    local onlineBox = CreateStatBox(header, "En línea", statWidth)
+    onlineBox:SetPoint("RIGHT", header, "RIGHT", -6, 0)
+    header.onlineBox = onlineBox
 
-    local membersText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    membersText:SetPoint("RIGHT", onlineText, "LEFT", -30, 0)
-    header.membersText = membersText
+    local membersBox = CreateStatBox(header, "Miembros", statWidth)
+    membersBox:SetPoint("RIGHT", onlineBox, "LEFT", -statGap, 0)
+    header.membersBox = membersBox
 
-    local warningsText = header:CreateFontString(nil, "OVERLAY", "GameFontRed")
-    warningsText:SetPoint("RIGHT", membersText, "LEFT", -30, 0)
-    warningsText:SetText("Warnings: 0")
+    local warningsBox = CreateStatBox(header, "Warnings", statWidth)
+    warningsBox:SetPoint("RIGHT", membersBox, "LEFT", -statGap, 0)
+    warningsBox.value:SetTextColor(1, 0.25, 0.25)
+    header.warningsBox = warningsBox
 
     local verText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -15, -8)
+    verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -30, -6)
     verText:SetText("v4.5.0")
 
     containers.header = header
+    uiModule.UpdateHeader()
+end
+
+-- Aplica el nombre y el icono configurados (GuildControlDB.settings)
+function uiModule.UpdateHeader()
+    local header = containers.header
+    if not header then return end
+    local settings = GuildControlDB.settings or {}
+
+    header.logo:SetTexture(addonTable.ResolveIconTexture(settings.guildIcon))
+
+    local factionTag = ""
+    local _, localizedFaction = UnitFactionGroup("player")
+    if localizedFaction then
+        factionTag = "  |cFF808080[" .. localizedFaction .. "]|r"
+    end
+    header.titleText:SetText("|cFFFFD100" .. addonTable.GetDisplayGuildName() .. "|r" .. factionTag)
 end
 
 -- =========================================================================
@@ -826,13 +872,148 @@ local function BuildPlaceholderView(parent, tabName)
 end
 
 -- =========================================================================
+-- 9. VISTA DE CONFIGURACIÓN (NOMBRE E ICONO DE LA HERMANDAD)
+-- =========================================================================
+local DEFAULT_GUILD_ICON = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
+
+local PRESET_ICONS = {
+    "Achievement_GuildPerk_MobileBanking", "Achievement_GuildPerk_EverybodysFriend", "Ability_Hunter_Pet_Wolf",
+    "INV_BannerPVP_01", "INV_BannerPVP_02", "Ability_Warrior_BattleShout", "INV_Sword_04", "INV_Shield_06",
+    "Spell_Holy_PowerWordShield", "Spell_Nature_HealingTouch", "Spell_Fire_Fire", "Spell_Frost_FrostBolt02",
+    "Spell_Shadow_ShadowBolt", "INV_Misc_Head_Dragon_01", "INV_Misc_Coin_01", "INV_Misc_QuestionMark",
+}
+
+local function BuildConfigView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetText("Configuración")
+
+    -- 9.1 Nombre de la hermandad
+    local nameLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    nameLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -25)
+    nameLabel:SetText("Nombre de la hermandad")
+
+    local nameInput = CreateFrame("EditBox", "GC_CfgGuildName", view, "InputBoxTemplate")
+    nameInput:SetSize(300, 20)
+    nameInput:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 6, -8)
+    nameInput:SetAutoFocus(false)
+    nameInput:SetMaxLetters(48)
+
+    local btnSaveName = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnSaveName:SetSize(90, 22)
+    btnSaveName:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
+    btnSaveName:SetText("Guardar")
+
+    local btnResetName = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnResetName:SetSize(150, 22)
+    btnResetName:SetPoint("LEFT", btnSaveName, "RIGHT", 6, 0)
+    btnResetName:SetText("Usar nombre del juego")
+
+    local nameHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    nameHint:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -6)
+    nameHint:SetText("Si lo dejas vacío se muestra el nombre real de la hermandad.")
+
+    -- 9.2 Icono de la hermandad
+    local iconLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    iconLabel:SetPoint("TOPLEFT", nameHint, "BOTTOMLEFT", 0, -30)
+    iconLabel:SetText("Icono de la hermandad")
+
+    local iconPreview = view:CreateTexture(nil, "ARTWORK")
+    iconPreview:SetSize(48, 48)
+    iconPreview:SetPoint("TOPLEFT", iconLabel, "BOTTOMLEFT", 0, -8)
+
+    local iconInput = CreateFrame("EditBox", "GC_CfgGuildIcon", view, "InputBoxTemplate")
+    iconInput:SetSize(300, 20)
+    iconInput:SetPoint("LEFT", iconPreview, "RIGHT", 16, 0)
+    iconInput:SetAutoFocus(false)
+
+    local btnApplyIcon = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnApplyIcon:SetSize(90, 22)
+    btnApplyIcon:SetPoint("LEFT", iconInput, "RIGHT", 10, 0)
+    btnApplyIcon:SetText("Aplicar")
+
+    local btnResetIcon = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnResetIcon:SetSize(150, 22)
+    btnResetIcon:SetPoint("LEFT", btnApplyIcon, "RIGHT", 6, 0)
+    btnResetIcon:SetText("Restablecer icono")
+
+    local iconHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    iconHint:SetPoint("TOPLEFT", iconPreview, "BOTTOMLEFT", 0, -6)
+    iconHint:SetText("Escribe el nombre del icono (INV_Misc_QuestionMark), su ID numérico o la ruta completa, o elige uno:")
+
+    local function RefreshConfigFields()
+        local settings = GuildControlDB.settings or {}
+        nameInput:SetText(settings.guildName or "")
+        iconInput:SetText(tostring(settings.guildIcon or ""))
+        iconPreview:SetTexture(addonTable.ResolveIconTexture(settings.guildIcon))
+    end
+
+    local function SaveName()
+        GuildControlDB.settings.guildName = strtrim(nameInput:GetText() or "")
+        nameInput:ClearFocus()
+        uiModule.UpdateHeader()
+        RefreshConfigFields()
+    end
+
+    local function SaveIcon(value)
+        value = strtrim(value or "")
+        if value == "" then value = DEFAULT_GUILD_ICON end
+        GuildControlDB.settings.guildIcon = tonumber(value) or value
+        iconInput:ClearFocus()
+        uiModule.UpdateHeader()
+        RefreshConfigFields()
+    end
+
+    btnSaveName:SetScript("OnClick", SaveName)
+    nameInput:SetScript("OnEnterPressed", SaveName)
+    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshConfigFields() end)
+    btnResetName:SetScript("OnClick", function()
+        nameInput:SetText("")
+        SaveName()
+    end)
+
+    btnApplyIcon:SetScript("OnClick", function() SaveIcon(iconInput:GetText()) end)
+    iconInput:SetScript("OnEnterPressed", function(self) SaveIcon(self:GetText()) end)
+    iconInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshConfigFields() end)
+    iconInput:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then iconPreview:SetTexture(addonTable.ResolveIconTexture(strtrim(self:GetText() or ""))) end
+    end)
+    btnResetIcon:SetScript("OnClick", function() SaveIcon(DEFAULT_GUILD_ICON) end)
+
+    -- Cuadrícula de iconos predefinidos
+    local perRow, size, gap = 8, 36, 6
+    for i, iconName in ipairs(PRESET_ICONS) do
+        local btn = CreateFrame("Button", nil, view)
+        btn:SetSize(size, size)
+        local col, row = (i - 1) % perRow, math.floor((i - 1) / perRow)
+        btn:SetPoint("TOPLEFT", iconHint, "BOTTOMLEFT", col * (size + gap), -10 - row * (size + gap))
+        btn:SetNormalTexture("Interface\\Icons\\" .. iconName)
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        btn:SetScript("OnClick", function() SaveIcon("Interface\\Icons\\" .. iconName) end)
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(iconName, 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    view:SetScript("OnShow", RefreshConfigFields)
+    containers.views["Configuracion"] = view
+end
+
+-- =========================================================================
 -- CONSTRUCCIÓN TOTAL DE LA UI
 -- =========================================================================
 function uiModule.CreateUI()
     if GC_UI then return end
 
     GC_UI = CreateFrame("Frame", "GuildControlMainFrame", UIParent, "BasicFrameTemplateWithInset")
-    GC_UI:SetSize(1300, 650)
+    GC_UI:SetSize(1300, 650 + (HEADER_HEIGHT - 50))
     GC_UI:SetPoint("CENTER")
     GC_UI:SetMovable(true)
     GC_UI:EnableMouse(true)
@@ -858,7 +1039,7 @@ function uiModule.CreateUI()
     BuildPlaceholderView(mainContent, "Roster")
     BuildPlaceholderView(mainContent, "Warning")
     BuildPlaceholderView(mainContent, "Black list")
-    BuildPlaceholderView(mainContent, "Configuracion")
+    BuildConfigView(mainContent)
 
     SwitchTab("Miembros")
     GC_UI:Hide()
@@ -985,8 +1166,8 @@ function uiModule.UpdateMemberCounter()
             if isOnline then online = online + 1 end
         end
     end
-    containers.header.membersText:SetText("Miembros: |cFF00FF00" .. total .. "|r")
-    containers.header.onlineText:SetText("Online: |cFF00FFFF" .. online .. "|r")
+    containers.header.membersBox.value:SetText(total)
+    containers.header.onlineBox.value:SetText(online)
 end
 
 function uiModule.ToggleUI()
@@ -998,6 +1179,7 @@ function uiModule.ToggleUI()
         if IsInGuild() then C_GuildInfo.GuildRoster() end
         if uiModule.RefreshList then uiModule.RefreshList() end
         if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+        uiModule.UpdateHeader()
         GC_UI:Show()
     end
 end

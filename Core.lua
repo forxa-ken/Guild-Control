@@ -51,6 +51,31 @@ function addonTable.InitDB()
     if type(GuildControlDB.minimap) ~= "table" then
         GuildControlDB.minimap = { angle = 45, hide = false }
     end
+
+    -- Personalización del encabezado: guildName vacío = nombre real de la hermandad
+    if type(GuildControlDB.settings) ~= "table" then GuildControlDB.settings = {} end
+    if type(GuildControlDB.settings.guildName) ~= "string" then GuildControlDB.settings.guildName = "" end
+    if GuildControlDB.settings.guildIcon == nil then
+        GuildControlDB.settings.guildIcon = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
+    end
+end
+
+-- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico
+function addonTable.GetDisplayGuildName()
+    local custom = GuildControlDB.settings and GuildControlDB.settings.guildName
+    if custom and custom ~= "" then return custom end
+    local guildName = IsInGuild() and GetGuildInfo("player")
+    return guildName or "Sin hermandad"
+end
+
+-- Acepta un fileID, una ruta completa o solo el nombre del icono ("INV_Misc_QuestionMark")
+function addonTable.ResolveIconTexture(value)
+    if type(value) == "number" then return value end
+    if type(value) ~= "string" or value == "" then return "Interface\\Icons\\INV_Misc_QuestionMark" end
+    local asNumber = tonumber(value)
+    if asNumber then return asNumber end
+    if string.find(value, "[\\/]") then return value end
+    return "Interface\\Icons\\" .. value
 end
 
 function addonTable.LogHistoryEvent(actionType, characterName, details)
