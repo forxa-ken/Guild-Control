@@ -277,7 +277,7 @@ end
 local function BuildSidebar(parent)
     local sidebar = CreateBackdropBox(parent, 150, 520, "TOPLEFT", containers.announcements, "BOTTOMLEFT", 0, -5)
 
-    local tabs = { "Resumen", "Miembros", "Logros", "Roster", "Warning", "Black list" }
+    local tabs = { "Resumen", "Miembros", "Logros", "Roster", "Warning", "Invitar", "Black list" }
     local yOffset = -15
 
     for _, tabName in ipairs(tabs) do
@@ -409,6 +409,72 @@ function uiModule.ShowAchievementPreview(id)
             end
         end)
     end
+end
+
+-- =========================================================================
+-- ACCIONES SOBRE JUGADORES (susurrar, invitar al grupo o a la hermandad)
+-- =========================================================================
+local function PrintGC(msg)
+    print("|cFF00FFFF[GuildControl]|r " .. msg)
+end
+
+-- Abre la caja de chat del juego con el texto indicado (el jugador decide cuándo enviarlo)
+local function OpenChatWith(text)
+    if ChatFrameUtil and ChatFrameUtil.OpenChat then
+        ChatFrameUtil.OpenChat(text)
+    elseif ChatFrame_OpenChat then
+        ChatFrame_OpenChat(text)
+    end
+end
+
+local function WhisperTo(name)
+    if name and name ~= "" then OpenChatWith("/w " .. name .. " ") end
+end
+
+local function SendWhisper(name, msg)
+    if not name or name == "" or not msg or msg == "" then return end
+    if C_ChatInfo and C_ChatInfo.SendChatMessage then
+        C_ChatInfo.SendChatMessage(msg, "WHISPER", nil, name)
+    else
+        SendChatMessage(msg, "WHISPER", nil, name)
+    end
+end
+
+local function InviteToGroup(name)
+    if not name or name == "" then return end
+    if C_PartyInfo and C_PartyInfo.InviteUnit then
+        C_PartyInfo.InviteUnit(name)
+    elseif InviteUnit then
+        InviteUnit(name)
+    end
+end
+
+local function InviteToGuild(name)
+    if not name or name == "" then return false end
+    if not IsInGuild() or (CanGuildInvite and not CanGuildInvite()) then
+        PrintGC("|cFFFF3333Tu rango no tiene permiso para invitar a la hermandad.|r")
+        return false
+    end
+    if C_GuildInfo and C_GuildInfo.Invite then
+        C_GuildInfo.Invite(name)
+    elseif GuildInvite then
+        GuildInvite(name)
+    end
+    PrintGC("Invitación a la hermandad enviada a |cFFFFD100" .. name .. "|r.")
+    return true
+end
+
+-- Menú contextual de un jugador (clic derecho)
+local function ShowPlayerMenu(owner, name)
+    if not MenuUtil or not MenuUtil.CreateContextMenu then
+        WhisperTo(name)
+        return
+    end
+    MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
+        rootDescription:CreateTitle(name)
+        rootDescription:CreateButton("Susurrar", function() WhisperTo(name) end)
+        rootDescription:CreateButton("Invitar al grupo", function() InviteToGroup(name) end)
+    end)
 end
 
 -- =========================================================================
@@ -661,8 +727,11 @@ local function BuildMembersView(parent)
             row.cells[i] = fs
         end
 
-        row:SetScript("OnClick", function(self)
-            if self.fullName then ShowMemberPreview(self.fullName, self.data) end
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row:SetScript("OnClick", function(self, button)
+            if not self.fullName then return end
+            ShowMemberPreview(self.fullName, self.data)
+            if button == "RightButton" then ShowPlayerMenu(self, self.fullName) end
         end)
 
         rows[index] = row
@@ -1113,6 +1182,298 @@ local function BuildPlaceholderView(parent, tabName)
     text:SetText("Sección: |cFFFFD100" .. tabName .. "|r\n\n(En desarrollo)")
 
     containers.views[tabName] = view
+end
+
+-- =========================================================================
+-- 8b. VISTA INVITAR (GENERADOR DEL MENSAJE PARA NUEVOS MIEMBROS)
+-- =========================================================================
+local MAX_CHAT_BYTES = 255
+
+local RECRUIT_ROLES = {
+    { key = "tank",   label = "Tanques" },
+    { key = "healer", label = "Sanadores" },
+    { key = "dps",    label = "DPS" },
+}
+
+local RECRUIT_ACTIVITIES = {
+    { key = "raid",     label = "Banda" },
+    { key = "mplus",    label = "Mítica+" },
+    { key = "pvp",      label = "JcJ" },
+    { key = "social",   label = "Social" },
+    { key = "leveling", label = "Subir de nivel" },
+}
+
+-- { "a", "b", "c" } -> "a, b y c"
+local function JoinWithY(list)
+    if #list == 0 then return "" end
+    if #list == 1 then return list[1] end
+    return table.concat(list, ", ", 1, #list - 1) .. " y " .. list[#list]
+end
+
+local function EndSentence(text)
+    text = strtrim(text or "")
+    if text == "" then return "" end
+    if not string.find(text, "[%.!%?]$") then text = text .. "." end
+    return text
+end
+
+-- Construye el mensaje a partir de las opciones guardadas en settings.recruit
+local function ComposeRecruitMessage(recruit)
+    local guild = addonTable.GetDisplayGuildName()
+    local _, faction = UnitFactionGroup("player")
+
+    local roles = {}
+    for _, r in ipairs(RECRUIT_ROLES) do
+        if recruit.roles[r.key] then table.insert(roles, r.label) end
+    end
+    local activities = {}
+    for _, a in ipairs(RECRUIT_ACTIVITIES) do
+        if recruit.activities[a.key] then table.insert(activities, a.label) end
+    end
+
+    local sentence = "<" .. guild .. ">" .. (faction and (" (" .. faction .. ")") or "") .. " busca "
+    sentence = sentence .. (#roles > 0 and JoinWithY(roles) or "jugadores")
+    if #activities > 0 then sentence = sentence .. " para " .. JoinWithY(activities) end
+
+    local parts = { EndSentence(sentence) }
+    if strtrim(recruit.schedule) ~= "" then table.insert(parts, EndSentence("Horario: " .. recruit.schedule)) end
+    if strtrim(recruit.extra) ~= "" then table.insert(parts, EndSentence(recruit.extra)) end
+    return table.concat(parts, " ")
+end
+
+local function BuildInviteView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local recruit = function() return GuildControlDB.settings.recruit end
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetText("Invitar nuevos miembros")
+
+    -- 1. Qué busca la hermandad -------------------------------------------
+    local step1 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step1:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
+    step1:SetText("1. ¿Qué buscáis?")
+
+    local function CreateCheckRow(labelText, yOffset, items, tableKey)
+        local label = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, yOffset)
+        label:SetText(labelText)
+
+        local checks = {}
+        for i, item in ipairs(items) do
+            local chk = CreateFrame("CheckButton", "GC_Recruit_" .. tableKey .. "_" .. item.key, view, "UICheckButtonTemplate")
+            chk:SetSize(24, 24)
+            chk:SetPoint("LEFT", label, "LEFT", 80 + (i - 1) * 135, 0)
+            _G[chk:GetName() .. "Text"]:SetText(item.label)
+            chk:SetScript("OnClick", function(self)
+                recruit()[tableKey][item.key] = self:GetChecked() and true or false
+            end)
+            checks[item.key] = chk
+        end
+        return checks
+    end
+
+    local roleChecks = CreateCheckRow("Roles:", -14, RECRUIT_ROLES, "roles")
+    local activityChecks = CreateCheckRow("Actividades:", -44, RECRUIT_ACTIVITIES, "activities")
+
+    local scheduleLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    scheduleLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -78)
+    scheduleLabel:SetText("Horario:")
+
+    local scheduleInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    scheduleInput:SetSize(320, 20)
+    scheduleInput:SetPoint("LEFT", scheduleLabel, "LEFT", 86, 0)
+    scheduleInput:SetAutoFocus(false)
+    scheduleInput:SetMaxLetters(80)
+
+    local schedulePlaceholder = scheduleInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    schedulePlaceholder:SetPoint("LEFT", scheduleInput, "LEFT", 2, 0)
+    schedulePlaceholder:SetText("Ej.: miércoles y jueves de 21:00 a 00:00")
+
+    local extraLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    extraLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -108)
+    extraLabel:SetText("Texto final:")
+
+    local extraInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    extraInput:SetSize(520, 20)
+    extraInput:SetPoint("LEFT", extraLabel, "LEFT", 86, 0)
+    extraInput:SetAutoFocus(false)
+    extraInput:SetMaxLetters(120)
+
+    scheduleInput:SetScript("OnTextChanged", function(self)
+        recruit().schedule = self:GetText() or ""
+        schedulePlaceholder:SetShown(recruit().schedule == "")
+    end)
+    extraInput:SetScript("OnTextChanged", function(self) recruit().extra = self:GetText() or "" end)
+    for _, box in ipairs({ scheduleInput, extraInput }) do
+        box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    end
+
+    local btnGenerate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnGenerate:SetSize(150, 22)
+    btnGenerate:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -136)
+    btnGenerate:SetText("Generar mensaje")
+
+    -- 2. Mensaje editable ---------------------------------------------------
+    local step2 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step2:SetPoint("TOPLEFT", btnGenerate, "BOTTOMLEFT", 0, -20)
+    step2:SetText("2. Mensaje (puedes retocarlo a mano)")
+
+    local msgBox = CreateBackdropBox(view, 850, 62, "TOPLEFT", step2, "BOTTOMLEFT", 0, -6)
+    local msgInput = CreateFrame("EditBox", nil, msgBox)
+    msgInput:SetPoint("TOPLEFT", msgBox, "TOPLEFT", 8, -8)
+    msgInput:SetPoint("BOTTOMRIGHT", msgBox, "BOTTOMRIGHT", -8, 8)
+    msgInput:SetMultiLine(true)
+    msgInput:SetFontObject(ChatFontNormal)
+    msgInput:SetAutoFocus(false)
+    msgInput:SetMaxLetters(0)
+    msgInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    msgBox:EnableMouse(true)
+    msgBox:SetScript("OnMouseDown", function() msgInput:SetFocus() end)
+
+    local counterText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    counterText:SetPoint("TOPRIGHT", msgBox, "BOTTOMRIGHT", 0, -4)
+
+    local function CurrentMessage()
+        -- El chat no admite saltos de línea
+        return strtrim((string.gsub(msgInput:GetText() or "", "[\r\n]+", " ")))
+    end
+
+    local function UpdateCounter()
+        local bytes = #CurrentMessage()
+        local color = bytes > MAX_CHAT_BYTES and "|cFFFF3333" or "|cFFBFBFBF"
+        counterText:SetText(color .. bytes .. "/" .. MAX_CHAT_BYTES .. "|r")
+    end
+
+    msgInput:SetScript("OnTextChanged", function()
+        recruit().message = CurrentMessage()
+        UpdateCounter()
+    end)
+
+    btnGenerate:SetScript("OnClick", function()
+        msgInput:SetText(ComposeRecruitMessage(recruit()))
+        msgInput:ClearFocus()
+    end)
+
+    -- 3. Enviar -------------------------------------------------------------
+    local step3 = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    step3:SetPoint("TOPLEFT", msgBox, "BOTTOMLEFT", 0, -22)
+    step3:SetText("3. Enviar a un jugador")
+
+    local nameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    nameInput:SetSize(200, 20)
+    nameInput:SetPoint("TOPLEFT", step3, "BOTTOMLEFT", 6, -8)
+    nameInput:SetAutoFocus(false)
+    nameInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local namePlaceholder = nameInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    namePlaceholder:SetPoint("LEFT", nameInput, "LEFT", 2, 0)
+    namePlaceholder:SetText("Nombre o Nombre-Reino")
+    nameInput:SetScript("OnTextChanged", function(self) namePlaceholder:SetShown((self:GetText() or "") == "") end)
+
+    local btnTarget = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnTarget:SetSize(120, 22)
+    btnTarget:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
+    btnTarget:SetText("Usar objetivo")
+    btnTarget:SetScript("OnClick", function()
+        if UnitIsPlayer("target") then
+            local name, realm = UnitName("target")
+            nameInput:SetText(realm and realm ~= "" and (name .. "-" .. realm) or name)
+        else
+            PrintGC("No tienes a ningún jugador como objetivo.")
+        end
+    end)
+
+    local function TargetName()
+        local name = strtrim(nameInput:GetText() or "")
+        if name == "" then
+            PrintGC("|cFFFF3333Escribe el nombre del jugador.|r")
+            return nil
+        end
+        return name
+    end
+
+    -- {nombre} se sustituye por el nombre (sin reino) del destinatario
+    local function MessageFor(name)
+        local msg = CurrentMessage()
+        if msg == "" then
+            PrintGC("|cFFFF3333El mensaje está vacío: pulsa \"Generar mensaje\" o escríbelo.|r")
+            return nil
+        end
+        local short = string.match(name, "^([^-]+)") or name
+        msg = string.gsub(msg, "{nombre}", function() return short end)
+        if #msg > MAX_CHAT_BYTES then
+            PrintGC("|cFFFF3333El mensaje supera los " .. MAX_CHAT_BYTES .. " caracteres del chat.|r")
+            return nil
+        end
+        return msg
+    end
+
+    local actions = {
+        { "Susurrar mensaje", function(name)
+            local msg = MessageFor(name)
+            if msg then SendWhisper(name, msg) end
+        end },
+        { "Invitar a la hermandad", function(name) InviteToGuild(name) end },
+        { "Susurrar e invitar", function(name)
+            local msg = MessageFor(name)
+            if msg then
+                SendWhisper(name, msg)
+                InviteToGuild(name)
+            end
+        end },
+    }
+
+    local previous = nil
+    for _, action in ipairs(actions) do
+        local btn = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+        btn:SetSize(170, 22)
+        if previous then
+            btn:SetPoint("LEFT", previous, "RIGHT", 8, 0)
+        else
+            btn:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -12)
+        end
+        btn:SetText(action[1])
+        btn:SetScript("OnClick", function()
+            local name = TargetName()
+            if name then action[2](name) end
+        end)
+        previous = btn
+    end
+
+    -- Para canales (Comercio, Reclutamiento...): se abre en el chat y el jugador elige dónde enviarlo
+    local btnOpenChat = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnOpenChat:SetSize(170, 22)
+    btnOpenChat:SetPoint("LEFT", previous, "RIGHT", 8, 0)
+    btnOpenChat:SetText("Abrir en el chat")
+    btnOpenChat:SetScript("OnClick", function()
+        local msg = CurrentMessage()
+        if msg ~= "" then OpenChatWith(msg) end
+    end)
+
+    local hint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -44)
+    hint:SetWidth(850)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("{nombre} se sustituye por el nombre del jugador al susurrar. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio).")
+
+    view:SetScript("OnShow", function()
+        local r = recruit()
+        for key, chk in pairs(roleChecks) do chk:SetChecked(r.roles[key]) end
+        for key, chk in pairs(activityChecks) do chk:SetChecked(r.activities[key]) end
+        scheduleInput:SetText(r.schedule or "")
+        extraInput:SetText(r.extra or "")
+        if (r.message or "") == "" then r.message = ComposeRecruitMessage(r) end
+        msgInput:SetText(r.message)
+        UpdateCounter()
+    end)
+
+    containers.views["Invitar"] = view
 end
 
 -- =========================================================================
@@ -1633,6 +1994,7 @@ function uiModule.CreateUI()
     BuildPlaceholderView(mainContent, "Resumen")
     BuildPlaceholderView(mainContent, "Roster")
     BuildPlaceholderView(mainContent, "Warning")
+    BuildInviteView(mainContent)
     BuildPlaceholderView(mainContent, "Black list")
     BuildConfigView(mainContent)
 

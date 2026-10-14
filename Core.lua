@@ -68,6 +68,15 @@ function addonTable.InitDB()
     if type(GuildControlDB.settings.greetMessage) ~= "string" or GuildControlDB.settings.greetMessage == "" then
         GuildControlDB.settings.greetMessage = "¡Hola, {nombre}!"
     end
+
+    -- Generador del mensaje de invitación para nuevos miembros (vista Invitar)
+    if type(GuildControlDB.settings.recruit) ~= "table" then GuildControlDB.settings.recruit = {} end
+    local recruit = GuildControlDB.settings.recruit
+    if type(recruit.roles) ~= "table" then recruit.roles = { tank = true, healer = true, dps = true } end
+    if type(recruit.activities) ~= "table" then recruit.activities = { raid = true, mplus = true, pvp = false, social = true, leveling = false } end
+    if type(recruit.schedule) ~= "string" then recruit.schedule = "" end
+    if type(recruit.extra) ~= "string" then recruit.extra = "¡Susúrrame para más información!" end
+    if type(recruit.message) ~= "string" then recruit.message = "" end
 end
 
 -- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico

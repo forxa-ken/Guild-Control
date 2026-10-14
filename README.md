@@ -30,10 +30,21 @@ En la pestaña **Configuración** puedes personalizar el encabezado del panel:
 
 ## 👥 Miembros y chat
 
+- Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**.
 - Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
+
+## ✉️ Invitar nuevos miembros
+
+La pestaña **Invitar** (debajo de Warning) genera el mensaje de reclutamiento:
+
+1. Marca los roles y actividades que buscáis, el horario y un texto final, y pulsa **Generar mensaje**.
+2. Retoca el mensaje a mano si quieres; el contador avisa si pasa de 255 caracteres. `{nombre}` se sustituye por el nombre del jugador al susurrar.
+3. Escribe el nombre del jugador (o pulsa **Usar objetivo**) y elige **Susurrar mensaje**, **Invitar a la hermandad** o **Susurrar e invitar**. **Abrir en el chat** coloca el mensaje en tu caja de chat para publicarlo en el canal que quieras.
+
+Invitar a la hermandad requiere que tu rango tenga ese permiso.
 
 ## 🚀 Comandos
 
