@@ -59,6 +59,9 @@ function addonTable.InitDB()
         GuildControlDB.settings.guildIcon = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
     end
 
+    -- Enlace de Discord de la hermandad (botón junto al nombre; vacío = sin botón)
+    if type(GuildControlDB.settings.discordLink) ~= "string" then GuildControlDB.settings.discordLink = "" end
+
     -- Panel de chat de hermandad y saludo automático
     if type(GuildControlDB.settings.windowOnTop) ~= "boolean" then GuildControlDB.settings.windowOnTop = false end
     if type(GuildControlDB.settings.chatCollapsed) ~= "boolean" then GuildControlDB.settings.chatCollapsed = false end

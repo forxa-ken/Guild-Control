@@ -110,8 +110,30 @@ local function BuildHeader(parent)
     header.logo = logo
 
     local titleText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    titleText:SetPoint("LEFT", logo, "RIGHT", 12, 0)
+    titleText:SetPoint("TOPLEFT", logo, "TOPRIGHT", 12, -2)
     header.titleText = titleText
+
+    -- Debajo del nombre: reino de la hermandad y facción
+    local subText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    subText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 1, -4)
+    subText:SetTextColor(0.7, 0.7, 0.7)
+    header.subText = subText
+
+    -- Discord de la hermandad: abre una ventanita con el enlace listo para copiar
+    local btnDiscord = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+    btnDiscord:SetSize(84, 22)
+    btnDiscord:SetPoint("LEFT", titleText, "RIGHT", 14, 0)
+    btnDiscord:SetText("Discord")
+    btnDiscord:SetScript("OnClick", function() uiModule.ShowDiscordCopy() end)
+    btnDiscord:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Discord de la hermandad", 1, 1, 1)
+        GameTooltip:AddLine(GuildControlDB.settings.discordLink or "", 0.6, 0.8, 1)
+        GameTooltip:AddLine("Clic para copiar el enlace", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    btnDiscord:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    header.btnDiscord = btnDiscord
 
     -- Cajas de estadísticas alineadas a la derecha
     local statWidth, statGap = 170, 6
@@ -147,13 +169,57 @@ function uiModule.UpdateHeader()
     local settings = GuildControlDB.settings or {}
 
     header.logo:SetTexture(addonTable.ResolveIconTexture(settings.guildIcon))
+    header.titleText:SetText("|cFFFFD100" .. addonTable.GetDisplayGuildName() .. "|r")
 
-    local factionTag = ""
+    -- Reino de la hermandad (GetGuildInfo lo da si es distinto del del personaje) y facción
+    local parts = {}
+    local guildRealm = IsInGuild() and select(4, GetGuildInfo("player")) or nil
+    table.insert(parts, "Reino: |cFFFFFFFF" .. (guildRealm or GetRealmName() or "-") .. "|r")
     local _, localizedFaction = UnitFactionGroup("player")
-    if localizedFaction then
-        factionTag = "  |cFF808080[" .. localizedFaction .. "]|r"
+    if localizedFaction then table.insert(parts, "Facción: |cFFFFFFFF" .. localizedFaction .. "|r") end
+    header.subText:SetText(table.concat(parts, "   ·   "))
+
+    header.btnDiscord:SetShown((settings.discordLink or "") ~= "")
+end
+
+-- Ventanita con el enlace de Discord seleccionado para copiarlo con Ctrl+C
+local GC_DiscordFrame = nil
+function uiModule.ShowDiscordCopy()
+    local link = GuildControlDB.settings.discordLink or ""
+    if link == "" or not GC_UI then return end
+    if not GC_DiscordFrame then
+        local frame = CreateFrame("Frame", "GuildControlDiscordFrame", GC_UI, "BasicFrameTemplateWithInset")
+        frame:SetSize(420, 110)
+        frame:SetPoint("TOP", GC_UI, "TOP", 0, -100)
+        frame:SetFrameStrata("DIALOG")
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText("Discord de la hermandad")
+
+        local edit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+        edit:SetSize(380, 22)
+        edit:SetPoint("TOP", frame, "TOP", 0, -36)
+        edit:SetAutoFocus(false)
+        -- Siempre el enlace completo y seleccionado, aunque se intente editar
+        edit:SetScript("OnTextChanged", function(self, userInput)
+            if userInput then self:SetText(frame.link or ""); self:HighlightText() end
+        end)
+        edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+        edit:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+        edit:SetScript("OnEscapePressed", function() frame:Hide() end)
+        edit:SetScript("OnEnterPressed", function() frame:Hide() end)
+        frame.edit = edit
+
+        local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hint:SetPoint("TOP", edit, "BOTTOM", 0, -10)
+        hint:SetText("|cFF00FF00Enlace seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo.")
+        GC_DiscordFrame = frame
     end
-    header.titleText:SetText("|cFFFFD100" .. addonTable.GetDisplayGuildName() .. "|r" .. factionTag)
+    GC_DiscordFrame.link = link
+    GC_DiscordFrame:Show()
+    GC_DiscordFrame.edit:SetText(link)
+    GC_DiscordFrame.edit:SetFocus()
+    GC_DiscordFrame.edit:HighlightText()
 end
 
 -- =========================================================================
@@ -564,16 +630,17 @@ local MEMBER_ROW_HEIGHT = 24
 -- Columnas de la tabla de miembros. "key" es el criterio de orden (nil = no ordenable)
 local MEMBER_COLUMNS = {
     { title = "Nº",       x = 5,   w = 25 },
-    { title = "Nivel",    x = 30,  w = 50,  key = "level" },
-    { title = "Clase",    x = 80,  w = 65,  key = "class" },
-    { title = "Nombre",   x = 145, w = 140, key = "name" },
-    { title = "Rango",    x = 285, w = 80,  key = "rank" },
-    { title = "Rol",      x = 365, w = 65,  key = "role" },
-    { title = "Enfoque",  x = 430, w = 70,  key = "focus" },
-    { title = "Prof. 1",  x = 500, w = 90,  key = "prof1" },
-    { title = "Prof. 2",  x = 590, w = 90,  key = "prof2" },
-    { title = "Roster",   x = 680, w = 70,  key = "roster" },
-    { title = "Conexión", x = 750, w = 95,  key = "lastOnline" },
+    { title = "Nivel",    x = 30,  w = 48,  key = "level" },
+    { title = "Clase",    x = 78,  w = 62,  key = "class" },
+    { title = "Nombre",   x = 140, w = 130, key = "name" },
+    { title = "Rango",    x = 270, w = 72,  key = "rank" },
+    { title = "Tipo",     x = 342, w = 48,  key = "charType" },
+    { title = "Rol",      x = 390, w = 70,  key = "role" },
+    { title = "Enfoque",  x = 460, w = 66,  key = "focus" },
+    { title = "Prof. 1",  x = 526, w = 88,  key = "prof1" },
+    { title = "Prof. 2",  x = 614, w = 88,  key = "prof2" },
+    { title = "Roster",   x = 702, w = 60,  key = "roster" },
+    { title = "Conexión", x = 762, w = 88,  key = "lastOnline" },
 }
 
 -- Orden por defecto: conectados primero y después por días desde la última conexión
@@ -606,20 +673,42 @@ local function RoleCellColor(data, isOnline)
     return isOnline and "FFFFFF" or "888888"
 end
 
+-- Valores que se muestran vacíos cuando no hay dato (profesiones, roster, enfoque y tipo)
+local function ProfessionCell(value)
+    return (value and value ~= "Ninguna") and value or ""
+end
+
+local function RosterCell(value)
+    return (value and value ~= "Sin Roster") and value or ""
+end
+
+-- El enfoque solo se muestra si el jugador lo declaró en Mi perfil
+local function FocusCell(data)
+    return data.declared and data.declared.focus or ""
+end
+
+local function CharTypeCell(data)
+    local charType = data.declared and data.declared.charType
+    if charType == "alt" then return "Alter" elseif charType == "main" then return "Main" end
+    return ""
+end
+
 local function MemberSortValue(entry, key)
     local data = entry.data
     if key == "level" then return tonumber(data.level) or 0 end
     if key == "lastOnline" then return OnlineSortValue(data) end
     if key == "name" then return string.lower(entry.name) end
-    -- Sin rol definido, al final en orden ascendente
-    if key == "role" then return HasDefinedRole(data) and string.lower(data.role or "") or "\255" end
 
-    local value = data[key]
-    if key == "prof1" or key == "prof2" then
-        -- "Ninguna" siempre al final en orden ascendente
-        if not value or value == "Ninguna" then return "\255" end
-    end
-    return string.lower(tostring(value or ""))
+    -- Las celdas vacías van siempre al final en orden ascendente
+    local value
+    if key == "role" then value = HasDefinedRole(data) and data.role or ""
+    elseif key == "prof1" or key == "prof2" then value = ProfessionCell(data[key])
+    elseif key == "roster" then value = RosterCell(data.roster)
+    elseif key == "focus" then value = FocusCell(data)
+    elseif key == "charType" then value = CharTypeCell(data)
+    else value = tostring(data[key] or "") end
+    if value == "" then return "\255" end
+    return string.lower(value)
 end
 
 local function BuildMembersView(parent)
@@ -810,7 +899,7 @@ local function BuildMembersView(parent)
             ((addonTable.Profiles and addonTable.Profiles.GetCharTypeText(data)) and
                 ("Personaje: |cFFFFD100" .. addonTable.Profiles.GetCharTypeText(data) .. "|r\n") or "") ..
             BuildDeclaredText(data) ..
-            "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
+            "Enfoque: " .. (FocusCell(data) ~= "" and FocusCell(data) or "|cFF808080sin definir|r") .. "\n" ..
             "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
             "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
             "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
@@ -898,11 +987,12 @@ local function BuildMembersView(parent)
                 { data.class or "Desconocida", hex },
                 { entry.name, hex },
                 { data.rank or "Recluta", isOnline and "FFFFFF" or dim },
+                { CharTypeCell(data), isOnline and "FFD100" or dim },
                 { RoleCellText(data), RoleCellColor(data, isOnline) },
-                { data.focus or "PvE", isOnline and "FFFFFF" or dim },
-                { data.prof1 or "Ninguna", isOnline and "FFFFFF" or dim },
-                { data.prof2 or "Ninguna", isOnline and "FFFFFF" or dim },
-                { data.roster or "Sin Roster", isOnline and "00FFFF" or dim },
+                { FocusCell(data), isOnline and "FFFFFF" or dim },
+                { ProfessionCell(data.prof1), isOnline and "FFFFFF" or dim },
+                { ProfessionCell(data.prof2), isOnline and "FFFFFF" or dim },
+                { RosterCell(data.roster), isOnline and "00FFFF" or dim },
                 { data.lastOnline or "Online", isOnline and "00FF00" or dim },
             }
             for c, v in ipairs(values) do
@@ -3687,8 +3777,11 @@ local function BuildMyProfileView(parent)
     mainNameInput:SetScript("OnTextChanged", function(self) mainNamePlaceholder:SetShown((self:GetText() or "") == "") end)
     mainNameInput:Hide()
 
+    -- Enfoque principal del jugador (columna Enfoque de Miembros)
+    local focusChoice = CreateRoleChoice("Enfoque", charChoice.label, -50, P.FOCUS)
+
     local specLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    specLabel:SetPoint("TOPLEFT", charChoice.label, "BOTTOMLEFT", 0, -50)
+    specLabel:SetPoint("TOPLEFT", focusChoice.label, "BOTTOMLEFT", 0, -50)
     specLabel:SetText("Especialización")
 
     local specInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
@@ -3741,7 +3834,7 @@ local function BuildMyProfileView(parent)
             return
         end
         local charType = charChoice.Get() == "Alter" and "alt" or "main"
-        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText(), charType, mainNameInput:GetText())
+        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText(), charType, mainNameInput:GetText(), focusChoice.Get())
         specInput:ClearFocus()
         noteInput:ClearFocus()
         saveStatus:SetText("|cFF00FF00Guardado y enviado a las " .. date("%H:%M") .. ".|r")
@@ -3810,6 +3903,7 @@ local function BuildMyProfileView(parent)
         mainChoice.Set(profile.main)
         secondaryChoice.Set(profile.secondary)
         charChoice.Set(profile.charType == "alt" and "Alter" or "Principal")
+        focusChoice.Set(profile.focus)
         mainNameInput:SetText(profile.mainName or "")
         mainNameInput:SetShown(profile.charType == "alt")
         specInput:SetText(profile.spec or "")
@@ -4093,110 +4187,126 @@ local function BuildConfigView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
     view:Hide()
+    local settings = function() return GuildControlDB.settings end
 
     local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText("Configuración")
 
-    -- 9.1 Nombre de la hermandad
-    local nameLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    nameLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -25)
-    nameLabel:SetText("Nombre de la hermandad")
-
-    local nameInput = CreateFrame("EditBox", "GC_CfgGuildName", view, "InputBoxTemplate")
-    nameInput:SetSize(300, 20)
-    nameInput:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 6, -8)
-    nameInput:SetAutoFocus(false)
-    nameInput:SetMaxLetters(48)
-
-    local btnSaveName = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnSaveName:SetSize(90, 22)
-    btnSaveName:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
-    btnSaveName:SetText("Guardar")
-
-    local btnResetName = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnResetName:SetSize(150, 22)
-    btnResetName:SetPoint("LEFT", btnSaveName, "RIGHT", 6, 0)
-    btnResetName:SetText("Usar nombre del juego")
-
-    local nameHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    nameHint:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -6)
-    nameHint:SetText("Si lo dejas vacío se muestra el nombre real de la hermandad.")
-
-    -- 9.2 Icono de la hermandad
-    local iconLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    iconLabel:SetPoint("TOPLEFT", nameHint, "BOTTOMLEFT", 0, -30)
-    iconLabel:SetText("Icono de la hermandad")
-
-    local iconPreview = view:CreateTexture(nil, "ARTWORK")
-    iconPreview:SetSize(48, 48)
-    iconPreview:SetPoint("TOPLEFT", iconLabel, "BOTTOMLEFT", 0, -8)
-
-    local iconInput = CreateFrame("EditBox", "GC_CfgGuildIcon", view, "InputBoxTemplate")
-    iconInput:SetSize(300, 20)
-    iconInput:SetPoint("LEFT", iconPreview, "RIGHT", 16, 0)
-    iconInput:SetAutoFocus(false)
-
-    local btnApplyIcon = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnApplyIcon:SetSize(90, 22)
-    btnApplyIcon:SetPoint("LEFT", iconInput, "RIGHT", 10, 0)
-    btnApplyIcon:SetText("Aplicar")
-
-    local btnResetIcon = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnResetIcon:SetSize(150, 22)
-    btnResetIcon:SetPoint("LEFT", btnApplyIcon, "RIGHT", 6, 0)
-    btnResetIcon:SetText("Restablecer icono")
-
-    local iconHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    iconHint:SetPoint("TOPLEFT", iconPreview, "BOTTOMLEFT", 0, -6)
-    iconHint:SetText("Escribe el nombre del icono (INV_Misc_QuestionMark), su ID numérico o la ruta completa, o elige uno:")
-
-    local function RefreshConfigFields()
-        local settings = GuildControlDB.settings or {}
-        nameInput:SetText(settings.guildName or "")
-        iconInput:SetText(tostring(settings.guildIcon or ""))
-        iconPreview:SetTexture(addonTable.ResolveIconTexture(settings.guildIcon))
+    -- Cada sección es una caja con su título
+    local function Section(titleText, x, y, width, height)
+        local box = CreateBackdropBox(view, width, height, "TOPLEFT", view, "TOPLEFT", x, y)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+        box.title:SetText(titleText)
+        return box
     end
 
+    local function Label(parentBox, text, x, y)
+        local fs = parentBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", parentBox, "TOPLEFT", x, y)
+        fs:SetText(text)
+        return fs
+    end
+
+    local function Input(parentBox, width, anchor, placeholderText, maxLetters)
+        local input = CreateFrame("EditBox", nil, parentBox, "InputBoxTemplate")
+        input:SetSize(width, 20)
+        input:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 6, -4)
+        input:SetAutoFocus(false)
+        if maxLetters then input:SetMaxLetters(maxLetters) end
+        if placeholderText then
+            local placeholder = input:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            placeholder:SetPoint("LEFT", input, "LEFT", 2, 0)
+            placeholder:SetText(placeholderText)
+            input:HookScript("OnTextChanged", function(self) placeholder:SetShown((self:GetText() or "") == "") end)
+        end
+        return input
+    end
+
+    local function Button(parentBox, text, width, anchor, onClick)
+        local btn = CreateFrame("Button", nil, parentBox, "UIPanelButtonTemplate")
+        btn:SetSize(width, 22)
+        btn:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+
+    -- ---------------------------------------------------------------------
+    -- 9.1 Hermandad: nombre, Discord e icono
+    -- ---------------------------------------------------------------------
+    local guildBox = Section("Hermandad", 10, -36, 560, 236)
+
+    local nameLabel = Label(guildBox, "Nombre (vacío = el nombre real de la hermandad)", 14, -32)
+    local nameInput = Input(guildBox, 230, nameLabel, nil, 48)
+
     local function SaveName()
-        GuildControlDB.settings.guildName = strtrim(nameInput:GetText() or "")
+        settings().guildName = strtrim(nameInput:GetText() or "")
         nameInput:ClearFocus()
         uiModule.UpdateHeader()
-        RefreshConfigFields()
+    end
+    local btnSaveName = Button(guildBox, "Guardar", 80, nameInput, SaveName)
+    Button(guildBox, "Usar nombre del juego", 150, btnSaveName, function()
+        nameInput:SetText("")
+        SaveName()
+    end)
+    nameInput:SetScript("OnEnterPressed", SaveName)
+    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().guildName or "") end)
+
+    local discordLabel = Label(guildBox, "Enlace de Discord (se muestra un botón junto al nombre)", 14, -84)
+    local discordInput = Input(guildBox, 300, discordLabel, "https://discord.gg/...", 120)
+
+    local function SaveDiscord()
+        settings().discordLink = strtrim(discordInput:GetText() or "")
+        discordInput:ClearFocus()
+        uiModule.UpdateHeader()
+    end
+    local btnSaveDiscord = Button(guildBox, "Guardar", 80, discordInput, SaveDiscord)
+    Button(guildBox, "Quitar", 70, btnSaveDiscord, function()
+        discordInput:SetText("")
+        SaveDiscord()
+    end)
+    discordInput:SetScript("OnEnterPressed", SaveDiscord)
+    discordInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().discordLink or "") end)
+
+    local iconLabel = Label(guildBox, "Icono: nombre (INV_Misc_QuestionMark), ID numérico o ruta, o elige uno", 14, -136)
+    local iconPreview = guildBox:CreateTexture(nil, "ARTWORK")
+    iconPreview:SetSize(32, 32)
+    iconPreview:SetPoint("TOPLEFT", iconLabel, "BOTTOMLEFT", 0, -4)
+
+    local iconInput = CreateFrame("EditBox", nil, guildBox, "InputBoxTemplate")
+    iconInput:SetSize(230, 20)
+    iconInput:SetPoint("LEFT", iconPreview, "RIGHT", 12, 0)
+    iconInput:SetAutoFocus(false)
+
+    local function RefreshIconFields()
+        iconInput:SetText(tostring(settings().guildIcon or ""))
+        iconPreview:SetTexture(addonTable.ResolveIconTexture(settings().guildIcon))
     end
 
     local function SaveIcon(value)
         value = strtrim(value or "")
         if value == "" then value = DEFAULT_GUILD_ICON end
-        GuildControlDB.settings.guildIcon = tonumber(value) or value
+        settings().guildIcon = tonumber(value) or value
         iconInput:ClearFocus()
         uiModule.UpdateHeader()
-        RefreshConfigFields()
+        RefreshIconFields()
     end
 
-    btnSaveName:SetScript("OnClick", SaveName)
-    nameInput:SetScript("OnEnterPressed", SaveName)
-    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshConfigFields() end)
-    btnResetName:SetScript("OnClick", function()
-        nameInput:SetText("")
-        SaveName()
-    end)
-
-    btnApplyIcon:SetScript("OnClick", function() SaveIcon(iconInput:GetText()) end)
+    local btnApplyIcon = Button(guildBox, "Aplicar", 80, iconInput, function() SaveIcon(iconInput:GetText()) end)
+    Button(guildBox, "Restablecer", 100, btnApplyIcon, function() SaveIcon(DEFAULT_GUILD_ICON) end)
     iconInput:SetScript("OnEnterPressed", function(self) SaveIcon(self:GetText()) end)
-    iconInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshConfigFields() end)
+    iconInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshIconFields() end)
     iconInput:SetScript("OnTextChanged", function(self, userInput)
         if userInput then iconPreview:SetTexture(addonTable.ResolveIconTexture(strtrim(self:GetText() or ""))) end
     end)
-    btnResetIcon:SetScript("OnClick", function() SaveIcon(DEFAULT_GUILD_ICON) end)
 
-    -- Cuadrícula de iconos predefinidos
-    local perRow, size, gap = 8, 36, 6
+    -- Iconos predefinidos en una fila
     for i, iconName in ipairs(PRESET_ICONS) do
-        local btn = CreateFrame("Button", nil, view)
-        btn:SetSize(size, size)
-        local col, row = (i - 1) % perRow, math.floor((i - 1) / perRow)
-        btn:SetPoint("TOPLEFT", iconHint, "BOTTOMLEFT", col * (size + gap), -10 - row * (size + gap))
+        local btn = CreateFrame("Button", nil, guildBox)
+        btn:SetSize(28, 28)
+        btn:SetPoint("TOPLEFT", iconPreview, "BOTTOMLEFT", (i - 1) * 33, -8)
         btn:SetNormalTexture("Interface\\Icons\\" .. iconName)
         btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
         btn:SetScript("OnClick", function() SaveIcon("Interface\\Icons\\" .. iconName) end)
@@ -4208,119 +4318,101 @@ local function BuildConfigView(parent)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    -- 9.3 Saludo automático
-    local greetLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    greetLabel:SetPoint("TOPLEFT", iconHint, "BOTTOMLEFT", 0, -110)
-    greetLabel:SetText("Saludo automático")
+    -- ---------------------------------------------------------------------
+    -- 9.2 Ventana
+    -- ---------------------------------------------------------------------
+    local windowBox = Section("Ventana", 578, -36, 312, 236)
 
-    local chkGreet = CreateFrame("CheckButton", "GC_CfgAutoGreet", view, "UICheckButtonTemplate")
-    chkGreet:SetPoint("TOPLEFT", greetLabel, "BOTTOMLEFT", -4, -4)
-    _G[chkGreet:GetName() .. "Text"]:SetText("Responder cuando alguien de la hermandad salude")
+    local chkOnTop = CreateFrame("CheckButton", "GC_CfgWindowOnTop", windowBox, "UICheckButtonTemplate")
+    chkOnTop:SetPoint("TOPLEFT", windowBox, "TOPLEFT", 10, -30)
+    _G[chkOnTop:GetName() .. "Text"]:SetText("Siempre por encima")
+    chkOnTop:SetScript("OnClick", function(self)
+        settings().windowOnTop = self:GetChecked() and true or false
+        uiModule.ApplyWindowStrata()
+    end)
 
-    local greetInput = CreateFrame("EditBox", "GC_CfgGreetMessage", view, "InputBoxTemplate")
-    greetInput:SetSize(300, 20)
-    greetInput:SetPoint("TOPLEFT", chkGreet, "BOTTOMLEFT", 10, -6)
-    greetInput:SetAutoFocus(false)
-    greetInput:SetMaxLetters(120)
+    local onTopHint = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    onTopHint:SetPoint("TOPLEFT", chkOnTop, "BOTTOMLEFT", 4, -2)
+    onTopHint:SetWidth(284)
+    onTopHint:SetJustifyH("LEFT")
+    onTopHint:SetText("Muestra la ventana del addon por encima de las barras de acción y otros botones del juego.")
 
-    local btnSaveGreet = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnSaveGreet:SetSize(90, 22)
-    btnSaveGreet:SetPoint("LEFT", greetInput, "RIGHT", 10, 0)
-    btnSaveGreet:SetText("Guardar")
+    local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
+    aboutText:SetWidth(284)
+    aboutText:SetJustifyH("LEFT")
+    aboutText:SetText("GuildControl v4.5.0 · Autor: Forxaken · Guild: Lobo Gélido\nEl perfil de oficial y el rango mínimo se configuran en Mi perfil.")
 
-    local greetHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    greetHint:SetPoint("TOPLEFT", greetInput, "BOTTOMLEFT", -6, -6)
-    greetHint:SetText("{nombre} se sustituye por el nombre de quien saluda. Responde a saludos cortos (hola, buenas...). Los tiempos se ajustan en la columna derecha.")
-    greetHint:SetWidth(620)
-    greetHint:SetJustifyH("LEFT")
+    -- ---------------------------------------------------------------------
+    -- 9.3 Saludo automático: mensaje, tiempos y palabras
+    -- ---------------------------------------------------------------------
+    local greetBox = Section("Saludo automático", 10, -278, 880, 228)
+
+    local chkGreet = CreateFrame("CheckButton", "GC_CfgAutoGreet", greetBox, "UICheckButtonTemplate")
+    chkGreet:SetPoint("TOPLEFT", greetBox, "TOPLEFT", 10, -28)
+    _G[chkGreet:GetName() .. "Text"]:SetText("Responder a quien salude al conectarse")
+    chkGreet:SetScript("OnClick", function(self) settings().autoGreet = self:GetChecked() and true or false end)
+
+    local greetLabel = Label(greetBox, "Mensaje de respuesta", 14, -66)
+    local greetInput = Input(greetBox, 220, greetLabel, nil, 120)
 
     local function SaveGreet()
         local text = strtrim(greetInput:GetText() or "")
         if text == "" then text = "¡Hola, {nombre}!" end
-        GuildControlDB.settings.greetMessage = text
+        settings().greetMessage = text
         greetInput:SetText(text)
         greetInput:ClearFocus()
     end
-
-    chkGreet:SetScript("OnClick", function(self) GuildControlDB.settings.autoGreet = self:GetChecked() and true or false end)
-    btnSaveGreet:SetScript("OnClick", SaveGreet)
+    Button(greetBox, "Guardar", 70, greetInput, SaveGreet)
     greetInput:SetScript("OnEnterPressed", SaveGreet)
-    greetInput:SetScript("OnEscapePressed", function(self)
-        self:ClearFocus()
-        self:SetText(GuildControlDB.settings.greetMessage or "")
-    end)
+    greetInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().greetMessage or "") end)
 
-    -- 9.4 Ventana (columna derecha)
-    local windowLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    windowLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 660, -70)
-    windowLabel:SetText("Ventana")
+    local greetHint = greetBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    greetHint:SetPoint("TOPLEFT", greetInput, "BOTTOMLEFT", -6, -8)
+    greetHint:SetWidth(300)
+    greetHint:SetJustifyH("LEFT")
+    greetHint:SetText("{nombre} se sustituye por quien saluda. Solo se responde a quien acaba de conectarse y aún no ha sido saludado.")
 
-    local chkOnTop = CreateFrame("CheckButton", "GC_CfgWindowOnTop", view, "UICheckButtonTemplate")
-    chkOnTop:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", -4, -4)
-    _G[chkOnTop:GetName() .. "Text"]:SetText("Siempre por encima")
+    -- Columna central: tiempos
+    local timesTitle = Label(greetBox, "|cFFFFD100Tiempos|r", 350, -32)
 
-    local onTopHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    onTopHint:SetPoint("TOPLEFT", chkOnTop, "BOTTOMLEFT", 4, -2)
-    onTopHint:SetWidth(210)
-    onTopHint:SetJustifyH("LEFT")
-    onTopHint:SetText("Muestra la ventana del addon por encima de las barras de acción y otros botones del juego.")
-
-    chkOnTop:SetScript("OnClick", function(self)
-        GuildControlDB.settings.windowOnTop = self:GetChecked() and true or false
-        uiModule.ApplyWindowStrata()
-    end)
-
-    -- 9.5 Tiempos del saludo automático (columna derecha)
-    local timesLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    timesLabel:SetPoint("TOPLEFT", onTopHint, "BOTTOMLEFT", 0, -30)
-    timesLabel:SetText("Tiempos del saludo")
-
-    -- Campo numérico con su texto a la derecha; guarda al escribir dentro de [minValue, maxValue]
-    local function CreateNumberSetting(anchor, xOffset, yOffset, labelText, key, minValue, maxValue)
-        local input = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    local function NumberSetting(anchor, xOffset, yOffset, labelText, key, minValue, maxValue)
+        local input = CreateFrame("EditBox", nil, greetBox, "InputBoxTemplate")
         input:SetSize(40, 20)
         input:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", xOffset, yOffset)
         input:SetAutoFocus(false)
         input:SetNumeric(true)
         input:SetMaxLetters(4)
         input:SetJustifyH("CENTER")
-
-        local text = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local text = greetBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         text:SetPoint("LEFT", input, "RIGHT", 8, 0)
-        text:SetWidth(160)
+        text:SetWidth(200)
         text:SetJustifyH("LEFT")
         text:SetText(labelText)
-
         input:SetScript("OnTextChanged", function(self, userInput)
             if not userInput then return end
             local value = tonumber(self:GetText())
-            if value then
-                GuildControlDB.settings[key] = math.min(maxValue, math.max(minValue, value))
-            end
+            if value then settings()[key] = math.min(maxValue, math.max(minValue, value)) end
         end)
-        input:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(GuildControlDB.settings[key])) end)
+        input:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(settings()[key])) end)
         input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         return input
     end
 
-    local delayInput = CreateNumberSetting(timesLabel, 6, -8, "Segundos de espera antes de responder (1-60)", "greetDelay", 1, 60)
-    local cooldownInput = CreateNumberSetting(delayInput, 0, -18, "Minutos sin volver a saludar a la misma persona (1-1440)", "greetCooldown", 1, 1440)
+    local delayInput = NumberSetting(timesTitle, 6, -10, "Segundos de espera antes de responder (1-60)", "greetDelay", 1, 60)
+    local cooldownInput = NumberSetting(delayInput, 0, -16, "Minutos sin volver a saludar a la misma persona (1-1440)", "greetCooldown", 1, 1440)
+    local loginInput = NumberSetting(cooldownInput, 0, -16, "Minutos tras conectarse en los que se le saluda (1-30)", "greetLoginWindow", 1, 30)
 
-    local loginInput = CreateNumberSetting(cooldownInput, 0, -18, "Minutos tras conectarse en los que se le saluda (1-30)", "greetLoginWindow", 1, 30)
-
-    local timesHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    timesHint:SetPoint("TOPLEFT", loginInput, "BOTTOMLEFT", -6, -10)
-    timesHint:SetWidth(210)
+    local timesHint = greetBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    timesHint:SetPoint("TOPLEFT", loginInput, "BOTTOMLEFT", -6, -12)
+    timesHint:SetWidth(250)
     timesHint:SetJustifyH("LEFT")
-    timesHint:SetText("Solo se saluda a quien acaba de conectarse y aún no ha sido saludado. A la espera se suman hasta 4 s aleatorios.")
+    timesHint:SetText("A la espera se suman hasta 4 s aleatorios para que, si varios usan GuildControl, solo responda uno.")
 
-    -- Palabras que cuentan como saludo
-    local wordsLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    wordsLabel:SetPoint("TOPLEFT", timesHint, "BOTTOMLEFT", 0, -16)
-    wordsLabel:SetText("Palabras de saludo")
-
-    local wordsBox = CreateBackdropBox(view, 220, 64, "TOPLEFT", wordsLabel, "BOTTOMLEFT", 0, -4)
+    -- Columna derecha: palabras de saludo
+    local wordsTitle = Label(greetBox, "|cFFFFD100Palabras de saludo|r", 630, -32)
+    local wordsBox = CreateBackdropBox(greetBox, 236, 110, "TOPLEFT", wordsTitle, "BOTTOMLEFT", 0, -6)
     local wordsInput = CreateFrame("EditBox", nil, wordsBox)
     wordsInput:SetPoint("TOPLEFT", wordsBox, "TOPLEFT", 6, -6)
     wordsInput:SetPoint("BOTTOMRIGHT", wordsBox, "BOTTOMRIGHT", -6, 6)
@@ -4330,30 +4422,33 @@ local function BuildConfigView(parent)
     wordsInput:SetMaxLetters(0)
     wordsInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     wordsInput:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then GuildControlDB.settings.greetWords = self:GetText() or "" end
+        if userInput then settings().greetWords = self:GetText() or "" end
     end)
     wordsBox:EnableMouse(true)
     wordsBox:SetScript("OnMouseDown", function() wordsInput:SetFocus() end)
 
-    local wordsHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local wordsHint = greetBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     wordsHint:SetPoint("TOPLEFT", wordsBox, "BOTTOMLEFT", 0, -4)
-    wordsHint:SetWidth(220)
+    wordsHint:SetWidth(236)
     wordsHint:SetJustifyH("LEFT")
-    wordsHint:SetText("Separadas por comas. El mensaje debe empezar por una de ellas. Vacío = lista por defecto.")
+    wordsHint:SetText("Separadas por comas; el mensaje debe empezar por una. Vacío = lista por defecto.")
 
     view:SetScript("OnShow", function()
-        RefreshConfigFields()
-        delayInput:SetText(tostring(GuildControlDB.settings.greetDelay))
-        cooldownInput:SetText(tostring(GuildControlDB.settings.greetCooldown))
-        loginInput:SetText(tostring(GuildControlDB.settings.greetLoginWindow))
-        local words = GuildControlDB.settings.greetWords
+        local s = settings()
+        nameInput:SetText(s.guildName or "")
+        discordInput:SetText(s.discordLink or "")
+        RefreshIconFields()
+        chkOnTop:SetChecked(s.windowOnTop)
+        chkGreet:SetChecked(s.autoGreet)
+        greetInput:SetText(s.greetMessage or "")
+        delayInput:SetText(tostring(s.greetDelay))
+        cooldownInput:SetText(tostring(s.greetCooldown))
+        loginInput:SetText(tostring(s.greetLoginWindow))
+        local words = s.greetWords
         if not words or strtrim(words) == "" then
             words = addonTable.GuildChat and addonTable.GuildChat.DEFAULT_GREET_WORDS or ""
         end
         wordsInput:SetText(words)
-        chkOnTop:SetChecked(GuildControlDB.settings.windowOnTop)
-        chkGreet:SetChecked(GuildControlDB.settings.autoGreet)
-        greetInput:SetText(GuildControlDB.settings.greetMessage or "")
     end)
     containers.views["Configuracion"] = view
 end

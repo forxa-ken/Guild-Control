@@ -23,7 +23,10 @@
 
 ## ⚙️ Configuración
 
-En la pestaña **Configuración** puedes personalizar el encabezado del panel:
+La pestaña **Configuración** está dividida en tres secciones: **Hermandad** (nombre, Discord e icono), **Ventana** y **Saludo automático** (mensaje, tiempos y palabras).
+
+El encabezado muestra debajo del nombre el reino de la hermandad y la facción. Si configuras un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C.
+
 
 - **Nombre de la hermandad**: escribe el nombre que quieres mostrar. Si lo dejas vacío (o pulsas "Usar nombre del juego") se usa el nombre real de la hermandad.
 - **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
@@ -33,7 +36,7 @@ En la pestaña **Configuración** puedes personalizar el encabezado del panel:
 ## 👥 Miembros y chat
 
 - Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**.
-- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. Al entrar en Miembros aparecen primero los conectados.
+- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
@@ -59,7 +62,7 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
-- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización**, si es su **personaje principal o un alter** (y de quién) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
+- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización**, si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
 - **Perfil de oficial**: rango igual o superior al configurado en Mi perfil (por defecto el rango 1) o permiso de chat de oficiales del juego. Ve todas las pestañas.
 - **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil, **Mis rosters** y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.

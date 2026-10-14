@@ -20,6 +20,8 @@ local REQUEST_PREFIX = "GCRoleReq"
 local BROADCAST_COOLDOWN = 10
 
 profilesModule.ROLES = { "Tanque", "Sanador", "DPS" }
+profilesModule.FOCUS = { "PvE", "PvP", "Social" }
+local VALID_FOCUS = { PvE = true, PvP = true, Social = true }
 local VALID_ROLES = { Tanque = true, Sanador = true, DPS = true }
 
 local lastBroadcast = -BROADCAST_COOLDOWN
@@ -125,7 +127,7 @@ end
 
 -- Guarda una declaración en la ficha del miembro. "at" es la fecha (time()) en que el
 -- jugador la guardó: una declaración más antigua nunca pisa a una más nueva.
--- extra = { charType = "main"|"alt", mainName = "Nombre del principal" }
+-- extra = { charType = "main"|"alt", mainName = "Nombre del principal", focus = "PvE"|"PvP"|"Social" }
 local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     local m = GuildControlDB.members[fullName]
     if not m or not main then return false end
@@ -133,15 +135,18 @@ local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     extra = extra or {}
     local charType = (extra.charType == "alt" or extra.charType == "main") and extra.charType or nil
     local mainName = charType == "alt" and extra.mainName ~= "" and extra.mainName or nil
+    local focus = VALID_FOCUS[extra.focus] and extra.focus or nil
     local previous = m.declared
     if previous and previous.at and previous.at > at then return false end
     if previous and previous.at == at and previous.main == main and previous.secondary == secondary
         and previous.spec == spec and previous.note == note
-        and previous.charType == charType and previous.mainName == mainName then
+        and previous.charType == charType and previous.mainName == mainName and previous.focus == focus then
         return false
     end
     m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = at,
-                   charType = charType, mainName = mainName }
+                   charType = charType, mainName = mainName, focus = focus }
+    -- El enfoque declarado es el que muestra la columna Enfoque
+    if focus then m.focus = focus end
     if m.roleSource ~= "officer" then
         m.role = main
         m.roleSource = "declared"
@@ -150,7 +155,7 @@ local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
 end
 
 local function ProfileExtra(profile)
-    return { charType = profile.charType, mainName = profile.mainName }
+    return { charType = profile.charType, mainName = profile.mainName, focus = profile.focus }
 end
 
 -- Los personajes de esta misma cuenta comparten SavedVariables: sus perfiles se aplican
@@ -170,7 +175,7 @@ end
 
 -- Guarda mi perfil, lo aplica a mi propia ficha y lo envía a la hermandad.
 -- charType = "main" (personaje principal) o "alt"; mainName = principal si es un alter.
-function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mainName)
+function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mainName, focus)
     local profile = profilesModule.GetMyProfile()
     profile.main = VALID_ROLES[main] and main or nil
     profile.secondary = (VALID_ROLES[secondary] and secondary ~= profile.main) and secondary or nil
@@ -178,6 +183,7 @@ function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mai
     profile.note = Clean(note, 80)
     profile.charType = charType == "alt" and "alt" or "main"
     profile.mainName = profile.charType == "alt" and Clean(mainName, 40) or nil
+    profile.focus = VALID_FOCUS[focus] and focus or nil
     profile.savedAt = time()
     ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note,
         profile.savedAt, ProfileExtra(profile))
@@ -199,7 +205,7 @@ function profilesModule.Broadcast(force)
     if not profile.main then return end
     lastBroadcast = GetTime()
     SendRole(table.concat({ "v2", profile.main, profile.secondary or "", profile.spec or "",
-        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "" }, ";"))
+        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "", profile.focus or "" }, ";"))
 end
 
 function profilesModule.RequestRoles()
@@ -228,7 +234,7 @@ local function StartRelay()
         local d = m.declared
         if d and d.main then
             table.insert(queue, table.concat({ "R", fullName, d.main, d.secondary or "", d.spec or "",
-                d.note or "", tostring(d.at or 0), d.charType or "", d.mainName or "" }, ";"))
+                d.note or "", tostring(d.at or 0), d.charType or "", d.mainName or "", d.focus or "" }, ";"))
         end
     end
     if #queue == 0 or relayTicker then return end
@@ -345,14 +351,14 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         local main, secondary, spec, note = ParseRoleFields(fields[3], fields[4], fields[5], fields[6])
         if main and fields[2] then
             changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0,
-                { charType = fields[8], mainName = Clean(fields[9], 40) })
+                { charType = fields[8], mainName = Clean(fields[9], 40), focus = fields[10] })
         end
     elseif fields[1] == "v1" or fields[1] == "v2" then
         local main, secondary, spec, note = ParseRoleFields(fields[2], fields[3], fields[4], fields[5])
         if main then
             -- v1 no llevaba fecha: se considera actual
             changed = ApplyDeclared(fullSender, main, secondary, spec, note, tonumber(fields[6]) or time(),
-                { charType = fields[7], mainName = Clean(fields[8], 40) })
+                { charType = fields[7], mainName = Clean(fields[8], 40), focus = fields[9] })
         end
     end
     if changed then NotifyChange() end
