@@ -273,6 +273,10 @@ function addonTable.ScanGuildRosterForChanges()
     if addonTable.Professions and addonTable.Professions.Scan then
         addonTable.Professions.Scan()
     end
+    -- Roles declarados por otros personajes de esta cuenta (comparten SavedVariables)
+    if addonTable.Profiles and addonTable.Profiles.ApplyAccountProfiles then
+        addonTable.Profiles.ApplyAccountProfiles()
+    end
 
     if addonTable.UI.RefreshList and addonTable.UI.IsShown and addonTable.UI.IsShown() then
         addonTable.UI.RefreshList()

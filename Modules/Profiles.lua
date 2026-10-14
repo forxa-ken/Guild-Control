@@ -123,15 +123,38 @@ local function Clean(text, maxLen)
     return string.sub(text, 1, maxLen)
 end
 
-local function ApplyDeclared(fullName, main, secondary, spec, note)
+-- Guarda una declaración en la ficha del miembro. "at" es la fecha (time()) en que el
+-- jugador la guardó: una declaración más antigua nunca pisa a una más nueva.
+local function ApplyDeclared(fullName, main, secondary, spec, note, at)
     local m = GuildControlDB.members[fullName]
-    if not m then return false end
-    m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = time() }
-    if main and m.roleSource ~= "officer" then
+    if not m or not main then return false end
+    at = tonumber(at) or time()
+    local previous = m.declared
+    if previous and previous.at and previous.at > at then return false end
+    if previous and previous.at == at and previous.main == main and previous.secondary == secondary
+        and previous.spec == spec and previous.note == note then
+        return false
+    end
+    m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = at }
+    if m.roleSource ~= "officer" then
         m.role = main
         m.roleSource = "declared"
     end
     return true
+end
+
+-- Los personajes de esta misma cuenta comparten SavedVariables: sus perfiles se aplican
+-- directamente, sin depender de que estén conectados a la vez.
+function profilesModule.ApplyAccountProfiles()
+    if type(GuildControlDB.myProfiles) ~= "table" then return false end
+    local changed = false
+    for fullName, profile in pairs(GuildControlDB.myProfiles) do
+        if profile.main and ApplyDeclared(fullName, profile.main, profile.secondary, profile.spec, profile.note, profile.savedAt or 0) then
+            changed = true
+        end
+    end
+    if changed then NotifyChange() end
+    return changed
 end
 
 -- Guarda mi perfil, lo aplica a mi propia ficha y lo envía a la hermandad
@@ -141,26 +164,75 @@ function profilesModule.SaveMyProfile(main, secondary, spec, note)
     profile.secondary = (VALID_ROLES[secondary] and secondary ~= profile.main) and secondary or nil
     profile.spec = Clean(spec, 30)
     profile.note = Clean(note, 80)
-    ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note)
+    profile.savedAt = time()
+    ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note, profile.savedAt)
     profilesModule.Broadcast(true)
     NotifyChange()
 end
 
--- "v1;principal;secundario;especialización;nota"
+local function SendRole(msg)
+    if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(ROLE_PREFIX, msg, "GUILD")
+    end
+end
+
+-- Mi declaración: "v2;principal;secundario;especialización;nota;fecha"
 function profilesModule.Broadcast(force)
-    if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    if not IsInGuild() then return end
     if not force and GetTime() - lastBroadcast < BROADCAST_COOLDOWN then return end
     local profile = profilesModule.GetMyProfile()
     if not profile.main then return end
     lastBroadcast = GetTime()
-    local msg = table.concat({ "v1", profile.main, profile.secondary or "", profile.spec or "", profile.note or "" }, ";")
-    C_ChatInfo.SendAddonMessage(ROLE_PREFIX, msg, "GUILD")
+    SendRole(table.concat({ "v2", profile.main, profile.secondary or "", profile.spec or "",
+        profile.note or "", tostring(profile.savedAt or time()) }, ";"))
 end
 
 function profilesModule.RequestRoles()
     if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         C_ChatInfo.SendAddonMessage(REQUEST_PREFIX, "REQ", "GUILD")
     end
+end
+
+-- -------------------------------------------------------------------------
+-- Reenvío: cuando alguien pide los roles, un cliente que los conozca reenvía
+-- todas las declaraciones guardadas ("R;Nombre-Reino;principal;secundario;espec;nota;fecha").
+-- Así un oficial recibe el rol aunque el jugador ya no esté conectado.
+-- Espera un tiempo aleatorio y se cancela si otro cliente empieza a reenviar antes.
+-- -------------------------------------------------------------------------
+local RELAY_INTERVAL = 0.25
+local relayTimer, relayTicker = nil, nil
+
+local function CancelRelay()
+    if relayTimer then relayTimer:Cancel() end
+    relayTimer = nil
+end
+
+local function StartRelay()
+    local queue = {}
+    for fullName, m in pairs(GuildControlDB.members) do
+        local d = m.declared
+        if d and d.main then
+            table.insert(queue, table.concat({ "R", fullName, d.main, d.secondary or "", d.spec or "",
+                d.note or "", tostring(d.at or 0) }, ";"))
+        end
+    end
+    if #queue == 0 or relayTicker then return end
+    relayTicker = C_Timer.NewTicker(RELAY_INTERVAL, function()
+        local msg = table.remove(queue, 1)
+        if msg then SendRole(msg) end
+        if #queue == 0 then
+            relayTicker:Cancel()
+            relayTicker = nil
+        end
+    end)
+end
+
+local function ScheduleRelay()
+    if relayTimer or relayTicker then return end
+    relayTimer = C_Timer.NewTimer(2 + math.random() * 4, function()
+        relayTimer = nil
+        StartRelay()
+    end)
 end
 
 -- Texto para tooltips y vistas previas, o nil si no ha declarado nada
@@ -203,6 +275,12 @@ end
 -- =========================================================================
 -- EVENTOS
 -- =========================================================================
+local function ParseRoleFields(main, secondary, spec, note)
+    if not VALID_ROLES[main] then return nil end
+    if not VALID_ROLES[secondary] or secondary == main then secondary = nil end
+    return main, secondary, Clean(spec, 30), Clean(note, 80)
+end
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
@@ -213,6 +291,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         local isInitialLogin, isReloadingUi = ...
         if isInitialLogin or isReloadingUi then
             C_Timer.After(12, function()
+                profilesModule.ApplyAccountProfiles()
                 profilesModule.Broadcast(true)
                 profilesModule.RequestRoles()
             end)
@@ -229,12 +308,25 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 
     if prefix == REQUEST_PREFIX then
         profilesModule.Broadcast(false)
-    else
-        local version, main, secondary, spec, note = strsplit(";", msg)
-        if version ~= "v1" or not VALID_ROLES[main] then return end
-        if not VALID_ROLES[secondary] or secondary == main then secondary = nil end
-        if ApplyDeclared(fullSender, main, secondary, Clean(spec, 30), Clean(note, 80)) then
-            NotifyChange()
+        ScheduleRelay()
+        return
+    end
+
+    local fields = { strsplit(";", msg) }
+    local changed = false
+    if fields[1] == "R" then
+        -- Otro cliente ya está reenviando: no hace falta que lo haga yo
+        CancelRelay()
+        local main, secondary, spec, note = ParseRoleFields(fields[3], fields[4], fields[5], fields[6])
+        if main and fields[2] then
+            changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0)
+        end
+    elseif fields[1] == "v1" or fields[1] == "v2" then
+        local main, secondary, spec, note = ParseRoleFields(fields[2], fields[3], fields[4], fields[5])
+        if main then
+            -- v1 no llevaba fecha: se considera actual
+            changed = ApplyDeclared(fullSender, main, secondary, spec, note, tonumber(fields[6]) or time())
         end
     end
+    if changed then NotifyChange() end
 end)

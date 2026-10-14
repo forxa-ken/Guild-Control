@@ -21,8 +21,9 @@ local containers = {
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Mi perfil", "Roster", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Mi perfil", "Mis rosters", "Roster", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
+local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
 local function CreateBackdropBox(parent, width, height, point, relativeTo, relativePoint, x, y)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -260,8 +261,11 @@ function uiModule.UpdatePlayerInfoBar()
     local profile = P.GetMyProfile()
     local roleText = profile.main and ("|cFF00FF00" .. profile.main .. "|r" .. (profile.secondary and (" / " .. profile.secondary) or ""))
         or "|cFFFF7F00sin declarar (ve a Mi perfil)|r"
+    -- Los rosters del jugador vienen de los que publican los oficiales
+    local rosterNames = uiModule.GetMySharedRosterNames and uiModule.GetMySharedRosterNames() or {}
+    local rosterText = #rosterNames > 0 and table.concat(rosterNames, ", ") or "ninguno publicado"
     annBar.playerInfo.text:SetText("|cFF00FFFFPerfil de jugador|r   ·   Rango: |cFFFFD100" .. (m.rank or "-")
-        .. "|r   ·   Tu rol: " .. roleText .. "   ·   Rosters: |cFFFFD100" .. (m.roster or "Sin Roster") .. "|r")
+        .. "|r   ·   Tu rol: " .. roleText .. "   ·   Rosters: |cFFFFD100" .. rosterText .. "|r")
 end
 
 -- =========================================================================
@@ -337,7 +341,7 @@ function uiModule.ApplyProfile()
     local yOffset = -15
     for _, tabName in ipairs(SIDEBAR_TABS) do
         local btn = sidebar.tabButtons[tabName]
-        local allowed = isOfficer or not OFFICER_ONLY_TABS[tabName]
+        local allowed = (isOfficer and not PLAYER_ONLY_TABS[tabName]) or (not isOfficer and not OFFICER_ONLY_TABS[tabName])
         btn:SetShown(allowed)
         if allowed then
             btn:ClearAllPoints()
@@ -356,7 +360,7 @@ function uiModule.ApplyProfile()
         end
     end
 
-    if not isOfficer and OFFICER_ONLY_TABS[activeTab] then SwitchTab("Miembros") end
+    if (not isOfficer and OFFICER_ONLY_TABS[activeTab]) or (isOfficer and PLAYER_ONLY_TABS[activeTab]) then SwitchTab("Miembros") end
 end
 
 -- =========================================================================
@@ -551,11 +555,11 @@ local MEMBER_COLUMNS = {
     { title = "Clase",    x = 80,  w = 65,  key = "class" },
     { title = "Nombre",   x = 145, w = 140, key = "name" },
     { title = "Rango",    x = 285, w = 80,  key = "rank" },
-    { title = "Rol",      x = 365, w = 40,  key = "role" },
-    { title = "Enfoque",  x = 405, w = 70,  key = "focus" },
-    { title = "Prof. 1",  x = 475, w = 100, key = "prof1" },
-    { title = "Prof. 2",  x = 575, w = 100, key = "prof2" },
-    { title = "Roster",   x = 675, w = 75,  key = "roster" },
+    { title = "Rol",      x = 365, w = 65,  key = "role" },
+    { title = "Enfoque",  x = 430, w = 70,  key = "focus" },
+    { title = "Prof. 1",  x = 500, w = 90,  key = "prof1" },
+    { title = "Prof. 2",  x = 590, w = 90,  key = "prof2" },
+    { title = "Roster",   x = 680, w = 70,  key = "roster" },
     { title = "Conexión", x = 750, w = 95,  key = "lastOnline" },
 }
 
@@ -566,6 +570,22 @@ local DEFAULT_SORT_KEY = "lastOnline"
 local function OnlineSortValue(data)
     if data.isOnline then return -1 end
     return tonumber(string.match(data.lastOnline or "", "(%d+)")) or 0
+end
+
+-- Columna Rol: el rol de la ficha y, si el jugador lo declaró, se nota con el color:
+--   cian = lo declaró él mismo · naranja con * = un oficial le puso otro distinto · rojizo = sin declarar
+local function RoleCellText(data)
+    local role = data.role or "DPS"
+    local declared = data.declared and data.declared.main
+    if declared and declared ~= role then return role .. "*" end
+    return role
+end
+
+local function RoleCellColor(data, isOnline)
+    local declared = data.declared and data.declared.main
+    if declared and declared == (data.role or "DPS") then return isOnline and "00FFFF" or "4D9999" end
+    if declared then return isOnline and "FF7F00" or "996633" end
+    return isOnline and "FF7F7F" or "888888"
 end
 
 local function MemberSortValue(entry, key)
@@ -856,7 +876,7 @@ local function BuildMembersView(parent)
                 { data.class or "Desconocida", hex },
                 { entry.name, hex },
                 { data.rank or "Recluta", isOnline and "FFFFFF" or dim },
-                { data.role or "DPS", isOnline and "FF7F7F" or dim },
+                { RoleCellText(data), RoleCellColor(data, isOnline) },
                 { data.focus or "PvE", isOnline and "FFFFFF" or dim },
                 { data.prof1 or "Ninguna", isOnline and "FFFFFF" or dim },
                 { data.prof2 or "Ninguna", isOnline and "FFFFFF" or dim },
@@ -3554,8 +3574,14 @@ local function BuildMyProfileView(parent)
 
         local source = m.roleSource == "officer" and "asignado por un oficial"
             or (m.roleSource == "declared" and "declarado por ti" or "por defecto")
+        -- Oficial: sus propios rosters. Jugador: los que han publicado los oficiales.
+        local rostersText = m.roster or "Sin Roster"
+        if not isOfficer and uiModule.GetMySharedRosterNames then
+            local names = uiModule.GetMySharedRosterNames()
+            rostersText = #names > 0 and table.concat(names, ", ") or "ninguno publicado"
+        end
         sideText:SetText("Rol en tu ficha: |cFFFFD100" .. (m.role or "DPS") .. "|r |cFF808080(" .. source .. ")|r\n"
-            .. "Rosters: |cFFFFD100" .. (m.roster or "Sin Roster") .. "|r\n"
+            .. "Rosters: |cFFFFD100" .. rostersText .. "|r\n"
             .. "Profesiones: " .. (m.prof1 or "Ninguna") .. ", " .. (m.prof2 or "Ninguna") .. "\n\n"
             .. "|cFF808080Esto es lo que guarda tu cliente. Cada oficial tiene su propia copia.|r")
 
@@ -3576,6 +3602,230 @@ local function BuildMyProfileView(parent)
         if view:IsShown() then view:GetScript("OnShow")(view) end
     end
     containers.views["Mi perfil"] = view
+end
+
+-- =========================================================================
+-- 8d. VISTA MIS ROSTERS (JUGADORES: ROSTERS PUBLICADOS, SOLO LECTURA)
+-- =========================================================================
+-- Rosters publicados en los que estoy (titular o suplente en la base o en algún jefe)
+local function SharedRostersWithMe()
+    local R = addonTable.Roster
+    local me = addonTable.Profiles and addonTable.Profiles.GetMyFullName()
+    local result = {}
+    if not R or not me then return result end
+    for _, item in ipairs(R.GetSharedRosters()) do
+        local inIt = item.roster.members[me] ~= nil
+        for _, variant in pairs(item.roster.variants or {}) do
+            if variant.overrides[me] then inIt = true end
+        end
+        if inIt then table.insert(result, item) end
+    end
+    return result
+end
+
+local function BuildMyRostersView(parent)
+    local R = addonTable.Roster
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local selectedSyncId, selectedVariantId = nil, nil
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetText("Mis rosters")
+
+    local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+    subtitle:SetText("Rosters que publican los oficiales con el botón Compartir. Solo lectura.")
+
+    local dropRoster = CreateFrame("DropdownButton", "GC_MyRostersSelect", view, "WowStyle1DropdownTemplate")
+    dropRoster:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -10)
+    dropRoster:SetWidth(220)
+
+    local dropVariant = CreateFrame("DropdownButton", "GC_MyRostersVariant", view, "WowStyle1DropdownTemplate")
+    dropVariant:SetPoint("LEFT", dropRoster, "RIGHT", 12, 0)
+    dropVariant:SetWidth(170)
+
+    local btnUpdate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnUpdate:SetSize(110, 22)
+    btnUpdate:SetPoint("LEFT", dropVariant, "RIGHT", 12, 0)
+    btnUpdate:SetText("Actualizar")
+    btnUpdate:SetScript("OnClick", function()
+        R.RequestPublishedRosters()
+        PrintGC("Pidiendo los rosters publicados a los oficiales conectados...")
+    end)
+
+    local infoText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    infoText:SetPoint("LEFT", btnUpdate, "RIGHT", 12, 0)
+    infoText:SetPoint("RIGHT", view, "RIGHT", -16, 0)
+    infoText:SetJustifyH("LEFT")
+    infoText:SetWordWrap(false)
+
+    -- Composición (izquierda) y mis datos (derecha)
+    local comp = CreateBackdropBox(view, 600, 380, "TOPLEFT", view, "TOPLEFT", 12, -116)
+    local function Column(x, y, width)
+        local fs = comp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", comp, "TOPLEFT", x, y)
+        fs:SetWidth(width)
+        fs:SetJustifyH("LEFT")
+        fs:SetJustifyV("TOP")
+        fs:SetSpacing(3)
+        return fs
+    end
+    local tankCol = Column(12, -12, 130)
+    local healerCol = Column(150, -12, 140)
+    local dpsCol1 = Column(300, -12, 145)
+    local dpsCol2 = Column(450, -30, 145)
+    local benchCol = Column(12, -260, 576)
+
+    local side = CreateBackdropBox(view, 266, 380, "TOPLEFT", comp, "TOPRIGHT", 8, 0)
+    local sideText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sideText:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -12)
+    sideText:SetWidth(242)
+    sideText:SetJustifyH("LEFT")
+    sideText:SetJustifyV("TOP")
+    sideText:SetSpacing(3)
+
+    local emptyText = view:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", comp, "CENTER", 0, 0)
+    emptyText:SetWidth(520)
+
+    local function SelectedItem()
+        local list = R.GetSharedRosters()
+        for _, item in ipairs(list) do
+            if item.roster.syncId == selectedSyncId then return item end
+        end
+        -- Por defecto, el primero en el que estoy (o el primero publicado)
+        local mine = SharedRostersWithMe()
+        local item = mine[1] or list[1]
+        selectedSyncId = item and item.roster.syncId or nil
+        selectedVariantId = nil
+        return item
+    end
+
+    local function NameLine(fullName, me)
+        local m = GuildControlDB.members[fullName] or {}
+        local short = string.match(fullName, "^([^-]+)") or fullName
+        local hex = addonTable.GetClassColorHex(m.class)
+        if fullName == me then return "|cFF00FF00>|r |cFF" .. hex .. short .. "|r |cFF00FF00(tú)|r" end
+        return "|cFF" .. hex .. short .. "|r"
+    end
+
+    local Refresh
+
+    dropRoster:SetupMenu(function(_, root)
+        for _, item in ipairs(R.GetSharedRosters()) do
+            local syncId = item.roster.syncId
+            root:CreateRadio(item.roster.name .. " |cFF808080(" .. item.from .. ")|r",
+                function() return selectedSyncId == syncId end,
+                function() selectedSyncId = syncId; selectedVariantId = nil; Refresh() end)
+        end
+    end)
+    dropVariant:SetupMenu(function(_, root)
+        local item = SelectedItem()
+        if not item then return end
+        root:CreateRadio("Base (todos los jefes)", function() return selectedVariantId == nil end,
+            function() selectedVariantId = nil; Refresh() end)
+        for _, variant in ipairs(R.GetVariants(item.roster)) do
+            local id = variant.id
+            root:CreateRadio(variant.name, function() return selectedVariantId == id end,
+                function() selectedVariantId = id; Refresh() end)
+        end
+    end)
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        local item = SelectedItem()
+        local hasItem = item ~= nil
+        for _, widget in ipairs({ comp, side, dropVariant }) do widget:SetShown(hasItem) end
+        if not hasItem then
+            dropRoster:SetText("Sin rosters")
+            infoText:SetText("")
+            emptyText:SetText("Todavía no has recibido ningún roster. Los oficiales deben publicarlo con Compartir; pulsa Actualizar para pedirlo a los que estén conectados.")
+            emptyText:Show()
+            return
+        end
+        emptyText:Hide()
+
+        local roster = item.roster
+        local me = addonTable.Profiles.GetMyFullName()
+        local variant = selectedVariantId and (roster.variants or {})[selectedVariantId] or nil
+        dropRoster:SetText(roster.name)
+        dropVariant:SetText(variant and variant.name or "Base")
+        infoText:SetText("Publicado por |cFFFFD100" .. item.from .. "|r" .. (item.fromRank and (" (" .. item.fromRank .. ")") or "")
+            .. " · " .. R.DifficultyLabel(roster) .. " " .. roster.size
+            .. " · recibido " .. date("%d/%m %H:%M", item.receivedAt or time()))
+
+        -- Composición efectiva de la base o del jefe elegido
+        local bySlot = { tank = {}, healer = {}, dps = {}, bench = {} }
+        for name, slot in pairs(R.GetEffectiveMembers(roster, variant)) do
+            if bySlot[slot] then table.insert(bySlot[slot], name) end
+        end
+        for _, list in pairs(bySlot) do table.sort(list) end
+
+        local function Block(label, list)
+            local lines = { "|cFFFFD100" .. label .. " (" .. #list .. ")|r" }
+            for _, name in ipairs(list) do table.insert(lines, NameLine(name, me)) end
+            return table.concat(lines, "\n")
+        end
+        tankCol:SetText(Block("Tanques", bySlot.tank))
+        healerCol:SetText(Block("Sanadores", bySlot.healer))
+        local half = math.ceil(#bySlot.dps / 2)
+        local dps1, dps2 = {}, {}
+        for i, name in ipairs(bySlot.dps) do table.insert(i <= half and dps1 or dps2, name) end
+        dpsCol1:SetText(Block("DPS", dps1))
+        local lines2 = {}
+        for _, name in ipairs(dps2) do table.insert(lines2, NameLine(name, me)) end
+        dpsCol2:SetText(table.concat(lines2, "\n"))
+        local benchNames = {}
+        for _, name in ipairs(bySlot.bench) do table.insert(benchNames, NameLine(name, me)) end
+        benchCol:SetText("|cFFFFD100Suplentes (" .. #bySlot.bench .. ")|r\n" .. table.concat(benchNames, "   "))
+
+        -- Mis datos: puesto, próximas fechas con mi marca y asistencia
+        local SLOT_TEXT = { tank = "Tanque (titular)", healer = "Sanador (titular)", dps = "DPS (titular)", bench = "Suplente" }
+        local mySlot = R.GetEffectiveMembers(roster, variant)[me]
+        local lines = { "|cFFFFD100Tu puesto|r", mySlot and SLOT_TEXT[mySlot] or "|cFF808080No estás en esta composición|r", "" }
+
+        table.insert(lines, "|cFFFFD100Próximas fechas|r")
+        local today = date("%Y-%m-%d")
+        local upcoming = {}
+        for _, event in ipairs(R.GetEventsSorted(roster)) do
+            if event.date >= today then table.insert(upcoming, 1, event) end
+        end
+        if #upcoming == 0 then table.insert(lines, "|cFF808080Sin fechas próximas|r") end
+        for i = 1, math.min(#upcoming, 6) do
+            local event = upcoming[i]
+            local status = event.attendance[me]
+            local mark = status and ("|cFF" .. R.ATTENDANCE_COLORS[status] .. R.ATTENDANCE_LABELS[status] .. "|r") or "|cFF808080sin marcar|r"
+            local note = (event.note and event.note ~= "") and (" · " .. event.note) or ""
+            table.insert(lines, R.FormatEventDate(event) .. note .. "  " .. mark)
+        end
+
+        table.insert(lines, "")
+        table.insert(lines, "|cFFFFD100Tu asistencia|r")
+        local stats = R.GetAttendanceStats(roster, me)
+        if stats.percent then
+            table.insert(lines, stats.percent .. "% (" .. (stats.present + stats.late) .. " de " .. stats.counted .. " fechas)")
+        else
+            table.insert(lines, "|cFF808080Sin datos todavía|r")
+        end
+        sideText:SetText(table.concat(lines, "\n"))
+    end
+
+    R.SetReceivedListener(function()
+        Refresh()
+        if uiModule.UpdatePlayerInfoBar then uiModule.UpdatePlayerInfoBar() end
+    end)
+    view:SetScript("OnShow", Refresh)
+    containers.views["Mis rosters"] = view
+end
+
+-- Nombres de los rosters publicados en los que estoy (para la barra del perfil de jugador)
+function uiModule.GetMySharedRosterNames()
+    local names = {}
+    for _, item in ipairs(SharedRostersWithMe()) do table.insert(names, item.roster.name) end
+    return names
 end
 
 -- =========================================================================
@@ -4128,6 +4378,7 @@ function uiModule.CreateUI()
     BuildMembersView(mainContent)
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
+    BuildMyRostersView(mainContent)
     BuildPlaceholderView(mainContent, "Resumen")
     BuildRosterView(mainContent)
     BuildPlaceholderView(mainContent, "Warning")

@@ -250,6 +250,8 @@ end
 
 function rosterModule.Delete(roster)
     if not roster then return end
+    -- Si estaba publicado, desaparece de "Mis rosters" de los jugadores
+    if roster.syncId and rosterModule.Unpublish then rosterModule.Unpublish(roster.syncId) end
     local d = Data()
     d.rosters[roster.id] = nil
     for i = #d.order, 1, -1 do
@@ -820,6 +822,7 @@ local function SanitizeRoster(raw)
         size = math.max(rosterModule.MIN_SIZE, math.min(rosterModule.MAX_SIZE, math.floor(tonumber(raw.size) or 20))),
         tanks = math.max(0, math.floor(tonumber(raw.tanks) or 2)),
         healers = math.max(0, math.floor(tonumber(raw.healers) or 4)),
+        updatedAt = tonumber(raw.updatedAt) or 0,
         members = {},
         variants = {}, variantOrder = {}, nextVariantId = 1,
         events = {}, nextEventId = 1,
@@ -900,13 +903,16 @@ local function EnsureSyncId(roster)
 end
 
 -- Devuelve el número de mensajes que se enviarán
-function rosterModule.ShareRoster(roster)
+-- isRepublish = true: reenvío automático a quien lo pide (no cuenta como cambio nuevo)
+function rosterModule.ShareRoster(roster, isRepublish)
     if not roster or not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return 0 end
     EnsureSyncId(roster)
+    if not isRepublish or not roster.updatedAt then roster.updatedAt = time() end
     local payload = {
         version = 1,
         roster = {
             name = roster.name, syncId = roster.syncId, difficulty = roster.difficulty, size = roster.size,
+            updatedAt = roster.updatedAt,
             tanks = roster.tanks, healers = roster.healers, members = roster.members,
             variants = roster.variants, variantOrder = roster.variantOrder, events = roster.events,
         },
@@ -934,10 +940,10 @@ end
 -- -------------------------------------------------------------------------
 local partials = {}         -- [remitente:msgId] = { total, parts = {}, count, started }
 local received = {}         -- { {from, roster, at}, ... } (solo durante la sesión)
-local receivedListener = nil
+local receivedListeners = {}   -- vistas que se refrescan al recibir o retirar un roster
 
 function rosterModule.SetReceivedListener(fn)
-    receivedListener = fn
+    table.insert(receivedListeners, fn)
 end
 
 function rosterModule.GetReceived()
@@ -952,35 +958,154 @@ function rosterModule.FindBySyncId(syncId)
     return nil
 end
 
+-- -------------------------------------------------------------------------
+-- Rosters publicados: copia de solo lectura para todos (pestaña "Mis rosters")
+-- GuildControlDB.sharedRosters[syncId] = { roster, from, fromRank, receivedAt }
+-- -------------------------------------------------------------------------
+local SHARED_MAX_AGE = 60 * 86400   -- se olvidan los publicados hace más de 60 días
+
+local function SharedStore()
+    if type(GuildControlDB.sharedRosters) ~= "table" then GuildControlDB.sharedRosters = {} end
+    return GuildControlDB.sharedRosters
+end
+
+-- Lista de rosters publicados (más recientes primero)
+function rosterModule.GetSharedRosters()
+    local store = SharedStore()
+    local now = time()
+    local list = {}
+    for syncId, item in pairs(store) do
+        if now - (item.receivedAt or 0) > SHARED_MAX_AGE then
+            store[syncId] = nil
+        else
+            table.insert(list, item)
+        end
+    end
+    table.sort(list, function(a, b) return (a.roster.updatedAt or 0) > (b.roster.updatedAt or 0) end)
+    return list
+end
+
+local function StoreShared(sender, roster)
+    if not roster.syncId then return end
+    local store = SharedStore()
+    local existing = store[roster.syncId]
+    if existing and (existing.roster.updatedAt or 0) > (roster.updatedAt or 0) then return end
+    local m = GuildControlDB.members[sender] or GuildControlDB.members[(string.gsub(sender, "%s+", ""))]
+    store[roster.syncId] = {
+        roster = roster,
+        from = string.match(sender, "^([^-]+)") or sender,
+        fromRank = m and m.rank or nil,
+        receivedAt = time(),
+    }
+end
+
 local function OnRosterReceived(sender, data)
     local ok, payload = pcall(Deserialize, data, 1, 0)
     if not ok or type(payload) ~= "table" or payload.version ~= 1 then return end
     local roster = SanitizeRoster(payload.roster)
     if not roster then return end
 
-    -- Un envío nuevo del mismo roster sustituye al pendiente anterior
-    for i = #received, 1, -1 do
-        if received[i].roster.syncId and received[i].roster.syncId == roster.syncId then table.remove(received, i) end
+    -- Copia de solo lectura para "Mis rosters" (la ven también los jugadores)
+    StoreShared(sender, rosterModule.DeepCopy(roster))
+
+    -- Para los oficiales: solo se avisa si es un roster nuevo o más reciente que su copia
+    local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+    local localCopy = rosterModule.FindBySyncId(roster.syncId)
+    local isNewer = not localCopy or (roster.updatedAt or 0) > (localCopy.syncedAt or localCopy.updatedAt or 0)
+    if isOfficer and isNewer then
+        -- Un envío nuevo del mismo roster sustituye al pendiente anterior
+        for i = #received, 1, -1 do
+            if received[i].roster.syncId and received[i].roster.syncId == roster.syncId then table.remove(received, i) end
+        end
+        table.insert(received, { from = sender, roster = roster, at = date("%H:%M") })
+        print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. "|r ha compartido el roster |cFFFFD100" .. roster.name
+            .. "|r. Revísalo en Roster > Recibidos.")
     end
-    table.insert(received, { from = sender, roster = roster, at = date("%H:%M") })
-    print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. "|r ha compartido el roster |cFFFFD100" .. roster.name
-        .. "|r. Revísalo en Roster > Recibidos.")
-    if receivedListener then receivedListener() end
+    for _, fn in ipairs(receivedListeners) do fn() end
+end
+
+-- -------------------------------------------------------------------------
+-- Petición de rosters publicados ("Q"): al entrar, cada cliente la envía y un oficial
+-- conectado responde reenviando los rosters que ha publicado. Si otro oficial empieza
+-- a responder antes (llegan trozos "D"), se cancela la respuesta propia.
+-- -------------------------------------------------------------------------
+local republishTimer = nil
+
+local function CancelRepublish()
+    if republishTimer then republishTimer:Cancel() end
+    republishTimer = nil
+end
+
+local function ScheduleRepublish()
+    if republishTimer then return end
+    if addonTable.Profiles and not addonTable.Profiles.IsOfficer() then return end
+    local published = {}
+    for _, roster in ipairs(rosterModule.GetAll()) do
+        if roster.syncId then table.insert(published, roster) end
+    end
+    if #published == 0 then return end
+    republishTimer = C_Timer.NewTimer(3 + math.random() * 5, function()
+        republishTimer = nil
+        for _, roster in ipairs(published) do rosterModule.ShareRoster(roster, true) end
+    end)
+end
+
+local function SendControl(msg)
+    if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, msg, "GUILD")
+    end
+end
+
+function rosterModule.RequestPublishedRosters()
+    SendControl("Q")
+end
+
+-- Al borrar un roster publicado se avisa para que desaparezca de "Mis rosters"
+function rosterModule.Unpublish(syncId)
+    if syncId then SendControl("X:" .. syncId) end
 end
 
 local syncFrame = CreateFrame("Frame")
 syncFrame:RegisterEvent("CHAT_MSG_ADDON")
-syncFrame:SetScript("OnEvent", function(_, _, prefix, msg, channel, sender)
+syncFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+syncFrame:SetScript("OnEvent", function(_, event, ...)
+    if event == "PLAYER_ENTERING_WORLD" then
+        local isInitialLogin, isReloadingUi = ...
+        if isInitialLogin or isReloadingUi then
+            C_Timer.After(15, rosterModule.RequestPublishedRosters)
+        end
+        return
+    end
+
+    local prefix, msg, channel, sender = ...
     if prefix ~= SYNC_PREFIX or channel ~= "GUILD" then return end
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
-    if not msg or not sender then return end
+    if not msg or not sender or not GuildControlDB then return end
     -- Ignorar mis propios envíos
     local short = string.match(sender, "^([^-]+)") or sender
     if short == UnitName("player") then return end
 
+    if msg == "Q" then
+        ScheduleRepublish()
+        return
+    end
+
+    local removedId = string.match(msg, "^X:(.+)$")
+    if removedId then
+        SharedStore()[removedId] = nil
+        for i = #received, 1, -1 do
+            if received[i].roster.syncId == removedId then table.remove(received, i) end
+        end
+        for _, fn in ipairs(receivedListeners) do fn() end
+        return
+    end
+
     local msgId, index, total, chunk = string.match(msg, "^D(%d+):(%d+):(%d+):(.*)$")
     index, total = tonumber(index), tonumber(total)
     if not msgId or not index or not total or total > 500 then return end
+
+    -- Otro oficial ya está respondiendo a la petición
+    CancelRepublish()
 
     local now = GetTime()
     for key, partial in pairs(partials) do
@@ -1021,6 +1146,7 @@ function rosterModule.ImportReceived(index, mode)
         target[field] = incoming[field]
     end
     target.selectedVariant = nil
+    target.syncedAt = incoming.updatedAt
     Data().selected = target.id
     table.remove(received, index)
     rosterModule.SyncMemberRosterField()

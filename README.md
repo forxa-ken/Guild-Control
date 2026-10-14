@@ -62,7 +62,10 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 - La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
 - **Perfil de oficial**: rango igual o superior al configurado en Mi perfil (por defecto el rango 1) o permiso de chat de oficiales del juego. Ve todas las pestañas.
-- **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
+- **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil, **Mis rosters** y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
+- **Cuándo llega el rol a los oficiales**: los mensajes del addon solo llegan a quien está conectado en ese momento. Si el oficial no lo está, lo recibe más tarde: al entrar pide los roles y le responde el propio jugador (si está conectado) u otro miembro con GuildControl que ya los tenga guardados. Los personajes de la misma cuenta lo ven al instante porque comparten datos.
+- En **Miembros**, la columna Rol muestra el rol de cada uno: en cian si lo declaró el propio jugador, en naranja con `*` si un oficial le puso otro distinto y en rojo si no lo ha declarado.
+- **Mis rosters** (solo jugadores): muestra los rosters que publican los oficiales con **Compartir**, en solo lectura y con el jefe seleccionable. Resalta tu nombre e indica tu puesto, las próximas fechas con tu marca de asistencia y tu porcentaje. Al entrar se piden a los oficiales conectados (también con **Actualizar**); si un oficial elimina un roster publicado, desaparece.
 - El perfil solo cambia lo que se ve: los datos de cada cliente son locales y nadie puede modificar los de otro.
 
 ## ✉️ Invitar nuevos miembros
