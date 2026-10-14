@@ -81,7 +81,7 @@ end
 
 function rosterModule.SetMemberRole(fullName, slot)
     local m = GuildControlDB.members[fullName]
-    if m and SLOT_TO_ROLE[slot] then m.role = SLOT_TO_ROLE[slot] end
+    if m and SLOT_TO_ROLE[slot] then m.role = SLOT_TO_ROLE[slot]; m.roleSource = "officer" end
 end
 
 -- Lista ordenada de rosters

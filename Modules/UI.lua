@@ -20,6 +20,10 @@ local containers = {
 
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
+-- Pestañas del menú lateral y las que solo ve el perfil de oficial
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Mi perfil", "Roster", "Warning", "Invitar", "Black list" }
+local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
+
 local function CreateBackdropBox(parent, width, height, point, relativeTo, relativePoint, x, y)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     frame:SetSize(width, height)
@@ -234,7 +238,30 @@ local function BuildAnnouncementsBar(parent)
     end)
 
     RefreshFields()
+
+    -- Perfil de jugador: en lugar de los anuncios se muestra un resumen de su ficha
+    local playerInfo = CreateFrame("Frame", nil, annBar)
+    playerInfo:SetAllPoints()
+    playerInfo:Hide()
+    playerInfo.text = playerInfo:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    playerInfo.text:SetPoint("LEFT", playerInfo, "LEFT", 16, 0)
+    playerInfo.text:SetPoint("RIGHT", playerInfo, "RIGHT", -16, 0)
+    playerInfo.text:SetJustifyH("LEFT")
+    annBar.playerInfo = playerInfo
+
     containers.announcements = annBar
+end
+
+function uiModule.UpdatePlayerInfoBar()
+    local annBar = containers.announcements
+    if not annBar or not annBar.playerInfo or not addonTable.Profiles then return end
+    local P = addonTable.Profiles
+    local m = GuildControlDB.members[P.GetMyFullName()] or {}
+    local profile = P.GetMyProfile()
+    local roleText = profile.main and ("|cFF00FF00" .. profile.main .. "|r" .. (profile.secondary and (" / " .. profile.secondary) or ""))
+        or "|cFFFF7F00sin declarar (ve a Mi perfil)|r"
+    annBar.playerInfo.text:SetText("|cFF00FFFFPerfil de jugador|r   ·   Rango: |cFFFFD100" .. (m.rank or "-")
+        .. "|r   ·   Tu rol: " .. roleText .. "   ·   Rosters: |cFFFFD100" .. (m.roster or "Sin Roster") .. "|r")
 end
 
 -- =========================================================================
@@ -279,17 +306,18 @@ end
 local function BuildSidebar(parent)
     local sidebar = CreateBackdropBox(parent, 150, 520, "TOPLEFT", containers.announcements, "BOTTOMLEFT", 0, -5)
 
-    local tabs = { "Resumen", "Miembros", "Logros", "Roster", "Warning", "Invitar", "Black list" }
-    local yOffset = -15
-
-    for _, tabName in ipairs(tabs) do
+    -- Los botones se crean todos y ApplyProfile decide cuáles se ven y en qué posición
+    sidebar.tabButtons = {}
+    for _, tabName in ipairs(SIDEBAR_TABS) do
         local btn = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
         btn:SetSize(130, 25)
-        btn:SetPoint("TOP", sidebar, "TOP", 0, yOffset)
         btn:SetText(tabName)
         btn:SetScript("OnClick", function() SwitchTab(tabName) end)
-        yOffset = yOffset - 32
+        sidebar.tabButtons[tabName] = btn
     end
+
+    sidebar.profileText = sidebar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    sidebar.profileText:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, 46)
 
     local btnConfig = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
     btnConfig:SetSize(130, 25)
@@ -298,6 +326,37 @@ local function BuildSidebar(parent)
     btnConfig:SetScript("OnClick", function() SwitchTab("Configuracion") end)
 
     containers.sidebar = sidebar
+end
+
+-- Muestra solo las pestañas del perfil actual (oficial o jugador)
+function uiModule.ApplyProfile()
+    local sidebar = containers.sidebar
+    if not sidebar then return end
+    local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+
+    local yOffset = -15
+    for _, tabName in ipairs(SIDEBAR_TABS) do
+        local btn = sidebar.tabButtons[tabName]
+        local allowed = isOfficer or not OFFICER_ONLY_TABS[tabName]
+        btn:SetShown(allowed)
+        if allowed then
+            btn:ClearAllPoints()
+            btn:SetPoint("TOP", sidebar, "TOP", 0, yOffset)
+            yOffset = yOffset - 32
+        end
+    end
+    sidebar.profileText:SetText(isOfficer and "Perfil: |cFFFFD100Oficial|r" or "Perfil: |cFF00FFFFJugador|r")
+
+    -- La barra de anuncios es de oficiales; los jugadores ven un resumen de su ficha
+    if containers.announcements then
+        for _, child in ipairs({ containers.announcements:GetChildren() }) do child:SetShown(isOfficer) end
+        if containers.announcements.playerInfo then
+            containers.announcements.playerInfo:SetShown(not isOfficer)
+            if not isOfficer and uiModule.UpdatePlayerInfoBar then uiModule.UpdatePlayerInfoBar() end
+        end
+    end
+
+    if not isOfficer and OFFICER_ONLY_TABS[activeTab] then SwitchTab("Miembros") end
 end
 
 -- =========================================================================
@@ -687,6 +746,18 @@ local function BuildMembersView(parent)
 
     local selectedFullName = nil
 
+    -- Rol declarado por el propio jugador desde "Mi perfil" (si usa GuildControl)
+    local function BuildDeclaredText(data)
+        local declaredText = addonTable.Profiles and addonTable.Profiles.GetDeclaredText(data)
+        if not declaredText then return "|cFF808080Rol declarado: no lo ha indicado|r\n" end
+        local text = "Rol declarado: |cFF00FFFF" .. declaredText .. "|r\n"
+        if data.declared.note and data.declared.note ~= "" then
+            text = text .. "Nota: |cFFBFBFBF" .. data.declared.note .. "|r\n"
+        end
+        if data.roleSource == "officer" then text = text .. "|cFF808080(un oficial fijó el rol a mano)|r\n" end
+        return text
+    end
+
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
         selectedFullName = fullName
@@ -696,6 +767,7 @@ local function BuildMembersView(parent)
             "Clase: " .. (data.class or "Desconocida") .. "\n" ..
             "Rango: " .. (data.rank or "Recluta") .. "\n" ..
             "Rol: " .. (data.role or "DPS") .. "\n" ..
+            BuildDeclaredText(data) ..
             "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
             "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
             "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
@@ -1209,6 +1281,13 @@ local function ShowMemberTooltip(owner, fullName)
     GameTooltip:AddDoubleLine("Clase", R.GetClassName(m.class), 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine("Nivel", tostring(m.level or "?"), 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine("Rol", m.role or "DPS", 0.7, 0.7, 0.7, 1, 1, 1)
+    local declaredText = addonTable.Profiles and addonTable.Profiles.GetDeclaredText(m)
+    if declaredText then
+        GameTooltip:AddDoubleLine("Declarado", declaredText, 0.7, 0.7, 0.7, 0, 1, 1)
+        if m.declared.note and m.declared.note ~= "" then
+            GameTooltip:AddLine(m.declared.note, 0.75, 0.75, 0.75, true)
+        end
+    end
     GameTooltip:AddDoubleLine("Rango", m.rank or "-", 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine("Estado", m.isOnline and "En línea" or (m.lastOnline or "Desconectado"),
         0.7, 0.7, 0.7, m.isOnline and 0 or 0.6, m.isOnline and 1 or 0.6, m.isOnline and 0 or 0.6)
@@ -1891,6 +1970,13 @@ local function BuildRosterView(parent)
                             Refresh()
                         end)
                     end
+                    local m = GuildControlDB.members[name]
+                    if m and m.declared and m.declared.main and addonTable.Profiles then
+                        root:CreateButton("Usar rol declarado (" .. m.declared.main .. ")", function()
+                            addonTable.Profiles.UseDeclaredRole(name)
+                            Refresh()
+                        end)
+                    end
                     root:CreateButton("Añadir como suplente", function()
                         R.AddMember(R.GetSelected(), name, "bench")
                         Refresh()
@@ -2146,7 +2232,7 @@ local function BuildRosterView(parent)
         return btn
     end
 
-    local btnInvite = CreateAction("Invitar al grupo", 130, nil, function()
+    local btnInvite = CreateAction("Invitar al grupo", 120, nil, function()
         local count = R.InviteRoster(R.GetSelected())
         if count == 0 then
             PrintGC("No hay titulares conectados a los que invitar.")
@@ -2154,7 +2240,7 @@ local function BuildRosterView(parent)
             PrintGC("Invitando a |cFFFFD100" .. count .. "|r titulares. Con más de 4 el grupo se convierte en banda cuando acepte el primero.")
         end
     end)
-    local btnAnnounce = CreateAction("Anunciar", 90, btnInvite, function()
+    local btnAnnounce = CreateAction("Anunciar", 80, btnInvite, function()
         if not IsInGuild() then return end
         for _, line in ipairs(R.BuildAnnounceLines(R.GetSelected())) do
             if C_ChatInfo and C_ChatInfo.SendChatMessage then
@@ -2164,13 +2250,13 @@ local function BuildRosterView(parent)
             end
         end
     end)
-    local btnExport = CreateAction("Exportar CSV", 110, btnAnnounce, function()
+    local btnExport = CreateAction("Exportar CSV", 100, btnAnnounce, function()
         if addonTable.CSV and addonTable.CSV.ShowText then
             addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
         end
     end)
     -- Envía el roster completo (base, jefes, fechas y asistencia) a los demás usuarios de GuildControl
-    local btnShare = CreateAction("Compartir", 100, btnExport, function()
+    local btnShare = CreateAction("Compartir", 90, btnExport, function()
         local roster = R.GetSelected()
         local parts = R.ShareRoster(roster)
         if parts == 0 then
@@ -2187,13 +2273,18 @@ local function BuildRosterView(parent)
     end)
     btnShare:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Mensaje editable para los integrantes (hermandad o susurro a cada uno)
+    local btnMessage = CreateAction("Mensaje", 90, btnShare, function()
+        if uiModule.ShowRosterMessage then uiModule.ShowRosterMessage() end
+    end)
+
     -- En la base vacía el roster; en un jefe lo restablece a la base. Pide un segundo clic.
     local clearArmedUntil = 0
     local btnClear
     local function ClearLabel()
         return R.GetSelectedVariant(R.GetSelected()) and "Restablecer jefe" or "Vaciar roster"
     end
-    btnClear = CreateAction("Vaciar roster", 130, btnShare, function(self)
+    btnClear = CreateAction("Vaciar roster", 120, btnMessage, function(self)
         if GetTime() < clearArmedUntil then
             clearArmedUntil = 0
             R.Clear(R.GetSelected())
@@ -2406,12 +2497,13 @@ end
 
 -- Caja de mensaje editable (multilínea visual, una línea al enviar) con paleta de iconos,
 -- vista previa y contador. onChange(text) se llama con el texto limpio.
-local function CreateMessageEditor(parent, anchor, labelText, height, onChange)
+local function CreateMessageEditor(parent, anchor, labelText, height, onChange, width)
+    width = width or 850
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -20)
     label:SetText(labelText)
 
-    local box = CreateBackdropBox(parent, 850, height, "TOPLEFT", label, "BOTTOMLEFT", 0, -6)
+    local box = CreateBackdropBox(parent, width, height, "TOPLEFT", label, "BOTTOMLEFT", 0, -6)
     local edit = CreateFrame("EditBox", nil, box)
     edit:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -8)
     edit:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -8, 8)
@@ -2448,7 +2540,7 @@ local function CreateMessageEditor(parent, anchor, labelText, height, onChange)
 
     local preview = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     preview:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 2, -5)
-    preview:SetWidth(760)
+    preview:SetWidth(width - 90)
     preview:SetJustifyH("LEFT")
     preview:SetWordWrap(false)
 
@@ -3065,6 +3157,428 @@ local function BuildInviteView(parent)
 end
 
 -- =========================================================================
+-- 8b2. MENSAJE PARA LOS INTEGRANTES DEL ROSTER (HERMANDAD O SUSURRO)
+-- =========================================================================
+local ROSTER_ROLE_WORDS = { tank = "tanque", healer = "sanador", dps = "DPS", bench = "suplente" }
+local ROSTER_WHISPER_INTERVAL = 0.5
+
+-- {roster} {jefe} {dificultad} {fecha} {hora} {nota} {hermandad} y, al susurrar, {nombre} y {rol}
+local function ExpandRosterMessage(template, roster, event, fullName)
+    local R = addonTable.Roster
+    local variant = R.GetSelectedVariant(roster)
+    local slot = fullName and R.GetEffectiveMembers(roster)[fullName]
+    local fecha = ""
+    if event then
+        local y, mo, d = string.match(event.date or "", "^(%d+)-(%d+)-(%d+)$")
+        fecha = y and (d .. "/" .. mo .. "/" .. y) or (event.date or "")
+    end
+    local values = {
+        roster = roster.name,
+        jefe = variant and variant.name or "",
+        dificultad = R.DifficultyLabel(roster) .. " " .. roster.size,
+        fecha = fecha,
+        hora = event and event.time or "",
+        nota = event and event.note or "",
+        hermandad = addonTable.GetDisplayGuildName(),
+        nombre = fullName and (string.match(fullName, "^([^-]+)") or fullName) or "",
+        rol = slot and ROSTER_ROLE_WORDS[slot] or "",
+    }
+    local msg = string.gsub(template, "{(%a+)}", function(key) return values[key] end)
+    -- Variables vacías no deben dejar huecos raros ("Hola , ...")
+    msg = string.gsub(msg, "%s+", " ")
+    msg = string.gsub(msg, " ([,%.!%?:;])", "%1")
+    return strtrim(msg)
+end
+
+local GC_RosterMsgFrame = nil
+
+local function CreateRosterMessageFrame()
+    local R = addonTable.Roster
+    local frame = CreateFrame("Frame", "GuildControlRosterMessageFrame", GC_UI, "BasicFrameTemplateWithInset")
+    frame:SetSize(600, 340)
+    frame:SetPoint("CENTER", GC_UI, "CENTER", 0, 0)
+    frame:SetFrameStrata("DIALOG")
+    frame:Hide()
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+
+    local selectedEventId = nil
+    local whisperTicker = nil
+
+    local dateLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    dateLabel:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -36)
+    dateLabel:SetText("Fecha de banda:")
+
+    local dropEvent = CreateFrame("DropdownButton", "GC_RosterMsgEvent", frame, "WowStyle1DropdownTemplate")
+    dropEvent:SetPoint("LEFT", dateLabel, "RIGHT", 10, 0)
+    dropEvent:SetWidth(230)
+
+    local chkBench = CreateFrame("CheckButton", "GC_RosterMsgBench", frame, "UICheckButtonTemplate")
+    chkBench:SetSize(24, 24)
+    chkBench:SetPoint("LEFT", dropEvent, "RIGHT", 14, 0)
+    _G[chkBench:GetName() .. "Text"]:SetText("Incluir suplentes")
+
+    local anchor = CreateFrame("Frame", nil, frame)
+    anchor:SetSize(1, 1)
+    anchor:SetPoint("TOPLEFT", dateLabel, "BOTTOMLEFT", 0, -8)
+
+    local editor = CreateMessageEditor(frame, anchor, "Mensaje (editable)", 64,
+        function(text) GuildControlDB.settings.rosterMessage = text end, 564)
+
+    local varsHint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    varsHint:SetPoint("TOPLEFT", editor.box, "BOTTOMLEFT", 0, -26)
+    varsHint:SetWidth(564)
+    varsHint:SetJustifyH("LEFT")
+    varsHint:SetText("Variables: {roster} {jefe} {dificultad} {fecha} {hora} {nota} {hermandad}. Solo al susurrar: {nombre} y {rol} (tanque, sanador, DPS o suplente).")
+
+    local recipientsText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    recipientsText:SetPoint("TOPLEFT", varsHint, "BOTTOMLEFT", 0, -12)
+
+    local function SelectedEvent(roster)
+        return roster and R.GetEvent(roster, selectedEventId)
+    end
+
+    -- Integrantes conectados a los que se susurraría (sin mí)
+    local function Recipients(roster)
+        local list, total = {}, 0
+        local me = UnitName("player")
+        for name, slot in pairs(R.GetEffectiveMembers(roster)) do
+            if slot ~= "bench" or chkBench:GetChecked() then
+                total = total + 1
+                local m = GuildControlDB.members[name]
+                local short = string.match(name, "^([^-]+)") or name
+                if m and m.isOnline and short ~= me then table.insert(list, name) end
+            end
+        end
+        table.sort(list)
+        return list, total
+    end
+
+    local btnGuild, btnWhisper
+
+    local function UpdateRecipients()
+        local roster = R.GetSelected()
+        local list, total = Recipients(roster)
+        recipientsText:SetText("Destinatarios del susurro: |cFFFFD100" .. #list .. "|r conectados de " .. total .. " en el roster."
+            .. (whisperTicker and "  |cFF00FF00Enviando...|r" or ""))
+    end
+
+    local function Refresh()
+        local roster = R.GetSelected()
+        frame.title:SetText("Mensaje para " .. R.GetDisplayName(roster))
+        local events = R.GetEventsSorted(roster)
+        if selectedEventId ~= false and (not selectedEventId or not R.GetEvent(roster, selectedEventId)) then
+            -- Por defecto, la próxima fecha (o la más reciente si ya pasaron todas)
+            selectedEventId = nil
+            local today = date("%Y-%m-%d")
+            for i = #events, 1, -1 do
+                if events[i].date >= today then selectedEventId = events[i].id break end
+            end
+            if not selectedEventId and events[1] then selectedEventId = events[1].id end
+        end
+        local event = SelectedEvent(roster)
+        dropEvent:SetText(event and R.FormatEventDate(event) or "Sin fecha")
+        UpdateRecipients()
+    end
+
+    dropEvent:SetupMenu(function(_, root)
+        local roster = R.GetSelected()
+        root:CreateRadio("Sin fecha", function() return not selectedEventId end,
+            function() selectedEventId = false; Refresh() end)
+        for _, event in ipairs(R.GetEventsSorted(roster)) do
+            local id = event.id
+            local label = R.FormatEventDate(event) .. ((event.note and event.note ~= "") and (" · " .. event.note) or "")
+            root:CreateRadio(label, function() return selectedEventId == id end,
+                function() selectedEventId = id; Refresh() end)
+        end
+    end)
+    chkBench:SetScript("OnClick", UpdateRecipients)
+
+    btnGuild = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnGuild:SetSize(180, 24)
+    btnGuild:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 14)
+    btnGuild:SetText("Enviar a la hermandad")
+    btnGuild:SetScript("OnClick", function()
+        local roster = R.GetSelected()
+        local msg = ExpandRosterMessage(editor.GetText(), roster, SelectedEvent(roster), nil)
+        if msg == "" then return end
+        if #msg > MAX_CHAT_BYTES then
+            PrintGC("|cFFFF3333El mensaje supera los " .. MAX_CHAT_BYTES .. " caracteres del chat.|r")
+            return
+        end
+        if C_ChatInfo and C_ChatInfo.SendChatMessage then
+            C_ChatInfo.SendChatMessage(msg, "GUILD")
+        else
+            SendChatMessage(msg, "GUILD")
+        end
+    end)
+
+    -- Un susurro personalizado a cada integrante conectado, uno cada medio segundo
+    btnWhisper = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnWhisper:SetSize(180, 24)
+    btnWhisper:SetPoint("LEFT", btnGuild, "RIGHT", 8, 0)
+    btnWhisper:SetText("Susurrar a cada uno")
+    btnWhisper:SetScript("OnClick", function(self)
+        if whisperTicker then return end
+        local roster = R.GetSelected()
+        local event = SelectedEvent(roster)
+        local template = editor.GetText()
+        local queue = {}
+        for _, name in ipairs(Recipients(roster)) do
+            local msg = ExpandRosterMessage(template, roster, event, name)
+            if msg ~= "" and #msg <= MAX_CHAT_BYTES then table.insert(queue, { name = name, msg = msg }) end
+        end
+        if #queue == 0 then
+            PrintGC("No hay integrantes conectados a los que susurrar (o el mensaje es demasiado largo).")
+            return
+        end
+        self:Disable()
+        local sent = 0
+        whisperTicker = C_Timer.NewTicker(ROSTER_WHISPER_INTERVAL, function()
+            local item = table.remove(queue, 1)
+            if item then
+                SendWhisper(item.name, item.msg)
+                sent = sent + 1
+            end
+            if #queue == 0 then
+                whisperTicker:Cancel()
+                whisperTicker = nil
+                self:Enable()
+                PrintGC("Susurros enviados: |cFFFFD100" .. sent .. "|r.")
+                UpdateRecipients()
+            end
+        end)
+        UpdateRecipients()
+    end)
+
+    local btnClose = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnClose:SetSize(100, 24)
+    btnClose:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 14)
+    btnClose:SetText("Cerrar")
+    btnClose:SetScript("OnClick", function() frame:Hide() end)
+
+    frame:SetScript("OnShow", function()
+        selectedEventId = nil   -- los ids de fecha son por roster
+        editor.SetText(GuildControlDB.settings.rosterMessage or "")
+        Refresh()
+    end)
+    return frame
+end
+
+function uiModule.ShowRosterMessage()
+    if not GC_UI or not addonTable.Roster then return end
+    if not GC_RosterMsgFrame then GC_RosterMsgFrame = CreateRosterMessageFrame() end
+    if GC_RosterMsgFrame:IsShown() then GC_RosterMsgFrame:Hide() end
+    GC_RosterMsgFrame:Show()
+end
+
+-- =========================================================================
+-- 8c. VISTA MI PERFIL (ROL DECLARADO Y PERFIL DE OFICIAL/JUGADOR)
+-- =========================================================================
+local function BuildMyProfileView(parent)
+    local P = addonTable.Profiles
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetText("Mi perfil")
+
+    local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+
+    -- Grupo de casillas que se comportan como botones de opción
+    local function CreateRoleChoice(labelText, anchor, yOffset, options, onChange)
+        local label = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, yOffset)
+        label:SetText(labelText)
+        local checks, selected = {}, nil
+        local group = {}
+        function group.Set(value)
+            selected = value
+            for key, chk in pairs(checks) do chk:SetChecked(key == (value or "Ninguno")) end
+        end
+        function group.Get() return selected end
+        for i, option in ipairs(options) do
+            local chk = CreateFrame("CheckButton", nil, view, "UICheckButtonTemplate")
+            chk:SetSize(24, 24)
+            chk:SetPoint("TOPLEFT", label, "BOTTOMLEFT", (i - 1) * 130, -4)
+            chk.text = chk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            chk.text:SetPoint("LEFT", chk, "RIGHT", 2, 0)
+            chk.text:SetText(option)
+            chk:SetScript("OnClick", function()
+                group.Set(option ~= "Ninguno" and option or nil)
+                if onChange then onChange() end
+            end)
+            checks[option] = chk
+        end
+        group.label = label
+        return group
+    end
+
+    local mainChoice = CreateRoleChoice("Rol principal", subtitle, -22, P.ROLES)
+    local secondaryChoice = CreateRoleChoice("Rol secundario (opcional)", mainChoice.label, -50,
+        { "Ninguno", "Tanque", "Sanador", "DPS" })
+
+    local specLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    specLabel:SetPoint("TOPLEFT", secondaryChoice.label, "BOTTOMLEFT", 0, -50)
+    specLabel:SetText("Especialización")
+
+    local specInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    specInput:SetSize(220, 20)
+    specInput:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 6, -6)
+    specInput:SetAutoFocus(false)
+    specInput:SetMaxLetters(30)
+    local specPlaceholder = specInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    specPlaceholder:SetPoint("LEFT", specInput, "LEFT", 2, 0)
+    specPlaceholder:SetText("Restauración, Protección...")
+    specInput:SetScript("OnTextChanged", function(self) specPlaceholder:SetShown((self:GetText() or "") == "") end)
+
+    local noteLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    noteLabel:SetPoint("TOPLEFT", specInput, "BOTTOMLEFT", -6, -16)
+    noteLabel:SetText("Nota para los oficiales")
+
+    local noteInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    noteInput:SetSize(460, 20)
+    noteInput:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 6, -6)
+    noteInput:SetAutoFocus(false)
+    noteInput:SetMaxLetters(80)
+    local notePlaceholder = noteInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    notePlaceholder:SetPoint("LEFT", noteInput, "LEFT", 2, 0)
+    notePlaceholder:SetText("Disponibilidad, otras especializaciones, alters...")
+    noteInput:SetScript("OnTextChanged", function(self) notePlaceholder:SetShown((self:GetText() or "") == "") end)
+
+    for _, box in ipairs({ specInput, noteInput }) do
+        box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    end
+
+    local btnSave = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnSave:SetSize(160, 24)
+    btnSave:SetPoint("TOPLEFT", noteInput, "BOTTOMLEFT", -6, -16)
+    btnSave:SetText("Guardar y enviar")
+
+    local saveStatus = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    saveStatus:SetPoint("LEFT", btnSave, "RIGHT", 12, 0)
+
+    local explanation = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    explanation:SetPoint("TOPLEFT", btnSave, "BOTTOMLEFT", 0, -12)
+    explanation:SetWidth(520)
+    explanation:SetJustifyH("LEFT")
+    explanation:SetText("Tu rol se envía a los miembros de la hermandad que usan GuildControl. Los oficiales lo ven en Miembros y al montar el roster. Si un oficial te asigna otro rol a mano, prevalece el suyo.")
+
+    btnSave:SetScript("OnClick", function()
+        local main = mainChoice.Get()
+        if not main then
+            saveStatus:SetText("|cFFFF3333Elige tu rol principal.|r")
+            return
+        end
+        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText())
+        specInput:ClearFocus()
+        noteInput:ClearFocus()
+        saveStatus:SetText("|cFF00FF00Guardado y enviado a las " .. date("%H:%M") .. ".|r")
+    end)
+
+    -- Columna derecha: lo que tiene la ficha y, para oficiales, la gestión de perfiles
+    local side = CreateBackdropBox(view, 300, 400, "TOPRIGHT", view, "TOPRIGHT", -12, -60)
+
+    local sideTitle = side:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sideTitle:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -12)
+    sideTitle:SetText("Tu ficha en la hermandad")
+
+    local sideText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sideText:SetPoint("TOPLEFT", sideTitle, "BOTTOMLEFT", 0, -8)
+    sideText:SetWidth(276)
+    sideText:SetJustifyH("LEFT")
+
+    local officerTitle = side:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    officerTitle:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -150)
+    officerTitle:SetText("Oficiales")
+
+    local officerText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    officerText:SetPoint("TOPLEFT", officerTitle, "BOTTOMLEFT", 0, -8)
+    officerText:SetWidth(276)
+    officerText:SetJustifyH("LEFT")
+
+    local btnRequest = CreateFrame("Button", nil, side, "UIPanelButtonTemplate")
+    btnRequest:SetSize(200, 22)
+    btnRequest:SetPoint("TOPLEFT", officerText, "BOTTOMLEFT", 0, -10)
+    btnRequest:SetText("Pedir roles a la hermandad")
+    btnRequest:SetScript("OnClick", function()
+        P.RequestRoles()
+        PrintGC("Petición de roles enviada. Responden los miembros conectados que usan GuildControl.")
+    end)
+
+    local rankLabel = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    rankLabel:SetPoint("TOPLEFT", btnRequest, "BOTTOMLEFT", 0, -16)
+    rankLabel:SetText("Perfil de oficial hasta el rango:")
+
+    local dropRank = CreateFrame("DropdownButton", "GC_OfficerRankSelect", side, "WowStyle1DropdownTemplate")
+    dropRank:SetPoint("TOPLEFT", rankLabel, "BOTTOMLEFT", 0, -6)
+    dropRank:SetWidth(200)
+    dropRank:SetupMenu(function(_, root)
+        for _, rank in ipairs(P.GetGuildRanks()) do
+            local index = rank.index
+            root:CreateRadio(rank.name,
+                function() return P.GetOfficerRankIndex() == index end,
+                function()
+                    GuildControlDB.settings.officerRankIndex = index
+                    uiModule.ApplyProfile()
+                    view:GetScript("OnShow")(view)
+                end)
+        end
+    end)
+
+    local rankHint = side:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    rankHint:SetPoint("TOPLEFT", dropRank, "BOTTOMLEFT", 0, -6)
+    rankHint:SetWidth(276)
+    rankHint:SetJustifyH("LEFT")
+    rankHint:SetText("Ese rango y los superiores ven todas las pestañas. Quien tenga el permiso de chat de oficiales del juego también es oficial. Es un ajuste de tu cliente: cada oficial lo configura en el suyo.")
+
+    local officerWidgets = { officerTitle, officerText, btnRequest, rankLabel, dropRank, rankHint }
+
+    view:SetScript("OnShow", function()
+        local profile = P.GetMyProfile()
+        mainChoice.Set(profile.main)
+        secondaryChoice.Set(profile.secondary)
+        specInput:SetText(profile.spec or "")
+        noteInput:SetText(profile.note or "")
+        saveStatus:SetText("")
+
+        local isOfficer = P.IsOfficer()
+        local m = GuildControlDB.members[P.GetMyFullName()] or {}
+        subtitle:SetText((UnitName("player") or "") .. "   ·   Rango: |cFFFFD100" .. (m.rank or "-") .. "|r   ·   Perfil: "
+            .. (isOfficer and "|cFFFFD100Oficial|r" or "|cFF00FFFFJugador|r"))
+
+        local source = m.roleSource == "officer" and "asignado por un oficial"
+            or (m.roleSource == "declared" and "declarado por ti" or "por defecto")
+        sideText:SetText("Rol en tu ficha: |cFFFFD100" .. (m.role or "DPS") .. "|r |cFF808080(" .. source .. ")|r\n"
+            .. "Rosters: |cFFFFD100" .. (m.roster or "Sin Roster") .. "|r\n"
+            .. "Profesiones: " .. (m.prof1 or "Ninguna") .. ", " .. (m.prof2 or "Ninguna") .. "\n\n"
+            .. "|cFF808080Esto es lo que guarda tu cliente. Cada oficial tiene su propia copia.|r")
+
+        for _, widget in ipairs(officerWidgets) do widget:SetShown(isOfficer) end
+        if isOfficer then
+            local declared, total = P.CountDeclared()
+            officerText:SetText("Roles declarados: |cFFFFD100" .. declared .. "|r de " .. total .. " miembros.\n"
+                .. "Los ves en Miembros (vista previa) y en los candidatos del roster.")
+            local currentRank = P.GetOfficerRankIndex()
+            dropRank:SetText("Rango " .. currentRank)
+            for _, rank in ipairs(P.GetGuildRanks()) do
+                if rank.index == currentRank then dropRank:SetText(rank.name) end
+            end
+        end
+    end)
+
+    uiModule.RefreshMyProfile = function()
+        if view:IsShown() then view:GetScript("OnShow")(view) end
+    end
+    containers.views["Mi perfil"] = view
+end
+
+-- =========================================================================
 -- 9. VISTA DE CONFIGURACIÓN (NOMBRE E ICONO DE LA HERMANDAD)
 -- =========================================================================
 local DEFAULT_GUILD_ICON = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
@@ -3613,6 +4127,7 @@ function uiModule.CreateUI()
 
     BuildMembersView(mainContent)
     BuildAchievementsView(mainContent)
+    BuildMyProfileView(mainContent)
     BuildPlaceholderView(mainContent, "Resumen")
     BuildRosterView(mainContent)
     BuildPlaceholderView(mainContent, "Warning")
@@ -3621,6 +4136,18 @@ function uiModule.CreateUI()
     BuildConfigView(mainContent)
 
     BuildChatPanel(GC_UI)
+
+    -- Perfil (oficial o jugador) y avisos de roles declarados por otros miembros
+    uiModule.ApplyProfile()
+    if addonTable.Profiles then
+        addonTable.Profiles.SetChangeListener(function()
+            if not uiModule.IsShown() then return end
+            if activeTab == "Miembros" and uiModule.RefreshList then uiModule.RefreshList() end
+            if activeTab == "Roster" and uiModule.RefreshRoster then uiModule.RefreshRoster() end
+            if uiModule.RefreshMyProfile then uiModule.RefreshMyProfile() end
+            if uiModule.UpdatePlayerInfoBar then uiModule.UpdatePlayerInfoBar() end
+        end)
+    end
     uiModule.ApplyWindowStrata()
 
     SwitchTab("Miembros")
@@ -3768,6 +4295,7 @@ function uiModule.ToggleUI()
         GC_UI:Hide()
     else
         if IsInGuild() then C_GuildInfo.GuildRoster() end
+        uiModule.ApplyProfile()
         if activeTab == "Miembros" and uiModule.ResetMembersSort then uiModule.ResetMembersSort() end
         if uiModule.RefreshList then uiModule.RefreshList() end
         if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end

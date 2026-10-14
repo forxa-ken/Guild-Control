@@ -12,6 +12,7 @@
 - **`Modules/Professions.lua`**: Módulo aislado para el escaneo y sincronización de profesiones de los miembros.
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
+- **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 
 ## 🏆 Panel de logros
 
@@ -53,7 +54,16 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 La columna Roster de Miembros muestra en qué rosters está cada uno.
 La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV del roster la incluye.
 - **Jefes**: encima de la composición, el selector **Base / Jefe** permite crear variantes por jefe (**Añadir jefe**, **Eliminar jefe**). Cada jefe parte de la base y solo guarda sus cambios: quién entra, quién se queda en la banca y quién cambia de rol. La vista previa muestra quién entra y quién sale respecto a la base, y Invitar, Anunciar y Exportar usan la composición del jefe seleccionado. En un jefe, **Restablecer jefe** vuelve a la base.
+- **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la fecha de banda y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
 - **Compartir**: envía el roster completo (base, jefes, fechas y asistencia) a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
+
+## 👤 Mi perfil y perfiles de oficial y jugador
+
+- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
+- Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
+- **Perfil de oficial**: rango igual o superior al configurado en Mi perfil (por defecto el rango 1) o permiso de chat de oficiales del juego. Ve todas las pestañas.
+- **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
+- El perfil solo cambia lo que se ve: los datos de cada cliente son locales y nadie puede modificar los de otro.
 
 ## ✉️ Invitar nuevos miembros
 

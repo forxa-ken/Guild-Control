@@ -12,4 +12,5 @@ Modules\Achievements.lua
 Modules\CSV.lua
 Modules\GuildChat.lua
 Modules\Roster.lua
+Modules\Profiles.lua
 Modules\UI.lua

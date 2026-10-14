@@ -86,6 +86,11 @@ function addonTable.InitDB()
     if type(recruit.massWhisper) ~= "boolean" then recruit.massWhisper = true end
     if recruit.mode ~= "single" and recruit.mode ~= "mass" then recruit.mode = "single" end
 
+    -- Mensaje para los integrantes de un roster (botón Mensaje de la vista Roster)
+    if type(GuildControlDB.settings.rosterMessage) ~= "string" or GuildControlDB.settings.rosterMessage == "" then
+        GuildControlDB.settings.rosterMessage = "{rt1} {roster} ({dificultad}): banda el {fecha} a las {hora}. ¡Confirmad asistencia!"
+    end
+
     -- Fecha (time()) de la última invitación masiva a cada jugador, para no repetirla
     if type(GuildControlDB.inviteHistory) ~= "table" then GuildControlDB.inviteHistory = {} end
 end
@@ -198,7 +203,7 @@ function addonTable.ScanGuildRosterForChanges()
     local currentGuildOnlineMap = {}
 
     for i = 1, numMembers do
-        local fullName, rankName, _, level, _, zoneName, publicNote, officerNote, online, _, classFileName, _, _, _, _, _, guid = GetGuildRosterInfo(i)
+        local fullName, rankName, rankIndex, level, _, zoneName, publicNote, officerNote, online, _, classFileName, _, _, _, _, _, guid = GetGuildRosterInfo(i)
         
         if fullName then
             currentGuildOnlineMap[fullName] = true
@@ -230,7 +235,8 @@ function addonTable.ScanGuildRosterForChanges()
                     zone = zoneName or "Desconocida",
                     lastOnline = lastOnlineStr,
                     isOnline = isReallyOnline,
-                    guid = guid
+                    guid = guid,
+                    rankIndex = rankIndex
                 }
                 addonTable.LogHistoryEvent("ALTA", fullName, "Ingreso detectado automáticamente del servidor")
             else
@@ -250,6 +256,7 @@ function addonTable.ScanGuildRosterForChanges()
                 end
                 m.isOnline = isReallyOnline
                 m.guid = guid or m.guid
+                m.rankIndex = rankIndex
             end
         end
     end
@@ -272,6 +279,10 @@ function addonTable.ScanGuildRosterForChanges()
     end
     if addonTable.UI.UpdateMemberCounter then
         addonTable.UI.UpdateMemberCounter()
+    end
+    -- El rango puede haber cambiado: actualizar las pestañas visibles según el perfil
+    if addonTable.UI.ApplyProfile and addonTable.UI.IsShown and addonTable.UI.IsShown() then
+        addonTable.UI.ApplyProfile()
     end
 
     isSyncingRoster = false
