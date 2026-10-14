@@ -263,6 +263,8 @@ local function SwitchTab(tabName)
     SetPreviewText(PREVIEW_DEFAULT_TEXT)
 
     if tabName == "Miembros" and uiModule.RefreshList then
+        -- Al entrar en Miembros siempre se vuelve al orden por defecto: conectados primero
+        if uiModule.ResetMembersSort then uiModule.ResetMembersSort() end
         uiModule.RefreshList()
     elseif tabName == "Logros" and uiModule.RefreshAchievements then
         uiModule.RefreshAchievements()
@@ -412,18 +414,65 @@ end
 -- =========================================================================
 -- 6. VISTA DE MIEMBROS
 -- =========================================================================
+local MEMBER_ROW_HEIGHT = 24
+
+-- Columnas de la tabla de miembros. "key" es el criterio de orden (nil = no ordenable)
+local MEMBER_COLUMNS = {
+    { title = "Nº",       x = 5,   w = 25 },
+    { title = "Nivel",    x = 30,  w = 35,  key = "level" },
+    { title = "Clase",    x = 65,  w = 65,  key = "class" },
+    { title = "Nombre",   x = 130, w = 145, key = "name" },
+    { title = "Rango",    x = 275, w = 80,  key = "rank" },
+    { title = "Rol",      x = 355, w = 40,  key = "role" },
+    { title = "Enfoque",  x = 395, w = 50,  key = "focus" },
+    { title = "Prof. 1",  x = 445, w = 105, key = "prof1" },
+    { title = "Prof. 2",  x = 550, w = 105, key = "prof2" },
+    { title = "Roster",   x = 655, w = 85,  key = "roster" },
+    { title = "Conexión", x = 740, w = 90,  key = "lastOnline" },
+}
+
+-- Orden por defecto: conectados primero y después por días desde la última conexión
+local DEFAULT_SORT_KEY = "lastOnline"
+
+-- Conectado = -1, desconectado hoy = 0, "N días" = N
+local function OnlineSortValue(data)
+    if data.isOnline then return -1 end
+    return tonumber(string.match(data.lastOnline or "", "(%d+)")) or 0
+end
+
+local function MemberSortValue(entry, key)
+    local data = entry.data
+    if key == "level" then return tonumber(data.level) or 0 end
+    if key == "lastOnline" then return OnlineSortValue(data) end
+    if key == "name" then return string.lower(entry.name) end
+
+    local value = data[key]
+    if key == "prof1" or key == "prof2" then
+        -- "Ninguna" siempre al final en orden ascendente
+        if not value or value == "Ninguna" then return "\255" end
+    end
+    return string.lower(tostring(value or ""))
+end
+
 local function BuildMembersView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
 
-    local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
-    searchBox:SetSize(220, 20)
-    searchBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
-    searchBox:SetAutoFocus(false)
+    local showOnlyOnline = false
+    local searchQuery = ""
+    local sortKey, sortAsc = DEFAULT_SORT_KEY, true
 
-    local searchLabel = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 2)
-    searchLabel:SetText("Buscar por nombre...")
+    -- Barra de filtros (todo dentro del contenedor)
+    local searchLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 12, -10)
+    searchLabel:SetText("Filtrar por nombre, clase, rango, rol, profesión o roster")
+
+    local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
+    searchBox:SetSize(260, 20)
+    searchBox:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 5, -4)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
     local btnShowAll = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnShowAll:SetSize(90, 22)
@@ -435,50 +484,84 @@ local function BuildMembersView(parent)
     btnShowOnline:SetPoint("LEFT", btnShowAll, "RIGHT", 8, 0)
     btnShowOnline:SetText("En línea")
 
+    local countText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("LEFT", btnShowOnline, "RIGHT", 15, 0)
+    countText:SetTextColor(0.75, 0.75, 0.75)
+
     local btnCSV = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnCSV:SetSize(100, 22)
-    btnCSV:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnCSV:SetSize(110, 22)
+    btnCSV:SetPoint("RIGHT", view, "RIGHT", -12, 0)
+    btnCSV:SetPoint("TOP", searchBox, "TOP", 0, 1)
     btnCSV:SetText("Sheets / CSV")
     btnCSV:SetScript("OnClick", function()
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
     end)
 
+    -- Encabezados ordenables
     local headerBg = CreateFrame("Frame", nil, view)
-    headerBg:SetSize(880, 20)
-    headerBg:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -15)
+    headerBg:SetSize(850, 20)
+    headerBg:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -10, -12)
 
-    local function CreateHeader(t, x, w)
-        local fs = headerBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        fs:SetPoint("LEFT", headerBg, "LEFT", x, 0)
-        fs:SetWidth(w)
-        fs:SetText(t)
+    local headerButtons = {}
+
+    local function UpdateSortIndicators()
+        for _, hb in ipairs(headerButtons) do
+            if hb.key == sortKey then
+                hb.text:SetTextColor(1, 1, 1)
+                hb.arrow:Show()
+                if sortAsc then
+                    hb.arrow:SetTexCoord(0, 0.5625, 1, 0)
+                else
+                    hb.arrow:SetTexCoord(0, 0.5625, 0, 1)
+                end
+            else
+                hb.text:SetTextColor(1, 0.82, 0)
+                hb.arrow:Hide()
+            end
+        end
     end
 
-    CreateHeader("Nº", 5, 25)
-    CreateHeader("Nivel", 30, 35)
-    CreateHeader("Clase", 65, 70)
-    CreateHeader("Nombre", 135, 120)
-    CreateHeader("Rango", 255, 90)
-    CreateHeader("Rol", 345, 50)
-    CreateHeader("Enfoque", 395, 55)
-    CreateHeader("Prof. 1", 450, 100)
-    CreateHeader("Prof. 2", 550, 100)
-    CreateHeader("Roster", 650, 90)
-    CreateHeader("Conexión", 740, 90)
+    for _, col in ipairs(MEMBER_COLUMNS) do
+        local hb = CreateFrame("Button", nil, headerBg)
+        hb:SetPoint("LEFT", headerBg, "LEFT", col.x, 0)
+        hb:SetSize(col.w, 20)
+        hb.key = col.key
+
+        hb.text = hb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        hb.text:SetPoint("LEFT", hb, "LEFT", 0, 0)
+        hb.text:SetText(col.title)
+
+        hb.arrow = hb:CreateTexture(nil, "OVERLAY")
+        hb.arrow:SetTexture("Interface\\Buttons\\UI-SortArrow")
+        hb.arrow:SetSize(9, 8)
+        hb.arrow:SetPoint("LEFT", hb.text, "RIGHT", 3, 0)
+        hb.arrow:Hide()
+
+        if col.key then
+            hb:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+            hb:SetScript("OnClick", function(self)
+                if sortKey == self.key then
+                    sortAsc = not sortAsc
+                else
+                    sortKey, sortAsc = self.key, true
+                end
+                UpdateSortIndicators()
+                uiModule.RefreshList()
+            end)
+        end
+        table.insert(headerButtons, hb)
+    end
 
     local scrollFrame = CreateFrame("ScrollFrame", "GC_NewMembersScroll", view, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", headerBg, "BOTTOMLEFT", 0, -5)
-    scrollFrame:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -25, 10)
+    scrollFrame:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -28, 10)
 
     local scrollChild = CreateFrame("Frame")
-    scrollChild:SetSize(scrollFrame:GetWidth(), scrollFrame:GetHeight())
+    scrollChild:SetSize(850, 1)
     scrollFrame:SetScrollChild(scrollChild)
 
-    local showOnlyOnline = false
-    local searchQuery = ""
-
     searchBox:SetScript("OnTextChanged", function(self)
-        searchQuery = string.lower(self:GetText() or "")
+        searchQuery = string.lower(strtrim(self:GetText() or ""))
         uiModule.RefreshList()
     end)
 
@@ -492,73 +575,126 @@ local function BuildMembersView(parent)
         uiModule.RefreshList()
     end)
 
-    uiModule.RefreshList = function()
-        if not scrollChild then return end
-        if scrollChild.rows then for _, r in pairs(scrollChild.rows) do r:Hide() end end
-        scrollChild.rows = {}
-
-        local yOffset, rowIndex = -5, 1
-        for fullName, data in pairs(GuildControlDB.members or {}) do
-            local passSearch = (searchQuery == "") or string.find(string.lower(fullName), searchQuery, 1, true)
-            local passOnline = (not showOnlyOnline) or data.isOnline
-
-            if passSearch and passOnline then
-                local row = CreateFrame("Button", nil, scrollChild)
-                row:SetSize(870, 22)
-                row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-
-                if rowIndex % 2 == 0 then
-                    local bg = row:CreateTexture(nil, "BACKGROUND")
-                    bg:SetAllPoints()
-                    bg:SetColorTexture(1, 1, 1, 0.05)
-                end
-
-                local isOnline = data.isOnline
-                local hex = isOnline and addonTable.GetClassColorHex(data.class) or "888888"
-
-                local function Cell(t, x, w, cHex)
-                    local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    fs:SetPoint("LEFT", row, "LEFT", x, 0)
-                    fs:SetWidth(w)
-                    fs:SetJustifyH("LEFT")
-                    fs:SetText("|cFF" .. (cHex or "FFFFFF") .. tostring(t) .. "|r")
-                end
-
-                Cell(rowIndex, 5, 25, "888888")
-                Cell(data.level or 0, 30, 35, hex)
-                Cell(data.class or "Desconocida", 65, 70, hex)
-                Cell(fullName, 135, 120, hex)
-                Cell(data.rank or "Recluta", 255, 90, isOnline and "FFFFFF" or "888888")
-                Cell(data.role or "DPS", 345, 50, isOnline and "FF7F7F" or "888888")
-                Cell(data.focus or "PvE", 395, 55, isOnline and "FFFFFF" or "888888")
-                Cell(data.prof1 or "Ninguna", 450, 100, isOnline and "FFFFFF" or "888888")
-                Cell(data.prof2 or "Ninguna", 550, 100, isOnline and "FFFFFF" or "888888")
-                Cell(data.roster or "Sin Roster", 650, 90, isOnline and "00FFFF" or "888888")
-                Cell(data.lastOnline or "Online", 740, 90, isOnline and "00FF00" or "888888")
-
-                row:SetScript("OnClick", function()
-                    selectedMember = data
-                    SetPreviewText(
-                        "|cFFFFD100" .. fullName .. "|r\n\n" ..
-                        "Nivel: " .. (data.level or 0) .. "\n" ..
-                        "Clase: " .. (data.class or "Desconocida") .. "\n" ..
-                        "Rango: " .. (data.rank or "Recluta") .. "\n" ..
-                        "Rol: " .. (data.role or "DPS") .. "\n" ..
-                        "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
-                        "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
-                        "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
-                        "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
-                        "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
-                    )
-                end)
-
-                table.insert(scrollChild.rows, row)
-                yOffset = yOffset - 24
-                rowIndex = rowIndex + 1
+    local function MatchesSearch(fullName, data)
+        if searchQuery == "" then return true end
+        local fields = { fullName, data.class, data.rank, data.role, data.focus, data.prof1, data.prof2, data.roster }
+        for _, value in ipairs(fields) do
+            if value and string.find(string.lower(tostring(value)), searchQuery, 1, true) then
+                return true
             end
         end
+        return false
     end
 
+    local function ShowMemberPreview(fullName, data)
+        selectedMember = data
+        SetPreviewText(
+            "|cFFFFD100" .. fullName .. "|r\n\n" ..
+            "Nivel: " .. (data.level or 0) .. "\n" ..
+            "Clase: " .. (data.class or "Desconocida") .. "\n" ..
+            "Rango: " .. (data.rank or "Recluta") .. "\n" ..
+            "Rol: " .. (data.role or "DPS") .. "\n" ..
+            "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
+            "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
+            "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
+            "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
+            "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
+        )
+    end
+
+    -- Pool de filas: se reutilizan en cada refresco
+    local rows = {}
+
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+
+        row = CreateFrame("Button", nil, scrollChild)
+        row:SetSize(850, MEMBER_ROW_HEIGHT - 2)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+
+        row.cells = {}
+        for i, col in ipairs(MEMBER_COLUMNS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
+            fs:SetWidth(col.w - 4)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            row.cells[i] = fs
+        end
+
+        row:SetScript("OnClick", function(self)
+            if self.fullName then ShowMemberPreview(self.fullName, self.data) end
+        end)
+
+        rows[index] = row
+        return row
+    end
+
+    uiModule.ResetMembersSort = function()
+        sortKey, sortAsc = DEFAULT_SORT_KEY, true
+        UpdateSortIndicators()
+    end
+
+    uiModule.RefreshList = function()
+        local list, total = {}, 0
+        for fullName, data in pairs(GuildControlDB.members or {}) do
+            total = total + 1
+            if ((not showOnlyOnline) or data.isOnline) and MatchesSearch(fullName, data) then
+                table.insert(list, { name = fullName, data = data })
+            end
+        end
+
+        table.sort(list, function(a, b)
+            local va, vb = MemberSortValue(a, sortKey), MemberSortValue(b, sortKey)
+            if va ~= vb then
+                if sortAsc then return va < vb end
+                return va > vb
+            end
+            return a.name < b.name
+        end)
+
+        for _, r in ipairs(rows) do r:Hide() end
+
+        for i, entry in ipairs(list) do
+            local data = entry.data
+            local row = AcquireRow(i)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -5 - (i - 1) * MEMBER_ROW_HEIGHT)
+            row.bg:SetShown(i % 2 == 0)
+            row.fullName, row.data = entry.name, data
+
+            local isOnline = data.isOnline
+            local hex = isOnline and addonTable.GetClassColorHex(data.class) or "888888"
+            local dim = "888888"
+            local values = {
+                { i, dim },
+                { data.level or 0, hex },
+                { data.class or "Desconocida", hex },
+                { entry.name, hex },
+                { data.rank or "Recluta", isOnline and "FFFFFF" or dim },
+                { data.role or "DPS", isOnline and "FF7F7F" or dim },
+                { data.focus or "PvE", isOnline and "FFFFFF" or dim },
+                { data.prof1 or "Ninguna", isOnline and "FFFFFF" or dim },
+                { data.prof2 or "Ninguna", isOnline and "FFFFFF" or dim },
+                { data.roster or "Sin Roster", isOnline and "00FFFF" or dim },
+                { data.lastOnline or "Online", isOnline and "00FF00" or dim },
+            }
+            for c, v in ipairs(values) do
+                row.cells[c]:SetText("|cFF" .. v[2] .. tostring(v[1]) .. "|r")
+            end
+            row:Show()
+        end
+
+        scrollChild:SetHeight(math.max(1, #list * MEMBER_ROW_HEIGHT + 10))
+        countText:SetText("Mostrando " .. #list .. " de " .. total)
+    end
+
+    UpdateSortIndicators()
     containers.views["Miembros"] = view
 end
 
@@ -1213,9 +1349,10 @@ function uiModule.ToggleUI()
         GC_UI:Hide()
     else
         if IsInGuild() then C_GuildInfo.GuildRoster() end
+        if activeTab == "Miembros" and uiModule.ResetMembersSort then uiModule.ResetMembersSort() end
         if uiModule.RefreshList then uiModule.RefreshList() end
         if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
         uiModule.UpdateHeader()
         GC_UI:Show()
     end
-end
+end
