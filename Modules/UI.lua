@@ -374,16 +374,15 @@ local function BuildMembersView(parent)
     containers.views["Miembros"] = view
 end
 
-
 -- =========================================================================
--- 7. VISTA DE LOGROS (EXCLUSIVA DE HERMANDAD - SIN LAG Y DATOS EXACTOS)
+-- 7. VISTA DE LOGROS (DESACOPLADA - CONSUME MODULES/ACHIEVEMENTS.LUA)
 -- =========================================================================
 local function BuildAchievementsView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
     view:Hide()
 
-    local GUILD_CATEGORY_BASE = 15070 -- ID Base de Logros de Hermandad
+    local GUILD_CATEGORY_BASE = 15070
     local currentCategoryId = GUILD_CATEGORY_BASE
     local searchQuery = ""
     local filterState = "TODOS"
@@ -497,43 +496,16 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Cálculo exacto de totales globales de la hermandad
+    -- Obtención de estadísticas desacopladas desde Modules/Achievements.lua
     local function CalculateGuildSummary()
-        local guildPoints = GetTotalAchievementPoints and GetTotalAchievementPoints(true) or 0
-        pointsText:SetText("Puntos: |cFFFFD100" .. guildPoints .. "|r")
+        local stats = addonTable.Achievements and addonTable.Achievements.GetStats()
+        if not stats then return end
 
-        local totalCount, doneCount = 0, 0
-        local latestName, latestDate = nil, nil
-        local latestTS = 0
-
-        local categories = GetCategoryList()
-        for _, catId in ipairs(categories or {}) do
-            local _, parentID = GetCategoryInfo(catId)
-            if catId == GUILD_CATEGORY_BASE or parentID == GUILD_CATEGORY_BASE then
-                local numAch = GetCategoryNumAchievements(catId, true) or 0
-                for i = 1, numAch do
-                    local _, name, _, completed, month, day, year = GetAchievementInfo(catId, i)
-                    if name then
-                        totalCount = totalCount + 1
-                        if completed then
-                            doneCount = doneCount + 1
-                            if year and month and day and year > 0 then
-                                local ts = (year * 10000) + (month * 100) + day
-                                if ts > latestTS then
-                                    latestTS = ts
-                                    latestName = name
-                                    latestDate = string.format("%02d/%02d/20%02d", day, month, year)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        completedText:SetText("Completados: |cFF00FF00" .. doneCount .. "/" .. totalCount .. "|r")
-        if latestName then
-            lastAchText:SetText("Último logro: |cFFFFD100" .. latestName .. "|r (" .. (latestDate or "") .. ")")
+        pointsText:SetText("Puntos: |cFFFFD100" .. (stats.totalPoints or 0) .. "|r")
+        completedText:SetText("Completados: |cFF00FF00" .. (stats.completedCount or 0) .. "/" .. (stats.totalCount or 0) .. "|r")
+        
+        if stats.latestName and stats.latestName ~= "Ninguno" then
+            lastAchText:SetText("Último logro: |cFFFFD100" .. stats.latestName .. "|r (" .. (stats.latestDate or "") .. ")")
         else
             lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
         end
@@ -545,7 +517,6 @@ local function BuildAchievementsView(parent)
         if achChild.rows then for _, r in pairs(achChild.rows) do r:Hide() end end
         achChild.rows = {}
 
-        -- Forzar carga de datos de hermandad si la interfaz oficial no se ha sincronizado
         if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
             AchievementFrame_LoadUI()
         end
@@ -602,7 +573,6 @@ local function BuildAchievementsView(parent)
                     dateFs:SetJustifyH("LEFT")
                     dateFs:SetText(completed and string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0) or "|cFF808080En progreso|r")
 
-                    -- Redirección limpia al marco nativo de Blizzard en la pestaña de Guild
                     row:SetScript("OnClick", function()
                         if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
                             AchievementFrame_LoadUI()
@@ -626,7 +596,6 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Eventos del buscador y filtros
     searchBox:SetScript("OnTextChanged", function(self)
         searchQuery = string.lower(self:GetText() or "")
         uiModule.RefreshAchievements()
@@ -641,9 +610,8 @@ local function BuildAchievementsView(parent)
     containers.views["Logros"] = view
 end
 
-
 -- =========================================================================
--- 8. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
+-- 8. VISTAS PLACEHOLDER
 -- =========================================================================
 local function BuildPlaceholderView(parent, tabName)
     local view = CreateFrame("Frame", nil, parent)
