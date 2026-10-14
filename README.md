@@ -48,7 +48,10 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 - **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase) y reparto de armaduras de los titulares.
 - **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad, exportarlo a CSV y vaciarlo.
 
+- **Fechas** (botón arriba a la derecha, junto a Composición): añade fechas de banda (DD/MM/AAAA, hora y nota) o impórtalas del calendario del juego. Al seleccionar una fecha aparece la hoja de asistencia con Presente, Tarde, Ausente y Justificada por integrante (un segundo clic quita la marca), los botones **Tomar del grupo actual** (marca presentes a los del grupo y ausentes al resto de titulares), **Titulares presentes** y **Limpiar marcas**, y el historial de asistencia de cada uno. Las justificadas no cuentan para el porcentaje.
+
 La columna Roster de Miembros muestra en qué rosters está cada uno.
+La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV del roster la incluye.
 
 ## ✉️ Invitar nuevos miembros
 

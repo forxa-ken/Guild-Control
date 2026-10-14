@@ -1212,7 +1212,372 @@ local function ShowMemberTooltip(owner, fullName)
     GameTooltip:AddDoubleLine("Rango", m.rank or "-", 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine("Estado", m.isOnline and "En línea" or (m.lastOnline or "Desconectado"),
         0.7, 0.7, 0.7, m.isOnline and 0 or 0.6, m.isOnline and 1 or 0.6, m.isOnline and 0 or 0.6)
+    -- Asistencia en las fechas del roster seleccionado
+    local stats = R.GetAttendanceStats(R.GetSelected(), fullName)
+    if stats.percent then
+        GameTooltip:AddDoubleLine("Asistencia", stats.percent .. "% (" .. (stats.present + stats.late) .. "/" .. stats.counted .. ")",
+            0.7, 0.7, 0.7, 1, 1, 1)
+    end
     GameTooltip:Show()
+end
+
+-- Modo "Fechas" del roster: lista de fechas de banda y hoja de asistencia.
+-- onChanged() se llama tras cada cambio para refrescar el resumen de la vista previa.
+local function BuildRosterDatesPanel(parent, onChanged)
+    local R = addonTable.Roster
+    local panel = CreateFrame("Frame", nil, parent)
+    panel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -40)
+    panel:SetSize(880, 470)
+    panel:Hide()
+
+    local selectedEventId = nil
+    local currentRoster = nil
+    local RefreshPanel   -- declaración adelantada
+
+    -- ---------------------------------------------------------------------
+    -- Izquierda: alta de fechas y lista
+    -- ---------------------------------------------------------------------
+    local left = CreateBackdropBox(panel, 270, 470, "TOPLEFT", panel, "TOPLEFT", 0, 0)
+
+    local leftTitle = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    leftTitle:SetPoint("TOPLEFT", left, "TOPLEFT", 10, -10)
+    leftTitle:SetText("Fechas de banda")
+
+    local function SmallInput(labelText, width, anchor, x, y)
+        local label = left:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", x, y)
+        label:SetText(labelText)
+        local input = CreateFrame("EditBox", nil, left, "InputBoxTemplate")
+        input:SetSize(width, 20)
+        input:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 5, -2)
+        input:SetAutoFocus(false)
+        input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        return label, input
+    end
+
+    local dateLabel, dateInput = SmallInput("Fecha (DD/MM/AAAA)", 100, leftTitle, 0, -10)
+    local timeLabel, timeInput = SmallInput("Hora", 50, leftTitle, 130, -10)
+    timeInput:SetMaxLetters(5)
+    local noteLabel, noteInput = SmallInput("Nota (opcional)", 240, dateInput, -5, -8)
+    noteInput:SetMaxLetters(40)
+
+    local btnAdd = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    btnAdd:SetSize(110, 22)
+    btnAdd:SetPoint("TOPLEFT", noteInput, "BOTTOMLEFT", -5, -8)
+    btnAdd:SetText("Añadir fecha")
+
+    local btnImport = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
+    btnImport:SetSize(134, 22)
+    btnImport:SetPoint("LEFT", btnAdd, "RIGHT", 6, 0)
+    btnImport:SetText("Importar calendario")
+
+    local listScroll = CreateFrame("ScrollFrame", "GC_RosterDatesScroll", left, "UIPanelScrollFrameTemplate")
+    listScroll:SetPoint("TOPLEFT", btnAdd, "BOTTOMLEFT", 0, -10)
+    listScroll:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -26, 24)
+    local listChild = CreateFrame("Frame")
+    listChild:SetSize(234, 1)
+    listScroll:SetScrollChild(listChild)
+
+    local listHint = left:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    listHint:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 10, 8)
+    listHint:SetText("Clic: ver asistencia · Clic derecho: eliminar")
+
+    local function ResetForm()
+        dateInput:SetText(date("%d/%m/%Y"))
+        timeInput:SetText("21:00")
+        noteInput:SetText("")
+    end
+
+    btnAdd:SetScript("OnClick", function()
+        local event, err = R.AddEvent(currentRoster, dateInput:GetText(), timeInput:GetText(), noteInput:GetText())
+        if not event then
+            PrintGC("|cFFFF3333" .. err .. "|r")
+            return
+        end
+        selectedEventId = event.id
+        noteInput:SetText("")
+        RefreshPanel()
+    end)
+
+    -- El calendario carga sus datos de forma asíncrona: se reintenta al llegar CALENDAR_UPDATE_EVENT_LIST
+    local calendarFrame = CreateFrame("Frame")
+    local waitingCalendar = false
+    local function DoImport(silentIfNone)
+        local added = R.ImportCalendarEvents(currentRoster)
+        if added == nil then
+            PrintGC("|cFFFF3333El calendario no está disponible.|r")
+        elseif added > 0 or not silentIfNone then
+            PrintGC("Fechas importadas del calendario: |cFFFFD100" .. added .. "|r.")
+        end
+        RefreshPanel()
+        return added
+    end
+    calendarFrame:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("CALENDAR_UPDATE_EVENT_LIST")
+        if waitingCalendar then
+            waitingCalendar = false
+            DoImport(false)
+        end
+    end)
+    btnImport:SetScript("OnClick", function()
+        if C_Calendar and C_Calendar.OpenCalendar then
+            pcall(C_Calendar.OpenCalendar)
+            local added = DoImport(true)
+            if added == 0 then
+                waitingCalendar = true
+                calendarFrame:RegisterEvent("CALENDAR_UPDATE_EVENT_LIST")
+            end
+        else
+            DoImport(false)
+        end
+    end)
+
+    local eventRows = {}
+    local function AcquireEventRow(index)
+        local row = eventRows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, listChild)
+        row:SetSize(234, 30)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 0.82, 0, 0.15)
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+        row.dateFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.dateFs:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -3)
+        row.countFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.countFs:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -3)
+        row.noteFs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.noteFs:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 4, 3)
+        row.noteFs:SetWidth(226)
+        row.noteFs:SetJustifyH("LEFT")
+        row.noteFs:SetWordWrap(false)
+        row:SetScript("OnClick", function(self, button)
+            local event = R.GetEvent(currentRoster, self.eventId)
+            if not event then return end
+            if button == "RightButton" then
+                MenuUtil.CreateContextMenu(self, function(_, root)
+                    root:CreateTitle(R.FormatEventDate(event))
+                    root:CreateButton("|cFFFF3333Eliminar fecha|r", function()
+                        R.DeleteEvent(currentRoster, event)
+                        if selectedEventId == event.id then selectedEventId = nil end
+                        RefreshPanel()
+                    end)
+                end)
+            else
+                selectedEventId = event.id
+                RefreshPanel()
+            end
+        end)
+        eventRows[index] = row
+        return row
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Derecha: hoja de asistencia de la fecha seleccionada
+    -- ---------------------------------------------------------------------
+    local right = CreateBackdropBox(panel, 604, 470, "TOPLEFT", left, "TOPRIGHT", 6, 0)
+
+    local sheetTitle = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sheetTitle:SetPoint("TOPLEFT", right, "TOPLEFT", 10, -10)
+    sheetTitle:SetWidth(584)
+    sheetTitle:SetJustifyH("LEFT")
+    sheetTitle:SetWordWrap(false)
+
+    local function SheetButton(text, width, anchor, onClick)
+        local btn = CreateFrame("Button", nil, right, "UIPanelButtonTemplate")
+        btn:SetSize(width, 22)
+        if anchor then
+            btn:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+        else
+            btn:SetPoint("TOPLEFT", sheetTitle, "BOTTOMLEFT", 0, -8)
+        end
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+
+    local function SelectedEvent()
+        return currentRoster and R.GetEvent(currentRoster, selectedEventId)
+    end
+
+    local btnFromGroup = SheetButton("Tomar del grupo actual", 170, nil, function()
+        local event = SelectedEvent()
+        if not event then return end
+        local present = R.TakeAttendanceFromGroup(currentRoster, event)
+        PrintGC("Asistencia tomada del grupo: |cFFFFD100" .. present .. "|r integrantes presentes.")
+        RefreshPanel()
+    end)
+    local btnAllPresent = SheetButton("Titulares presentes", 140, btnFromGroup, function()
+        local event = SelectedEvent()
+        if not event then return end
+        R.MarkAllStarters(currentRoster, event, "present")
+        RefreshPanel()
+    end)
+    SheetButton("Limpiar marcas", 120, btnAllPresent, function()
+        local event = SelectedEvent()
+        if not event then return end
+        R.ClearAttendance(event)
+        RefreshPanel()
+    end)
+
+    -- Cabeceras de la tabla
+    local COLS = { name = 6, slot = 170, status = 236, statusWidth = 64, history = 500 }
+    local headerRow = CreateFrame("Frame", nil, right)
+    headerRow:SetSize(584, 16)
+    headerRow:SetPoint("TOPLEFT", btnFromGroup, "BOTTOMLEFT", 0, -10)
+    local function Header(text, x)
+        local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("LEFT", headerRow, "LEFT", x, 0)
+        fs:SetText(text)
+    end
+    Header("Integrante", COLS.name)
+    Header("Puesto", COLS.slot)
+    Header("Marca", COLS.status)
+    Header("Historial", COLS.history)
+
+    local sheetScroll = CreateFrame("ScrollFrame", "GC_RosterSheetScroll", right, "UIPanelScrollFrameTemplate")
+    sheetScroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
+    sheetScroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -26, 28)
+    local sheetChild = CreateFrame("Frame")
+    sheetChild:SetSize(568, 1)
+    sheetScroll:SetScrollChild(sheetChild)
+
+    local sheetSummary = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sheetSummary:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 10, 9)
+
+    local emptyText = right:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", right, "CENTER", 0, 0)
+
+    local SLOT_SHORT = { tank = "Tanque", healer = "Sanador", dps = "DPS", bench = "Suplente", gone = "Fuera" }
+
+    local sheetRows = {}
+    local function AcquireSheetRow(index)
+        local row = sheetRows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, sheetChild)
+        row:SetSize(568, 20)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.nameFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.nameFs:SetPoint("LEFT", row, "LEFT", COLS.name, 0)
+        row.nameFs:SetWidth(160)
+        row.nameFs:SetJustifyH("LEFT")
+        row.nameFs:SetWordWrap(false)
+        row.slotFs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.slotFs:SetPoint("LEFT", row, "LEFT", COLS.slot, 0)
+        row.historyFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.historyFs:SetPoint("LEFT", row, "LEFT", COLS.history, 0)
+
+        row.statusButtons = {}
+        for i, status in ipairs(R.ATTENDANCE) do
+            local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            btn:SetSize(COLS.statusWidth - 2, 18)
+            btn:SetPoint("LEFT", row, "LEFT", COLS.status + (i - 1) * COLS.statusWidth, 0)
+            btn.status = status
+            btn:SetScript("OnClick", function(self)
+                local event = SelectedEvent()
+                if not event or not row.fullName then return end
+                R.SetAttendance(event, row.fullName, self.status)
+                RefreshPanel()
+            end)
+            row.statusButtons[status] = btn
+        end
+        sheetRows[index] = row
+        return row
+    end
+
+    local function HistoryText(fullName)
+        local stats = R.GetAttendanceStats(currentRoster, fullName)
+        if not stats.percent then return "|cFF808080-|r" end
+        local color = stats.percent >= 90 and "00FF00" or (stats.percent >= 70 and "FFD100" or "FF3333")
+        return "|cFF" .. color .. stats.percent .. "%|r |cFF808080(" .. (stats.present + stats.late) .. "/" .. stats.counted .. ")|r"
+    end
+
+    local function RefreshSheet()
+        for _, row in ipairs(sheetRows) do row:Hide() end
+        local event = SelectedEvent()
+        if not event then
+            sheetTitle:SetText("Asistencia")
+            emptyText:SetText("Añade o selecciona una fecha para pasar lista.")
+            emptyText:Show()
+            sheetSummary:SetText("")
+            sheetChild:SetHeight(1)
+            return
+        end
+        emptyText:Hide()
+        local note = (event.note and event.note ~= "") and ("  |cFFBFBFBF" .. event.note .. "|r") or ""
+        sheetTitle:SetText("Asistencia · " .. R.FormatEventDate(event) .. note)
+
+        local list = R.GetAttendanceList(currentRoster, event)
+        for i, entry in ipairs(list) do
+            local row = AcquireSheetRow(i)
+            row:SetPoint("TOPLEFT", sheetChild, "TOPLEFT", 0, -(i - 1) * 21)
+            row.bg:SetShown(i % 2 == 0)
+            row.fullName = entry.name
+            row.nameFs:SetText(ColoredMemberName(entry.name))
+            row.slotFs:SetText(SLOT_SHORT[entry.slot] or entry.slot)
+            row.historyFs:SetText(HistoryText(entry.name))
+            local current = event.attendance[entry.name]
+            for status, btn in pairs(row.statusButtons) do
+                local label = R.ATTENDANCE_LABELS[status]
+                if current == status then
+                    btn:SetText("|cFF" .. R.ATTENDANCE_COLORS[status] .. label .. "|r")
+                else
+                    btn:SetText("|cFF808080" .. label .. "|r")
+                end
+            end
+            row:Show()
+        end
+        sheetChild:SetHeight(math.max(1, #list * 21))
+
+        local counts = R.GetEventCounts(event)
+        sheetSummary:SetText(string.format("|cFF00FF00Presentes %d|r   |cFFFFD100Tarde %d|r   |cFFFF3333Ausentes %d|r   |cFF66B3FFJustificadas %d|r   |cFF808080Sin marcar %d|r",
+            counts.present, counts.late, counts.absent, counts.excused,
+            math.max(0, #list - counts.present - counts.late - counts.absent - counts.excused)))
+    end
+
+    local function RefreshList()
+        for _, row in ipairs(eventRows) do row:Hide() end
+        local events = R.GetEventsSorted(currentRoster)
+        if selectedEventId and not R.GetEvent(currentRoster, selectedEventId) then selectedEventId = nil end
+        if not selectedEventId and events[1] then selectedEventId = events[1].id end
+
+        for i, event in ipairs(events) do
+            local row = AcquireEventRow(i)
+            row:SetPoint("TOPLEFT", listChild, "TOPLEFT", 0, -(i - 1) * 32)
+            row.eventId = event.id
+            row.bg:SetShown(event.id == selectedEventId)
+            row.dateFs:SetText(R.FormatEventDate(event))
+            local counts = R.GetEventCounts(event)
+            row.countFs:SetText("|cFF00FF00" .. (counts.present + counts.late) .. "|r|cFF808080 / |r|cFFFF3333" .. counts.absent .. "|r")
+            row.noteFs:SetText(event.note or "")
+            row:Show()
+        end
+        listChild:SetHeight(math.max(1, #events * 32))
+    end
+
+    RefreshPanel = function()
+        if not currentRoster then return end
+        RefreshList()
+        RefreshSheet()
+        if onChanged then onChanged() end
+    end
+
+    -- La vista Roster llama a esto al cambiar de roster o de modo
+    function panel.SetRoster(roster)
+        if currentRoster ~= roster then selectedEventId = nil end
+        currentRoster = roster
+        RefreshList()
+        RefreshSheet()
+    end
+
+    ResetForm()
+    return panel
 end
 
 local function BuildRosterView(parent)
@@ -1291,6 +1656,24 @@ local function BuildRosterView(parent)
             end)
         end
     end)
+
+    -- Modos de la vista: composición (fase 1) o fechas y asistencia (fase 2)
+    local btnModeDates = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnModeDates:SetSize(100, 22)
+    btnModeDates:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -11)
+    btnModeDates:SetText("Fechas")
+
+    local btnModeComp = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnModeComp:SetSize(110, 22)
+    btnModeComp:SetPoint("RIGHT", btnModeDates, "LEFT", -6, 0)
+    btnModeComp:SetText("Composición")
+
+    local function SetViewMode(mode)
+        GuildControlDB.rosterData.viewMode = mode
+        Refresh()
+    end
+    btnModeComp:SetScript("OnClick", function() SetViewMode("comp") end)
+    btnModeDates:SetScript("OnClick", function() SetViewMode("dates") end)
 
     dropRoster:SetupMenu(function(_, rootDescription)
         for _, roster in ipairs(R.GetAll()) do
@@ -1717,9 +2100,19 @@ local function BuildRosterView(parent)
             table.insert(lines, a.label .. ": " .. armor[a.key])
         end
         table.insert(lines, "")
+        table.insert(lines, "|cFFFFD100Asistencia|r")
+        local eventCount = #R.GetEventsSorted(roster)
+        local average = R.GetRosterAttendanceAverage(roster)
+        table.insert(lines, "Fechas registradas: " .. eventCount)
+        table.insert(lines, "Media del roster: " .. (average and (average .. "%") or "|cFF808080sin datos|r"))
+        table.insert(lines, "")
         table.insert(lines, "|cFF808080La cobertura se calcula por clase; el juego no da la especialización de otros jugadores.|r")
         return table.concat(lines, "\n")
     end
+
+    local datesPanel = BuildRosterDatesPanel(view, function()
+        if activeTab == "Roster" then SetPreviewText(BuildSummaryText(R.GetSelected())) end
+    end)
 
     -- ---------------------------------------------------------------------
     -- Refresco general
@@ -1747,11 +2140,26 @@ local function BuildRosterView(parent)
         local color = starters == roster.size and "|cFF00FF00" or (starters > roster.size and "|cFFFF7F00" or "|cFFFFD100")
         criteriaStatus:SetText("Titulares: " .. color .. starters .. "/" .. roster.size .. "|r")
 
-        RefreshBlock(blocks.tank, bySlot.tank, targets.tank)
-        RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
-        RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
-        RefreshBlock(blocks.bench, bySlot.bench, 0)
-        RefreshCandidates(roster)
+        -- Modo: composición o fechas (ocupan la misma zona)
+        local mode = GuildControlDB.rosterData.viewMode == "dates" and "dates" or "comp"
+        local isComp = mode == "comp"
+        criteria:SetShown(isComp)
+        candPanel:SetShown(isComp)
+        compPanel:SetShown(isComp)
+        actionsBar:SetShown(isComp)
+        datesPanel:SetShown(not isComp)
+        btnModeComp:SetEnabled(not isComp)
+        btnModeDates:SetEnabled(isComp)
+
+        if isComp then
+            RefreshBlock(blocks.tank, bySlot.tank, targets.tank)
+            RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
+            RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
+            RefreshBlock(blocks.bench, bySlot.bench, 0)
+            RefreshCandidates(roster)
+        else
+            datesPanel.SetRoster(roster)
+        end
 
         if activeTab == "Roster" then SetPreviewText(BuildSummaryText(roster)) end
     end
