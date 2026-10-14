@@ -91,6 +91,11 @@ function addonTable.InitDB()
         GuildControlDB.settings.rosterMessage = "{rt1} {roster} ({dificultad}): banda el {fecha} a las {hora}. ¡Confirmad asistencia!"
     end
 
+    -- Roles puestos antes de existir roleSource: si no es el "DPS" por defecto, lo fijó un oficial
+    for _, m in pairs(GuildControlDB.members) do
+        if not m.roleSource and m.role and m.role ~= "DPS" then m.roleSource = "officer" end
+    end
+
     -- Fecha (time()) de la última invitación masiva a cada jugador, para no repetirla
     if type(GuildControlDB.inviteHistory) ~= "table" then GuildControlDB.inviteHistory = {} end
 end

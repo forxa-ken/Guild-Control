@@ -74,9 +74,21 @@ function rosterModule.GetClassName(classFile)
     return (LOCALIZED_CLASS_NAMES_MALE and classFile and LOCALIZED_CLASS_NAMES_MALE[classFile]) or classFile or "?"
 end
 
-function rosterModule.GetMemberSlotForRole(fullName)
+-- Un rol cuenta como definido si lo declaró el jugador o lo fijó un oficial;
+-- el "DPS" que se pone por defecto al detectar un miembro no cuenta.
+function rosterModule.HasDefinedRole(m)
+    return m ~= nil and (m.roleSource == "declared" or m.roleSource == "officer") and ROLE_TO_SLOT[m.role] ~= nil
+end
+
+-- Hueco que le corresponde por su rol, o nil si no tiene rol definido
+function rosterModule.GetDefinedSlot(fullName)
     local m = GuildControlDB.members[fullName]
-    return (m and ROLE_TO_SLOT[m.role]) or "dps"
+    return rosterModule.HasDefinedRole(m) and ROLE_TO_SLOT[m.role] or nil
+end
+
+-- Para añadirlo al roster: sin rol definido entra como DPS
+function rosterModule.GetMemberSlotForRole(fullName)
+    return rosterModule.GetDefinedSlot(fullName) or "dps"
 end
 
 function rosterModule.SetMemberRole(fullName, slot)
@@ -301,6 +313,11 @@ function rosterModule.AddMember(roster, fullName, slot)
         variant.overrides[fullName] = (roster.members[fullName] ~= slot) and slot or nil
     else
         roster.members[fullName] = slot
+        -- Colocarlo como tanque, sanador o DPS en la base define su rol si aún no tenía
+        -- (y así se ve en la columna Rol de Miembros)
+        if slot ~= "bench" and not rosterModule.GetDefinedSlot(fullName) then
+            rosterModule.SetMemberRole(fullName, slot)
+        end
     end
     rosterModule.SyncMemberRosterField()
 end
@@ -1155,4 +1172,67 @@ end
 
 function rosterModule.DiscardReceived(index)
     table.remove(received, index)
+end
+
+-- =========================================================================
+-- BANDAS Y JEFES DEL DIARIO DE ENCUENTROS DEL JUEGO
+-- =========================================================================
+-- El diario (EJ_*) da las bandas de cada expansión y sus jefes. Se consulta la
+-- expansión actual y las anteriores (hasta "maxTiers") y se restaura la selección del
+-- diario para no alterar la ventana del juego si está abierta.
+local function WithEJTier(tier, fn)
+    if not (EJ_GetNumTiers and EJ_SelectTier) then return nil end
+    local previous = EJ_GetCurrentTier and EJ_GetCurrentTier()
+    local ok, result = pcall(function()
+        EJ_SelectTier(tier)
+        return fn()
+    end)
+    if previous then pcall(EJ_SelectTier, previous) end
+    return ok and result or nil
+end
+
+-- { {tier, name, raids = { {id, name}, ... }}, ... } empezando por la expansión actual
+function rosterModule.GetRaidTiers(maxTiers)
+    local result = {}
+    if not (EJ_GetNumTiers and EJ_GetInstanceByIndex) then return result end
+    local okNum, numTiers = pcall(EJ_GetNumTiers)
+    if not okNum or not numTiers then return result end
+    for tier = numTiers, math.max(1, numTiers - (maxTiers or 3) + 1), -1 do
+        local raids = WithEJTier(tier, function()
+            local list = {}
+            local index = 1
+            while true do
+                local instanceID, name = EJ_GetInstanceByIndex(index, true)
+                if not instanceID then break end
+                table.insert(list, { id = instanceID, name = name })
+                index = index + 1
+            end
+            return list
+        end) or {}
+        local tierName = EJ_GetTierInfo and select(1, EJ_GetTierInfo(tier)) or ("Expansión " .. tier)
+        if #raids > 0 then table.insert(result, { tier = tier, name = tierName, raids = raids }) end
+    end
+    return result
+end
+
+-- Nombres de los jefes de una banda, en orden
+function rosterModule.GetRaidBosses(instanceID)
+    local bosses = {}
+    if not instanceID or not EJ_GetEncounterInfoByIndex then return bosses end
+    local index = 1
+    while true do
+        local ok, name = pcall(EJ_GetEncounterInfoByIndex, index, instanceID)
+        if not ok or not name then break end
+        table.insert(bosses, name)
+        index = index + 1
+    end
+    return bosses
+end
+
+-- Asocia el roster a una banda del diario y le pone su nombre
+function rosterModule.SetRaid(roster, raid)
+    if not roster or not raid then return end
+    roster.raidId = raid.id
+    roster.raidName = raid.name
+    rosterModule.Rename(roster, raid.name)
 end

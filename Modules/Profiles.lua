@@ -125,22 +125,32 @@ end
 
 -- Guarda una declaración en la ficha del miembro. "at" es la fecha (time()) en que el
 -- jugador la guardó: una declaración más antigua nunca pisa a una más nueva.
-local function ApplyDeclared(fullName, main, secondary, spec, note, at)
+-- extra = { charType = "main"|"alt", mainName = "Nombre del principal" }
+local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     local m = GuildControlDB.members[fullName]
     if not m or not main then return false end
     at = tonumber(at) or time()
+    extra = extra or {}
+    local charType = (extra.charType == "alt" or extra.charType == "main") and extra.charType or nil
+    local mainName = charType == "alt" and extra.mainName ~= "" and extra.mainName or nil
     local previous = m.declared
     if previous and previous.at and previous.at > at then return false end
     if previous and previous.at == at and previous.main == main and previous.secondary == secondary
-        and previous.spec == spec and previous.note == note then
+        and previous.spec == spec and previous.note == note
+        and previous.charType == charType and previous.mainName == mainName then
         return false
     end
-    m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = at }
+    m.declared = { main = main, secondary = secondary, spec = spec, note = note, at = at,
+                   charType = charType, mainName = mainName }
     if m.roleSource ~= "officer" then
         m.role = main
         m.roleSource = "declared"
     end
     return true
+end
+
+local function ProfileExtra(profile)
+    return { charType = profile.charType, mainName = profile.mainName }
 end
 
 -- Los personajes de esta misma cuenta comparten SavedVariables: sus perfiles se aplican
@@ -149,7 +159,8 @@ function profilesModule.ApplyAccountProfiles()
     if type(GuildControlDB.myProfiles) ~= "table" then return false end
     local changed = false
     for fullName, profile in pairs(GuildControlDB.myProfiles) do
-        if profile.main and ApplyDeclared(fullName, profile.main, profile.secondary, profile.spec, profile.note, profile.savedAt or 0) then
+        if profile.main and ApplyDeclared(fullName, profile.main, profile.secondary, profile.spec, profile.note,
+            profile.savedAt or 0, ProfileExtra(profile)) then
             changed = true
         end
     end
@@ -157,15 +168,19 @@ function profilesModule.ApplyAccountProfiles()
     return changed
 end
 
--- Guarda mi perfil, lo aplica a mi propia ficha y lo envía a la hermandad
-function profilesModule.SaveMyProfile(main, secondary, spec, note)
+-- Guarda mi perfil, lo aplica a mi propia ficha y lo envía a la hermandad.
+-- charType = "main" (personaje principal) o "alt"; mainName = principal si es un alter.
+function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mainName)
     local profile = profilesModule.GetMyProfile()
     profile.main = VALID_ROLES[main] and main or nil
     profile.secondary = (VALID_ROLES[secondary] and secondary ~= profile.main) and secondary or nil
     profile.spec = Clean(spec, 30)
     profile.note = Clean(note, 80)
+    profile.charType = charType == "alt" and "alt" or "main"
+    profile.mainName = profile.charType == "alt" and Clean(mainName, 40) or nil
     profile.savedAt = time()
-    ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note, profile.savedAt)
+    ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note,
+        profile.savedAt, ProfileExtra(profile))
     profilesModule.Broadcast(true)
     NotifyChange()
 end
@@ -176,7 +191,7 @@ local function SendRole(msg)
     end
 end
 
--- Mi declaración: "v2;principal;secundario;especialización;nota;fecha"
+-- Mi declaración: "v2;principal;secundario;especialización;nota;fecha;main|alt;principal"
 function profilesModule.Broadcast(force)
     if not IsInGuild() then return end
     if not force and GetTime() - lastBroadcast < BROADCAST_COOLDOWN then return end
@@ -184,7 +199,7 @@ function profilesModule.Broadcast(force)
     if not profile.main then return end
     lastBroadcast = GetTime()
     SendRole(table.concat({ "v2", profile.main, profile.secondary or "", profile.spec or "",
-        profile.note or "", tostring(profile.savedAt or time()) }, ";"))
+        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "" }, ";"))
 end
 
 function profilesModule.RequestRoles()
@@ -213,7 +228,7 @@ local function StartRelay()
         local d = m.declared
         if d and d.main then
             table.insert(queue, table.concat({ "R", fullName, d.main, d.secondary or "", d.spec or "",
-                d.note or "", tostring(d.at or 0) }, ";"))
+                d.note or "", tostring(d.at or 0), d.charType or "", d.mainName or "" }, ";"))
         end
     end
     if #queue == 0 or relayTicker then return end
@@ -243,6 +258,16 @@ function profilesModule.GetDeclaredText(m)
     if d.secondary then text = text .. " (secundario " .. d.secondary .. ")" end
     if d.spec and d.spec ~= "" then text = text .. " · " .. d.spec end
     return text
+end
+
+-- "Personaje principal", "Alter de Nombre" o nil si no lo indicó
+function profilesModule.GetCharTypeText(m)
+    local d = m and m.declared
+    if not d or not d.charType then return nil end
+    if d.charType == "alt" then
+        return d.mainName and ("Alter de " .. d.mainName) or "Alter"
+    end
+    return "Personaje principal"
 end
 
 -- Un oficial fija el rol a mano: deja de seguir el declarado
@@ -319,13 +344,15 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         CancelRelay()
         local main, secondary, spec, note = ParseRoleFields(fields[3], fields[4], fields[5], fields[6])
         if main and fields[2] then
-            changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0)
+            changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0,
+                { charType = fields[8], mainName = Clean(fields[9], 40) })
         end
     elseif fields[1] == "v1" or fields[1] == "v2" then
         local main, secondary, spec, note = ParseRoleFields(fields[2], fields[3], fields[4], fields[5])
         if main then
             -- v1 no llevaba fecha: se considera actual
-            changed = ApplyDeclared(fullSender, main, secondary, spec, note, tonumber(fields[6]) or time())
+            changed = ApplyDeclared(fullSender, main, secondary, spec, note, tonumber(fields[6]) or time(),
+                { charType = fields[7], mainName = Clean(fields[8], 40) })
         end
     end
     if changed then NotifyChange() end

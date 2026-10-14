@@ -25,6 +25,19 @@ local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Mi perfil", "Mis roster
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
+-- Iconos de rol del juego (atlas) para usar dentro de textos
+local ROLE_ICON_ATLAS = {
+    Tanque = "roleicon-tiny-tank", Sanador = "roleicon-tiny-healer", DPS = "roleicon-tiny-dps",
+    tank = "roleicon-tiny-tank", healer = "roleicon-tiny-healer", dps = "roleicon-tiny-dps",
+}
+
+local function RoleIcon(role, size)
+    local atlas = ROLE_ICON_ATLAS[role or ""]
+    if not atlas then return "" end
+    size = size or 14
+    return "|A:" .. atlas .. ":" .. size .. ":" .. size .. "|a"
+end
+
 local function CreateBackdropBox(parent, width, height, point, relativeTo, relativePoint, x, y)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     frame:SetSize(width, height)
@@ -572,20 +585,25 @@ local function OnlineSortValue(data)
     return tonumber(string.match(data.lastOnline or "", "(%d+)")) or 0
 end
 
--- Columna Rol: el rol de la ficha y, si el jugador lo declaró, se nota con el color:
---   cian = lo declaró él mismo · naranja con * = un oficial le puso otro distinto · rojizo = sin declarar
+-- Un rol solo se muestra si lo declaró el jugador o lo fijó un oficial
+local function HasDefinedRole(data)
+    return data.roleSource == "declared" or data.roleSource == "officer"
+end
+
+-- Columna Rol: icono y rol; vacía si nadie lo ha definido. Colores:
+--   cian = lo declaró el jugador · blanco = lo fijó un oficial · naranja con * = el oficial puso otro distinto al declarado
 local function RoleCellText(data)
+    if not HasDefinedRole(data) then return "" end
     local role = data.role or "DPS"
     local declared = data.declared and data.declared.main
-    if declared and declared ~= role then return role .. "*" end
-    return role
+    return RoleIcon(role, 12) .. " " .. role .. ((declared and declared ~= role) and "*" or "")
 end
 
 local function RoleCellColor(data, isOnline)
     local declared = data.declared and data.declared.main
-    if declared and declared == (data.role or "DPS") then return isOnline and "00FFFF" or "4D9999" end
-    if declared then return isOnline and "FF7F00" or "996633" end
-    return isOnline and "FF7F7F" or "888888"
+    if data.roleSource == "declared" then return isOnline and "00FFFF" or "4D9999" end
+    if declared and declared ~= data.role then return isOnline and "FF7F00" or "996633" end
+    return isOnline and "FFFFFF" or "888888"
 end
 
 local function MemberSortValue(entry, key)
@@ -593,6 +611,8 @@ local function MemberSortValue(entry, key)
     if key == "level" then return tonumber(data.level) or 0 end
     if key == "lastOnline" then return OnlineSortValue(data) end
     if key == "name" then return string.lower(entry.name) end
+    -- Sin rol definido, al final en orden ascendente
+    if key == "role" then return HasDefinedRole(data) and string.lower(data.role or "") or "\255" end
 
     local value = data[key]
     if key == "prof1" or key == "prof2" then
@@ -786,7 +806,9 @@ local function BuildMembersView(parent)
             "Nivel: " .. (data.level or 0) .. "\n" ..
             "Clase: " .. (data.class or "Desconocida") .. "\n" ..
             "Rango: " .. (data.rank or "Recluta") .. "\n" ..
-            "Rol: " .. (data.role or "DPS") .. "\n" ..
+            "Rol: " .. (HasDefinedRole(data) and (RoleIcon(data.role) .. " " .. data.role) or "|cFF808080sin definir|r") .. "\n" ..
+            ((addonTable.Profiles and addonTable.Profiles.GetCharTypeText(data)) and
+                ("Personaje: |cFFFFD100" .. addonTable.Profiles.GetCharTypeText(data) .. "|r\n") or "") ..
             BuildDeclaredText(data) ..
             "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
             "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
@@ -1300,7 +1322,10 @@ local function ShowMemberTooltip(owner, fullName)
     GameTooltip:SetText(fullName, 1, 0.82, 0)
     GameTooltip:AddDoubleLine("Clase", R.GetClassName(m.class), 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine("Nivel", tostring(m.level or "?"), 0.7, 0.7, 0.7, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Rol", m.role or "DPS", 0.7, 0.7, 0.7, 1, 1, 1)
+    local hasRole = R.HasDefinedRole(m)
+    GameTooltip:AddDoubleLine("Rol", hasRole and (RoleIcon(m.role) .. " " .. m.role) or "sin definir", 0.7, 0.7, 0.7, 1, 1, 1)
+    local charType = addonTable.Profiles and addonTable.Profiles.GetCharTypeText(m)
+    if charType then GameTooltip:AddDoubleLine("Personaje", charType, 0.7, 0.7, 0.7, 1, 0.82, 0) end
     local declaredText = addonTable.Profiles and addonTable.Profiles.GetDeclaredText(m)
     if declaredText then
         GameTooltip:AddDoubleLine("Declarado", declaredText, 0.7, 0.7, 0.7, 0, 1, 1)
@@ -1692,17 +1717,21 @@ local function BuildRosterView(parent)
     -- ---------------------------------------------------------------------
     local dropRoster = CreateFrame("DropdownButton", "GC_RosterSelect", view, "WowStyle1DropdownTemplate")
     dropRoster:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
-    dropRoster:SetWidth(170)
+    dropRoster:SetWidth(150)
 
     local nameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    nameInput:SetSize(170, 20)
+    nameInput:SetSize(150, 20)
     nameInput:SetPoint("LEFT", dropRoster, "RIGHT", 16, 0)
     nameInput:SetAutoFocus(false)
     nameInput:SetMaxLetters(30)
-
-    local nameLabel = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    nameLabel:SetPoint("BOTTOMLEFT", nameInput, "TOPLEFT", -4, 1)
-    nameLabel:SetText("Nombre (Enter para guardar)")
+    -- La ayuda va en el tooltip (antes una etiqueta encima se salía del marco)
+    nameInput:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Nombre del roster", 1, 1, 1)
+        GameTooltip:AddLine("Escríbelo y pulsa Enter para guardarlo, o elige una banda con el botón Banda.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    nameInput:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local function SaveName()
         R.Rename(R.GetSelected(), nameInput:GetText())
@@ -1715,9 +1744,37 @@ local function BuildRosterView(parent)
         self:SetText(R.GetSelected().name)
     end)
 
+    -- Bandas del diario de encuentros del juego: al elegir una, el roster toma su nombre
+    -- y "Añadir jefe" ofrece sus jefes
+    local btnRaid = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnRaid:SetSize(64, 22)
+    btnRaid:SetPoint("LEFT", nameInput, "RIGHT", 6, 0)
+    btnRaid:SetText("Banda")
+    btnRaid:SetScript("OnClick", function(self)
+        local tiers = R.GetRaidTiers(3)
+        if #tiers == 0 then
+            PrintGC("|cFFFF3333No se pudo leer el diario de encuentros del juego.|r")
+            return
+        end
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle("Bandas del diario de encuentros")
+            for i, tier in ipairs(tiers) do
+                -- La expansión actual se muestra directamente; las anteriores en submenú
+                local parentMenu = root
+                if i > 1 then parentMenu = root:CreateButton(tier.name) else root:CreateTitle(tier.name) end
+                for _, raid in ipairs(tier.raids) do
+                    parentMenu:CreateButton(raid.name, function()
+                        R.SetRaid(R.GetSelected(), raid)
+                        Refresh()
+                    end)
+                end
+            end
+        end)
+    end)
+
     local btnNew = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnNew:SetSize(80, 22)
-    btnNew:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
+    btnNew:SetSize(70, 22)
+    btnNew:SetPoint("LEFT", btnRaid, "RIGHT", 8, 0)
     btnNew:SetText("Nuevo")
     btnNew:SetScript("OnClick", function()
         R.Create()
@@ -1727,7 +1784,7 @@ local function BuildRosterView(parent)
     end)
 
     local btnDuplicate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnDuplicate:SetSize(90, 22)
+    btnDuplicate:SetSize(80, 22)
     btnDuplicate:SetPoint("LEFT", btnNew, "RIGHT", 6, 0)
     btnDuplicate:SetText("Duplicar")
     btnDuplicate:SetScript("OnClick", function()
@@ -1737,7 +1794,7 @@ local function BuildRosterView(parent)
 
     -- Eliminar pide un segundo clic en 4 s para confirmar
     local btnDelete = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnDelete:SetSize(100, 22)
+    btnDelete:SetSize(90, 22)
     btnDelete:SetPoint("LEFT", btnDuplicate, "RIGHT", 6, 0)
     btnDelete:SetText("Eliminar")
     local deleteArmedUntil = 0
@@ -1911,6 +1968,35 @@ local function BuildRosterView(parent)
     candTitle:SetPoint("TOPLEFT", candPanel, "TOPLEFT", 10, -8)
     candTitle:SetText("Candidatos")
 
+    -- Añadir mi propio personaje (busca su clave en la lista de la hermandad del addon)
+    local btnAddMe = CreateFrame("Button", nil, candPanel, "UIPanelButtonTemplate")
+    btnAddMe:SetSize(90, 20)
+    btnAddMe:SetPoint("TOPRIGHT", candPanel, "TOPRIGHT", -8, -6)
+    btnAddMe:SetText("Añadirme")
+    btnAddMe:SetScript("OnClick", function()
+        local myName = UnitName("player")
+        local key = addonTable.Profiles and addonTable.Profiles.GetMyFullName()
+        if not (key and GuildControlDB.members[key]) then
+            key = nil
+            local prefix = string.lower(myName .. "-")
+            for fullName in pairs(GuildControlDB.members) do
+                if string.sub(string.lower(fullName), 1, #prefix) == prefix then key = fullName break end
+            end
+        end
+        if not key then
+            PrintGC("|cFFFF3333Tu personaje no está en la lista de la hermandad del addon. Abre la ventana de hermandad del juego para actualizarla e inténtalo de nuevo.|r")
+            if IsInGuild() then C_GuildInfo.GuildRoster() end
+            return
+        end
+        local roster = R.GetSelected()
+        if R.GetEffectiveMembers(roster)[key] then
+            PrintGC("Ya estás en este roster.")
+            return
+        end
+        R.AddMember(roster, key)
+        Refresh()
+    end)
+
     local candSearch = CreateFrame("EditBox", nil, candPanel, "InputBoxTemplate")
     candSearch:SetSize(200, 20)
     candSearch:SetPoint("TOPLEFT", candTitle, "BOTTOMLEFT", 4, -6)
@@ -2017,7 +2103,7 @@ local function BuildRosterView(parent)
     local function RefreshCandidates(roster)
         for _, row in ipairs(candRows) do row:Hide() end
         local maxLevel = chkMaxLevel:GetChecked() and MaxPlayerLevel() or nil
-        local groups = { tank = {}, healer = {}, dps = {} }
+        local groups = { tank = {}, healer = {}, dps = {}, none = {} }
         local effective = R.GetEffectiveMembers(roster)
         for fullName, m in pairs(GuildControlDB.members) do
             local pass = not effective[fullName]
@@ -2027,11 +2113,13 @@ local function BuildRosterView(parent)
                 local className = string.lower(R.GetClassName(m.class))
                 pass = string.find(string.lower(fullName), candQuery, 1, true) or string.find(className, candQuery, 1, true)
             end
-            if pass then table.insert(groups[R.GetMemberSlotForRole(fullName)], fullName) end
+            -- Agrupados por su rol definido; quien no lo tiene va a "Sin rol"
+            if pass then table.insert(groups[R.GetDefinedSlot(fullName) or "none"], fullName) end
         end
 
         local index, y = 0, 0
-        for _, slot in ipairs({ "tank", "healer", "dps" }) do
+        local GROUP_LABELS = { tank = "Tanques", healer = "Sanadores", dps = "DPS", none = "Sin rol definido" }
+        for _, slot in ipairs({ "tank", "healer", "dps", "none" }) do
             local list = groups[slot]
             table.sort(list, function(a, b)
                 local ma, mb = GuildControlDB.members[a], GuildControlDB.members[b]
@@ -2043,7 +2131,7 @@ local function BuildRosterView(parent)
             local header = AcquireCandRow(index)
             header.fullName = nil
             header:SetPoint("TOPLEFT", candChild, "TOPLEFT", 0, -y)
-            header.text:SetText("|cFFFFD100" .. R.SLOT_LABELS[slot] .. " (" .. #list .. ")|r")
+            header.text:SetText(RoleIcon(slot, 14) .. " |cFFFFD100" .. GROUP_LABELS[slot] .. " (" .. #list .. ")|r")
             header.level:SetText("")
             header:Show()
             y = y + ROSTER_ROW_HEIGHT
@@ -2052,7 +2140,7 @@ local function BuildRosterView(parent)
                 local row = AcquireCandRow(index)
                 row.fullName = fullName
                 row:SetPoint("TOPLEFT", candChild, "TOPLEFT", 0, -y)
-                row.text:SetText("  " .. ColoredMemberName(fullName))
+                row.text:SetText("  " .. RoleIcon(slot, 12) .. " " .. ColoredMemberName(fullName))
                 row.level:SetText(tostring(GuildControlDB.members[fullName].level or ""))
                 row:Show()
                 y = y + ROSTER_ROW_HEIGHT
@@ -2092,22 +2180,54 @@ local function BuildRosterView(parent)
     variantInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local variantPlaceholder = variantInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     variantPlaceholder:SetPoint("LEFT", variantInput, "LEFT", 2, 0)
-    variantPlaceholder:SetText("Nombre del jefe")
+    variantPlaceholder:SetText("Jefe (vacío: lista de la banda)")
     variantInput:SetScript("OnTextChanged", function(self) variantPlaceholder:SetShown((self:GetText() or "") == "") end)
 
-    local function AddVariant()
-        R.AddVariant(R.GetSelected(), variantInput:GetText())
+    local function AddVariant(name)
+        R.AddVariant(R.GetSelected(), name or variantInput:GetText())
         variantInput:SetText("")
         variantInput:ClearFocus()
         Refresh()
     end
-    variantInput:SetScript("OnEnterPressed", AddVariant)
+    variantInput:SetScript("OnEnterPressed", function() AddVariant() end)
 
     local btnAddVariant = CreateFrame("Button", nil, compPanel, "UIPanelButtonTemplate")
     btnAddVariant:SetSize(100, 22)
     btnAddVariant:SetPoint("LEFT", variantInput, "RIGHT", 8, 0)
     btnAddVariant:SetText("Añadir jefe")
-    btnAddVariant:SetScript("OnClick", AddVariant)
+    -- Con nombre escrito se añade ese; si no, y el roster tiene banda, se elige entre sus jefes
+    btnAddVariant:SetScript("OnClick", function(self)
+        local typed = strtrim(variantInput:GetText() or "")
+        local roster = R.GetSelected()
+        if typed ~= "" or not roster.raidId then
+            AddVariant()
+            return
+        end
+        local bosses = R.GetRaidBosses(roster.raidId)
+        if #bosses == 0 then
+            AddVariant()
+            return
+        end
+        local existing = {}
+        for _, variant in ipairs(R.GetVariants(roster)) do existing[variant.name] = true end
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle(roster.raidName or "Jefes")
+            for _, boss in ipairs(bosses) do
+                if existing[boss] then
+                    root:CreateButton("|cFF808080" .. boss .. " (ya añadido)|r", function() end)
+                else
+                    root:CreateButton(boss, function() AddVariant(boss) end)
+                end
+            end
+            root:CreateButton("Todos los que faltan", function()
+                for _, boss in ipairs(bosses) do
+                    if not existing[boss] then R.AddVariant(roster, boss) end
+                end
+                R.SelectVariant(roster, nil)
+                Refresh()
+            end)
+        end)
+    end)
 
     local deleteVariantArmedUntil = 0
     local btnDeleteVariant = CreateFrame("Button", nil, compPanel, "UIPanelButtonTemplate")
@@ -2214,7 +2334,7 @@ local function BuildRosterView(parent)
             block.title:SetText("Suplentes (" .. count .. ")")
         else
             local color = (count == target) and "|cFF00FF00" or (count > target and "|cFFFF7F00" or "|cFFFFD100")
-            block.title:SetText(R.SLOT_LABELS[block.slot] .. " " .. color .. count .. "/" .. target .. "|r")
+            block.title:SetText(RoleIcon(block.slot, 16) .. " " .. R.SLOT_LABELS[block.slot] .. " " .. color .. count .. "/" .. target .. "|r")
         end
 
         for _, row in ipairs(block.rows) do row:Hide() end
@@ -2260,15 +2380,9 @@ local function BuildRosterView(parent)
             PrintGC("Invitando a |cFFFFD100" .. count .. "|r titulares. Con más de 4 el grupo se convierte en banda cuando acepte el primero.")
         end
     end)
+    -- Abre el anuncio de la composición para revisarlo y editarlo antes de enviarlo
     local btnAnnounce = CreateAction("Anunciar", 80, btnInvite, function()
-        if not IsInGuild() then return end
-        for _, line in ipairs(R.BuildAnnounceLines(R.GetSelected())) do
-            if C_ChatInfo and C_ChatInfo.SendChatMessage then
-                C_ChatInfo.SendChatMessage(line, "GUILD")
-            else
-                SendChatMessage(line, "GUILD")
-            end
-        end
+        if uiModule.ShowRosterAnnounce then uiModule.ShowRosterAnnounce() end
     end)
     local btnExport = CreateAction("Exportar CSV", 100, btnAnnounce, function()
         if addonTable.CSV and addonTable.CSV.ShowText then
@@ -3394,6 +3508,119 @@ function uiModule.ShowRosterMessage()
 end
 
 -- =========================================================================
+-- 8b3. ANUNCIO EDITABLE DE LA COMPOSICIÓN DEL ROSTER
+-- =========================================================================
+-- Se rellena con la composición (una línea por rol) y se puede editar a mano.
+-- Cada línea se envía como un mensaje al chat de hermandad.
+local GC_RosterAnnounceFrame = nil
+
+local function CreateRosterAnnounceFrame()
+    local R = addonTable.Roster
+    local frame = CreateFrame("Frame", "GuildControlRosterAnnounceFrame", GC_UI, "BasicFrameTemplateWithInset")
+    frame:SetSize(620, 330)
+    frame:SetPoint("CENTER", GC_UI, "CENTER", 0, 0)
+    frame:SetFrameStrata("DIALOG")
+    frame:Hide()
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+
+    local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -34)
+    hint:SetWidth(584)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("Cada línea se envía como un mensaje al chat de hermandad (máximo 255 caracteres por línea). Puedes añadir, quitar o cambiar líneas.")
+
+    local box = CreateBackdropBox(frame, 584, 196, "TOPLEFT", hint, "BOTTOMLEFT", 0, -8)
+    local scroll = CreateFrame("ScrollFrame", "GC_RosterAnnounceScroll", box, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -28, 8)
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetFontObject(ChatFontNormal)
+    edit:SetWidth(540)
+    edit:SetHeight(180)
+    edit:SetAutoFocus(false)
+    edit:SetMaxLetters(0)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    scroll:SetScrollChild(edit)
+    box:EnableMouse(true)
+    box:SetScript("OnMouseDown", function() edit:SetFocus() end)
+
+    local status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    status:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 2, -6)
+
+    local function Lines()
+        local lines = {}
+        for line in string.gmatch((edit:GetText() or "") .. "\n", "([^\n]*)\n") do
+            line = strtrim(line)
+            if line ~= "" then table.insert(lines, line) end
+        end
+        return lines
+    end
+
+    local function UpdateStatus()
+        local lines = Lines()
+        local tooLong = 0
+        for _, line in ipairs(lines) do if #line > MAX_CHAT_BYTES then tooLong = tooLong + 1 end end
+        status:SetText(#lines .. " mensajes" .. (tooLong > 0 and ("  |cFFFF3333" .. tooLong .. " línea(s) pasan de 255 caracteres|r") or ""))
+    end
+    edit:SetScript("OnTextChanged", UpdateStatus)
+
+    local function Regenerate()
+        local roster = R.GetSelected()
+        frame.title:SetText("Anunciar " .. R.GetDisplayName(roster))
+        edit:SetText(table.concat(R.BuildAnnounceLines(roster), "\n"))
+        UpdateStatus()
+    end
+
+    local btnSend = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnSend:SetSize(180, 24)
+    btnSend:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 14)
+    btnSend:SetText("Enviar a la hermandad")
+    btnSend:SetScript("OnClick", function()
+        if not IsInGuild() then return end
+        local lines = Lines()
+        for _, line in ipairs(lines) do
+            if #line > MAX_CHAT_BYTES then
+                PrintGC("|cFFFF3333Hay líneas de más de " .. MAX_CHAT_BYTES .. " caracteres: pártelas antes de enviar.|r")
+                return
+            end
+        end
+        for _, line in ipairs(lines) do
+            if C_ChatInfo and C_ChatInfo.SendChatMessage then
+                C_ChatInfo.SendChatMessage(line, "GUILD")
+            else
+                SendChatMessage(line, "GUILD")
+            end
+        end
+        frame:Hide()
+    end)
+
+    local btnRegenerate = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnRegenerate:SetSize(150, 24)
+    btnRegenerate:SetPoint("LEFT", btnSend, "RIGHT", 8, 0)
+    btnRegenerate:SetText("Volver a generar")
+    btnRegenerate:SetScript("OnClick", Regenerate)
+
+    local btnClose = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btnClose:SetSize(100, 24)
+    btnClose:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 14)
+    btnClose:SetText("Cerrar")
+    btnClose:SetScript("OnClick", function() frame:Hide() end)
+
+    frame:SetScript("OnShow", Regenerate)
+    return frame
+end
+
+function uiModule.ShowRosterAnnounce()
+    if not GC_UI or not addonTable.Roster then return end
+    if not GC_RosterAnnounceFrame then GC_RosterAnnounceFrame = CreateRosterAnnounceFrame() end
+    if GC_RosterAnnounceFrame:IsShown() then GC_RosterAnnounceFrame:Hide() end
+    GC_RosterAnnounceFrame:Show()
+end
+
+-- =========================================================================
 -- 8c. VISTA MI PERFIL (ROL DECLARADO Y PERFIL DE OFICIAL/JUGADOR)
 -- =========================================================================
 local function BuildMyProfileView(parent)
@@ -3442,8 +3669,26 @@ local function BuildMyProfileView(parent)
     local secondaryChoice = CreateRoleChoice("Rol secundario (opcional)", mainChoice.label, -50,
         { "Ninguno", "Tanque", "Sanador", "DPS" })
 
+    -- ¿Personaje principal o alter? Si es alter, de quién
+    local mainNameInput, charChoice   -- declarados antes para que el callback los vea
+    charChoice = CreateRoleChoice("Este personaje es", secondaryChoice.label, -50, { "Principal", "Alter" },
+        function() mainNameInput:SetShown(charChoice.Get() == "Alter") end)
+
+    mainNameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    mainNameInput:SetSize(170, 20)
+    mainNameInput:SetPoint("TOPLEFT", charChoice.label, "BOTTOMLEFT", 240, -6)
+    mainNameInput:SetAutoFocus(false)
+    mainNameInput:SetMaxLetters(40)
+    mainNameInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    mainNameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local mainNamePlaceholder = mainNameInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mainNamePlaceholder:SetPoint("LEFT", mainNameInput, "LEFT", 2, 0)
+    mainNamePlaceholder:SetText("Nombre de tu principal")
+    mainNameInput:SetScript("OnTextChanged", function(self) mainNamePlaceholder:SetShown((self:GetText() or "") == "") end)
+    mainNameInput:Hide()
+
     local specLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    specLabel:SetPoint("TOPLEFT", secondaryChoice.label, "BOTTOMLEFT", 0, -50)
+    specLabel:SetPoint("TOPLEFT", charChoice.label, "BOTTOMLEFT", 0, -50)
     specLabel:SetText("Especialización")
 
     local specInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
@@ -3495,7 +3740,8 @@ local function BuildMyProfileView(parent)
             saveStatus:SetText("|cFFFF3333Elige tu rol principal.|r")
             return
         end
-        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText())
+        local charType = charChoice.Get() == "Alter" and "alt" or "main"
+        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText(), charType, mainNameInput:GetText())
         specInput:ClearFocus()
         noteInput:ClearFocus()
         saveStatus:SetText("|cFF00FF00Guardado y enviado a las " .. date("%H:%M") .. ".|r")
@@ -3563,6 +3809,9 @@ local function BuildMyProfileView(parent)
         local profile = P.GetMyProfile()
         mainChoice.Set(profile.main)
         secondaryChoice.Set(profile.secondary)
+        charChoice.Set(profile.charType == "alt" and "Alter" or "Principal")
+        mainNameInput:SetText(profile.mainName or "")
+        mainNameInput:SetShown(profile.charType == "alt")
         specInput:SetText(profile.spec or "")
         noteInput:SetText(profile.note or "")
         saveStatus:SetText("")
