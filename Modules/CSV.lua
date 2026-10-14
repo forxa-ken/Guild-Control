@@ -79,7 +79,8 @@ function csvModule.CreateCSVFrame(parentUI)
     local editBox = CreateFrame("EditBox", "GC_CSVEditBox", scroll)
     editBox:SetMultiLine(true)
     editBox:SetFontObject(ChatFontNormal)
-    editBox:SetWidth(scroll:GetWidth())
+    -- Ancho fijo (600 - 15 - 35): con el frame oculto scroll:GetWidth() puede devolver 0
+    editBox:SetWidth(550)
     editBox:SetAutoFocus(false)
     scroll:SetScrollChild(editBox)
 
@@ -108,11 +109,17 @@ function csvModule.CreateCSVFrame(parentUI)
 end
 
 function csvModule.ShowFrame()
-    if addonTable.UI.GetMainFrame then
-        local mainUI = addonTable.UI.GetMainFrame()
-        if mainUI then
-            if not mainUI:IsShown() then mainUI:Show() end
-            if GC_CSVFrame then GC_CSVFrame:Show() end
-        end
+    if not addonTable.UI or not addonTable.UI.GetMainFrame then return end
+
+    -- Abrir la ventana principal (la crea si aún no existe) porque el panel CSV cuelga de ella
+    local mainUI = addonTable.UI.GetMainFrame()
+    if (not mainUI or not mainUI:IsShown()) and addonTable.UI.ToggleUI then
+        addonTable.UI.ToggleUI()
+        mainUI = addonTable.UI.GetMainFrame()
     end
+    if not mainUI then return end
+
+    -- Creación perezosa: el frame se construye la primera vez que se pide
+    csvModule.CreateCSVFrame(mainUI)
+    if GC_CSVFrame then GC_CSVFrame:Show() end
 end
