@@ -5,6 +5,15 @@ local achModule = addonTable.Achievements
 
 local MAX_MEMBERS_SHOWN = 30
 
+-- Modo de la vista: logros de la hermandad ("guild") o del personaje ("player")
+local mode = "guild"
+
+function achModule.GetMode() return mode end
+function achModule.IsGuildMode() return mode == "guild" end
+function achModule.SetMode(newMode)
+    mode = (newMode == "player") and "player" or "guild"
+end
+
 -- Carga la UI de logros de Blizzard si aún no está cargada
 function achModule.EnsureLoaded()
     if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.LoadAddOn then
@@ -14,10 +23,15 @@ function achModule.EnsureLoaded()
     end
 end
 
--- Devuelve la lista de categorías de hermandad: { {id, title, parent, isChild}, ... }
+-- Categorías del modo actual (hermandad o personaje): { {id, title, parent, isChild}, ... }
 function achModule.GetCategories()
     local result = {}
-    local list = GetGuildCategoryList and GetGuildCategoryList() or nil
+    local list
+    if mode == "guild" then
+        list = GetGuildCategoryList and GetGuildCategoryList() or nil
+    else
+        list = GetCategoryList and GetCategoryList() or nil
+    end
 
     if list then
         for _, catId in ipairs(list) do
@@ -58,7 +72,7 @@ function achModule.FormatDate(day, month, year)
     return string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0)
 end
 
--- Estadísticas de logros de hermandad
+-- Estadísticas de logros del modo actual
 function achModule.GetStats()
     local stats = {
         totalPoints = 0,
@@ -69,17 +83,17 @@ function achModule.GetStats()
     }
 
     if GetTotalAchievementPoints then
-        stats.totalPoints = GetTotalAchievementPoints(true) or 0
+        stats.totalPoints = GetTotalAchievementPoints(mode == "guild") or 0
     end
 
     if GetNumCompletedAchievements then
-        local total, completed = GetNumCompletedAchievements(true)
+        local total, completed = GetNumCompletedAchievements(mode == "guild")
         stats.totalCount = total or 0
         stats.completedCount = completed or 0
     end
 
     if GetLatestCompletedAchievements then
-        local latest = { GetLatestCompletedAchievements(true) }
+        local latest = { GetLatestCompletedAchievements(mode == "guild") }
         local latestId = latest[1]
         if latestId then
             local _, name, _, completed, month, day, year = GetAchievementInfo(latestId)

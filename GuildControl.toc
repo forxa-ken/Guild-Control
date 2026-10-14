@@ -13,4 +13,5 @@ Modules\CSV.lua
 Modules\GuildChat.lua
 Modules\Roster.lua
 Modules\Profiles.lua
+Modules\News.lua
 Modules\UI.lua

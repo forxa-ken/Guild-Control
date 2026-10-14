@@ -496,7 +496,8 @@ local function BuildAchievementPreviewText(id)
     end
 
     -- Participantes (si la API del cliente lo permite)
-    if d.completed then
+    -- (solo en logros de hermandad: los del personaje no tienen participantes)
+    if d.completed and ach.IsGuildMode() then
         local names, total, available = ach.GetMembers(id)
         table.insert(lines, "")
         if not available then
@@ -1081,7 +1082,21 @@ local function BuildAchievementsView(parent)
 
     local lastAchText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     lastAchText:SetPoint("RIGHT", headerFrame, "RIGHT", -15, 0)
+    lastAchText:SetWidth(290)
+    lastAchText:SetJustifyH("RIGHT")
+    lastAchText:SetWordWrap(false)
     lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
+
+    -- Ver los logros de la hermandad o los del personaje (los scripts se asignan más abajo)
+    local btnModeGuild = CreateFrame("Button", nil, headerFrame, "UIPanelButtonTemplate")
+    btnModeGuild:SetSize(100, 22)
+    btnModeGuild:SetPoint("LEFT", headerFrame, "LEFT", 380, 0)
+    btnModeGuild:SetText("Hermandad")
+
+    local btnModePlayer = CreateFrame("Button", nil, headerFrame, "UIPanelButtonTemplate")
+    btnModePlayer:SetSize(100, 22)
+    btnModePlayer:SetPoint("LEFT", btnModeGuild, "RIGHT", 6, 0)
+    btnModePlayer:SetText("Personaje")
 
     -- 7.2 Panel Izquierdo: Categorías de Hermandad
     local catPanel = CreateBackdropBox(view, 200, 445, "TOPLEFT", headerFrame, "BOTTOMLEFT", 0, -5)
@@ -1372,6 +1387,22 @@ local function BuildAchievementsView(parent)
     btnFilterDone:SetScript("OnClick", function() filterState = "COMPLETADOS"; uiModule.RefreshAchievements() end)
     btnFilterPending:SetScript("OnClick", function() filterState = "PENDIENTES"; uiModule.RefreshAchievements() end)
     chkSeason:SetScript("OnClick", function(self) filterSeason = self:GetChecked() and true or false; uiModule.RefreshAchievements() end)
+
+    -- Cambio entre logros de la hermandad y del personaje: se reconstruyen las categorías
+    local function SetAchievementMode(newMode)
+        if not addonTable.Achievements then return end
+        addonTable.Achievements.SetMode(newMode)
+        currentCategoryId = nil
+        selectedAchievementId = nil
+        SetPreviewText(PREVIEW_DEFAULT_TEXT)
+        BuildGuildCategories()
+        btnModeGuild:SetEnabled(newMode ~= "guild")
+        btnModePlayer:SetEnabled(newMode ~= "player")
+        uiModule.RefreshAchievements()
+    end
+    btnModeGuild:SetScript("OnClick", function() SetAchievementMode("guild") end)
+    btnModePlayer:SetScript("OnClick", function() SetAchievementMode("player") end)
+    btnModeGuild:SetEnabled(false)
 
     containers.views["Logros"] = view
 end
@@ -3784,18 +3815,43 @@ local function BuildMyProfileView(parent)
     specLabel:SetPoint("TOPLEFT", focusChoice.label, "BOTTOMLEFT", 0, -50)
     specLabel:SetText("Especialización")
 
-    local specInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    specInput:SetSize(220, 20)
-    specInput:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 6, -6)
-    specInput:SetAutoFocus(false)
-    specInput:SetMaxLetters(30)
-    local specPlaceholder = specInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    specPlaceholder:SetPoint("LEFT", specInput, "LEFT", 2, 0)
-    specPlaceholder:SetText("Restauración, Protección...")
-    specInput:SetScript("OnTextChanged", function(self) specPlaceholder:SetShown((self:GetText() or "") == "") end)
+    -- Especialización: se elige entre las de la clase del personaje (con su icono y rol)
+    local SPEC_ROLE_TO_ROLE = { TANK = "Tanque", HEALER = "Sanador", DAMAGER = "DPS" }
+    local specValue = ""
+    local specDropdown = CreateFrame("DropdownButton", "GC_ProfileSpec", view, "WowStyle1DropdownTemplate")
+    specDropdown:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 0, -6)
+    specDropdown:SetWidth(240)
+
+    local function GetMySpecs()
+        local specs = {}
+        local num = GetNumSpecializations and GetNumSpecializations() or 0
+        for i = 1, num do
+            local _, name, _, icon, role = GetSpecializationInfo(i)
+            if name then table.insert(specs, { name = name, icon = icon, role = SPEC_ROLE_TO_ROLE[role] }) end
+        end
+        return specs
+    end
+
+    local function SetSpec(name)
+        specValue = name or ""
+        specDropdown:SetText(specValue ~= "" and specValue or "Elige tu especialización")
+    end
+
+    specDropdown:SetupMenu(function(_, root)
+        for _, spec in ipairs(GetMySpecs()) do
+            local label = (spec.icon and ("|T" .. spec.icon .. ":16:16|t ") or "") .. spec.name
+                .. (spec.role and ("  " .. RoleIcon(spec.role) .. " |cFF808080" .. spec.role .. "|r") or "")
+            root:CreateRadio(label, function() return specValue == spec.name end, function()
+                SetSpec(spec.name)
+                -- El rol principal sigue al de la especialización elegida (se puede cambiar después)
+                if spec.role then mainChoice.Set(spec.role) end
+            end)
+        end
+        root:CreateRadio("Sin especificar", function() return specValue == "" end, function() SetSpec("") end)
+    end)
 
     local noteLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    noteLabel:SetPoint("TOPLEFT", specInput, "BOTTOMLEFT", -6, -16)
+    noteLabel:SetPoint("TOPLEFT", specDropdown, "BOTTOMLEFT", 0, -16)
     noteLabel:SetText("Nota para los oficiales")
 
     local noteInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
@@ -3808,7 +3864,7 @@ local function BuildMyProfileView(parent)
     notePlaceholder:SetText("Disponibilidad, otras especializaciones, alters...")
     noteInput:SetScript("OnTextChanged", function(self) notePlaceholder:SetShown((self:GetText() or "") == "") end)
 
-    for _, box in ipairs({ specInput, noteInput }) do
+    for _, box in ipairs({ noteInput }) do
         box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     end
@@ -3834,8 +3890,7 @@ local function BuildMyProfileView(parent)
             return
         end
         local charType = charChoice.Get() == "Alter" and "alt" or "main"
-        P.SaveMyProfile(main, secondaryChoice.Get(), specInput:GetText(), noteInput:GetText(), charType, mainNameInput:GetText(), focusChoice.Get())
-        specInput:ClearFocus()
+        P.SaveMyProfile(main, secondaryChoice.Get(), specValue, noteInput:GetText(), charType, mainNameInput:GetText(), focusChoice.Get())
         noteInput:ClearFocus()
         saveStatus:SetText("|cFF00FF00Guardado y enviado a las " .. date("%H:%M") .. ".|r")
     end)
@@ -3906,7 +3961,8 @@ local function BuildMyProfileView(parent)
         focusChoice.Set(profile.focus)
         mainNameInput:SetText(profile.mainName or "")
         mainNameInput:SetShown(profile.charType == "alt")
-        specInput:SetText(profile.spec or "")
+        SetSpec(profile.spec)
+        specLabel:SetText("Especialización (" .. (UnitClass("player") or "") .. ")")
         noteInput:SetText(profile.note or "")
         saveStatus:SetText("")
 
@@ -4169,6 +4225,210 @@ function uiModule.GetMySharedRosterNames()
     local names = {}
     for _, item in ipairs(SharedRostersWithMe()) do table.insert(names, item.roster.name) end
     return names
+end
+
+-- =========================================================================
+-- 8e. VISTA RESUMEN (NOTICIAS DE LA HERMANDAD, CONSUME MODULES/NEWS.LUA)
+-- =========================================================================
+-- Color de la franja izquierda de cada noticia según su tipo
+local NEWS_KIND_COLORS = {
+    achievement = { 1, 0.82, 0 }, guildAchievement = { 1, 0.6, 0 },
+    boss = { 0.9, 0.2, 0.2 }, loot = { 0.64, 0.21, 0.93 },
+    join = { 0.2, 0.9, 0.2 }, leave = { 0.5, 0.5, 0.5 }, other = { 0.4, 0.7, 1 },
+}
+local NEWS_CARD_HEIGHT = 46
+
+local function BuildSummaryView(parent)
+    local N = addonTable.News
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local currentFilter = "all"
+    local Refresh
+
+    -- ---------------------------------------------------------------------
+    -- Columna izquierda: noticias
+    -- ---------------------------------------------------------------------
+    local feedBox = CreateBackdropBox(view, 566, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
+
+    local feedTitle = feedBox:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    feedTitle:SetPoint("TOPLEFT", feedBox, "TOPLEFT", 14, -12)
+    feedTitle:SetText("Noticias de la hermandad")
+
+    local btnRefresh = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
+    btnRefresh:SetSize(90, 22)
+    btnRefresh:SetPoint("TOPRIGHT", feedBox, "TOPRIGHT", -12, -10)
+    btnRefresh:SetText("Actualizar")
+    btnRefresh:SetScript("OnClick", function()
+        N.Request()
+        Refresh()
+    end)
+
+    local filterButtons = {}
+    local previous = nil
+    for _, filter in ipairs(N.FILTERS) do
+        local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
+        btn:SetSize(filter.key == "members" and 110 or 80, 20)
+        if previous then
+            btn:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+        else
+            btn:SetPoint("TOPLEFT", feedTitle, "BOTTOMLEFT", 0, -10)
+        end
+        btn:SetText(filter.label)
+        btn:SetScript("OnClick", function()
+            currentFilter = filter.key
+            Refresh()
+        end)
+        filterButtons[filter.key] = btn
+        previous = btn
+    end
+
+    local feedScroll = CreateFrame("ScrollFrame", "GC_SummaryFeedScroll", feedBox, "UIPanelScrollFrameTemplate")
+    feedScroll:SetPoint("TOPLEFT", feedBox, "TOPLEFT", 10, -72)
+    feedScroll:SetPoint("BOTTOMRIGHT", feedBox, "BOTTOMRIGHT", -30, 10)
+    local feedChild = CreateFrame("Frame")
+    feedChild:SetSize(524, 1)
+    feedScroll:SetScrollChild(feedChild)
+
+    local emptyText = feedBox:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", feedBox, "CENTER", 0, -20)
+    emptyText:SetWidth(460)
+
+    local cards = {}
+    local function AcquireCard(index)
+        local card = cards[index]
+        if card then return card end
+        card = CreateFrame("Frame", nil, feedChild)
+        card:SetSize(524, NEWS_CARD_HEIGHT - 4)
+        card.bg = card:CreateTexture(nil, "BACKGROUND")
+        card.bg:SetAllPoints()
+        card.bg:SetColorTexture(1, 1, 1, 0.04)
+        card.bar = card:CreateTexture(nil, "ARTWORK")
+        card.bar:SetPoint("TOPLEFT", card, "TOPLEFT", 0, 0)
+        card.bar:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 0, 0)
+        card.bar:SetWidth(3)
+        card.icon = card:CreateTexture(nil, "ARTWORK")
+        card.icon:SetSize(32, 32)
+        card.icon:SetPoint("LEFT", card, "LEFT", 10, 0)
+        card.title = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        card.title:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, -1)
+        card.title:SetPoint("RIGHT", card, "RIGHT", -60, 0)
+        card.title:SetJustifyH("LEFT")
+        card.title:SetWordWrap(false)
+        card.detail = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        card.detail:SetPoint("BOTTOMLEFT", card.icon, "BOTTOMRIGHT", 10, 1)
+        card.detail:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+        card.detail:SetJustifyH("LEFT")
+        card.detail:SetWordWrap(false)
+        card.date = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        card.date:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -6)
+        cards[index] = card
+        return card
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Columna derecha: mensaje del día, próximas bandas, rosters y cifras
+    -- ---------------------------------------------------------------------
+    local function SideBox(titleText, height, anchor)
+        local box = CreateBackdropBox(view, 304, height)
+        if anchor then
+            box:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
+        else
+            box:SetPoint("TOPLEFT", feedBox, "TOPRIGHT", 8, 0)
+        end
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+        box.title:SetText(titleText)
+        box.text = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        box.text:SetPoint("TOPLEFT", box.title, "BOTTOMLEFT", 0, -6)
+        box.text:SetPoint("RIGHT", box, "RIGHT", -12, 0)
+        box.text:SetJustifyH("LEFT")
+        box.text:SetJustifyV("TOP")
+        box.text:SetSpacing(3)
+        return box
+    end
+
+    local motdBox = SideBox("Mensaje del día", 84)
+    local raidsBox = SideBox("Próximas bandas", 118, motdBox)
+    local rostersBox = SideBox("Rosters", 118, raidsBox)
+    local statsBox = SideBox("La hermandad en cifras", 162, rostersBox)
+
+    local WEEKDAYS = { "Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb" }
+    local function ShortEventDate(event)
+        local y, mo, d = string.match(event.date or "", "^(%d+)-(%d+)-(%d+)$")
+        if not y then return event.date or "" end
+        local t = time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
+        return WEEKDAYS[tonumber(date("%w", t)) + 1] .. " " .. d .. "/" .. mo .. " " .. (event.time or "")
+    end
+
+    local function RefreshSide()
+        local motd = N.GetMOTD()
+        motdBox.text:SetText(motd ~= "" and motd or "|cFF808080La hermandad no tiene mensaje del día.|r")
+
+        local raidLines = {}
+        for _, entry in ipairs(N.GetUpcomingRaids(4)) do
+            local note = (entry.event.note and entry.event.note ~= "") and (" |cFF808080· " .. entry.event.note .. "|r") or ""
+            table.insert(raidLines, "|cFFFFD100" .. ShortEventDate(entry.event) .. "|r  " .. entry.roster.name .. note)
+        end
+        raidsBox.text:SetText(#raidLines > 0 and table.concat(raidLines, "\n")
+            or "|cFF808080No hay bandas programadas. Añádelas en Roster > Fechas.|r")
+
+        local rosterLines = {}
+        for i, r in ipairs(N.GetRosterSummaries()) do
+            if i > 5 then
+                table.insert(rosterLines, "|cFF808080y más...|r")
+                break
+            end
+            local color = r.starters >= r.size and "00FF00" or "FFD100"
+            table.insert(rosterLines, r.name .. " |cFF808080(" .. r.difficulty .. " " .. r.size .. ")|r  |cFF" .. color
+                .. r.starters .. "/" .. r.size .. "|r" .. (r.bench > 0 and (" |cFF808080+" .. r.bench .. "|r") or ""))
+        end
+        rostersBox.text:SetText(#rosterLines > 0 and table.concat(rosterLines, "\n") or "|cFF808080Todavía no hay rosters.|r")
+
+        local s = N.GetStats()
+        statsBox.text:SetText(
+            "Miembros: |cFFFFD100" .. s.members .. "|r   ·   En línea: |cFF00FF00" .. s.online .. "|r\n"
+            .. "Altas esta semana: |cFF00FF00" .. s.joins .. "|r   ·   Bajas: |cFFFF3333" .. s.leaves .. "|r\n"
+            .. "Roles declarados: |cFF00FFFF" .. s.declared .. "|r de " .. s.members .. "\n"
+            .. "Puntos de logros de hermandad: |cFFFFD100" .. s.achievementPoints .. "|r")
+    end
+
+    local function RefreshFeed()
+        for key, btn in pairs(filterButtons) do btn:SetEnabled(key ~= currentFilter) end
+        for _, card in ipairs(cards) do card:Hide() end
+
+        local feed = N.GetFeed(currentFilter)
+        for i, item in ipairs(feed) do
+            local card = AcquireCard(i)
+            card:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, -(i - 1) * NEWS_CARD_HEIGHT)
+            local color = NEWS_KIND_COLORS[item.kind] or NEWS_KIND_COLORS.other
+            card.bar:SetColorTexture(color[1], color[2], color[3], 0.9)
+            card.icon:SetTexture(item.icon)
+            card.title:SetText(item.title or "")
+            card.detail:SetText(item.detail or "")
+            card.date:SetText(item.dateText or "")
+            card:Show()
+        end
+        feedChild:SetHeight(math.max(1, #feed * NEWS_CARD_HEIGHT))
+        emptyText:SetShown(#feed == 0)
+        emptyText:SetText(IsInGuild() and "No hay noticias para este filtro todavía. Pulsa Actualizar para pedirlas al servidor."
+            or "No estás en una hermandad.")
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        RefreshFeed()
+        RefreshSide()
+    end
+
+    N.AddListener(function() Refresh() end)
+    view:SetScript("OnShow", function()
+        N.Request()
+        Refresh()
+    end)
+    uiModule.RefreshSummary = Refresh
+    containers.views["Resumen"] = view
 end
 
 -- =========================================================================
@@ -4723,7 +4983,7 @@ function uiModule.CreateUI()
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
     BuildMyRostersView(mainContent)
-    BuildPlaceholderView(mainContent, "Resumen")
+    BuildSummaryView(mainContent)
     BuildRosterView(mainContent)
     BuildPlaceholderView(mainContent, "Warning")
     BuildInviteView(mainContent)

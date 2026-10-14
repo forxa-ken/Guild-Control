@@ -13,9 +13,21 @@
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
+- **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
+
+## 📰 Resumen
+
+La pestaña **Resumen** funciona como un tablón de noticias:
+
+- **Noticias de la hermandad**: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Se pueden filtrar por Logros, Jefes, Botín o Altas y bajas.
+- **Mensaje del día** de la hermandad.
+- **Próximas bandas** de los rosters (los propios si eres oficial, los publicados si eres jugador).
+- **Rosters** con su dificultad, tamaño y titulares.
+- **La hermandad en cifras**: miembros, conectados, altas y bajas de la semana, roles declarados y puntos de logros.
 
 ## 🏆 Panel de logros
 
+- Arriba puedes cambiar entre los logros de la **Hermandad** y los de tu **Personaje**.
 - Pasa el ratón sobre un logro para ver su descripción, puntos, recompensa, fecha y quién lo completó.
 - Clic izquierdo: muestra el detalle en el panel de vista previa (estado, fecha, completado por, participantes y criterios).
 - Clic derecho o Shift+clic: abre el logro en la ventana de logros de Blizzard.
@@ -62,7 +74,7 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
-- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización**, si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
+- La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** (elegida entre las de su clase, con icono; al elegirla se ajusta el rol principal), si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
 - **Perfil de oficial**: rango igual o superior al configurado en Mi perfil (por defecto el rango 1) o permiso de chat de oficiales del juego. Ve todas las pestañas.
 - **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil, **Mis rosters** y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
