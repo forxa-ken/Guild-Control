@@ -10,6 +10,7 @@
 - **`Modules/Announcements.lua`**: Sistema de configuración de anuncios múltiples periódicos en el canal de la hermandad.
 - **`Modules/CSV.lua`**: Exportador e importador de listas masivas, altas del día y bajas en formato CSV compatibles con Google Sheets.
 - **`Modules/Professions.lua`**: Módulo aislado para el escaneo y sincronización de profesiones de los miembros.
+- **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
 
 ## 🏆 Panel de logros
 
@@ -23,6 +24,14 @@ En la pestaña **Configuración** puedes personalizar el encabezado del panel:
 
 - **Nombre de la hermandad**: escribe el nombre que quieres mostrar. Si lo dejas vacío (o pulsas "Usar nombre del juego") se usa el nombre real de la hermandad.
 - **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
+- **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Como mucho saluda una vez cada 30 min a la misma persona y, si varios miembros usan GuildControl, solo responde uno.
+
+## 👥 Miembros y chat
+
+- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. Al entrar en Miembros aparecen primero los conectados.
+- Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
+- Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos.
+- En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
 
 ## 🚀 Comandos
 

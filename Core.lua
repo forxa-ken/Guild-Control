@@ -58,6 +58,13 @@ function addonTable.InitDB()
     if GuildControlDB.settings.guildIcon == nil then
         GuildControlDB.settings.guildIcon = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
     end
+
+    -- Panel de chat de hermandad y saludo automático
+    if type(GuildControlDB.settings.chatCollapsed) ~= "boolean" then GuildControlDB.settings.chatCollapsed = false end
+    if type(GuildControlDB.settings.autoGreet) ~= "boolean" then GuildControlDB.settings.autoGreet = true end
+    if type(GuildControlDB.settings.greetMessage) ~= "string" or GuildControlDB.settings.greetMessage == "" then
+        GuildControlDB.settings.greetMessage = "¡Hola, {nombre}!"
+    end
 end
 
 -- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico

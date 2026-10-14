@@ -419,16 +419,16 @@ local MEMBER_ROW_HEIGHT = 24
 -- Columnas de la tabla de miembros. "key" es el criterio de orden (nil = no ordenable)
 local MEMBER_COLUMNS = {
     { title = "Nº",       x = 5,   w = 25 },
-    { title = "Nivel",    x = 30,  w = 35,  key = "level" },
-    { title = "Clase",    x = 65,  w = 65,  key = "class" },
-    { title = "Nombre",   x = 130, w = 145, key = "name" },
-    { title = "Rango",    x = 275, w = 80,  key = "rank" },
-    { title = "Rol",      x = 355, w = 40,  key = "role" },
-    { title = "Enfoque",  x = 395, w = 50,  key = "focus" },
-    { title = "Prof. 1",  x = 445, w = 105, key = "prof1" },
-    { title = "Prof. 2",  x = 550, w = 105, key = "prof2" },
-    { title = "Roster",   x = 655, w = 85,  key = "roster" },
-    { title = "Conexión", x = 740, w = 90,  key = "lastOnline" },
+    { title = "Nivel",    x = 30,  w = 50,  key = "level" },
+    { title = "Clase",    x = 80,  w = 65,  key = "class" },
+    { title = "Nombre",   x = 145, w = 140, key = "name" },
+    { title = "Rango",    x = 285, w = 80,  key = "rank" },
+    { title = "Rol",      x = 365, w = 40,  key = "role" },
+    { title = "Enfoque",  x = 405, w = 70,  key = "focus" },
+    { title = "Prof. 1",  x = 475, w = 100, key = "prof1" },
+    { title = "Prof. 2",  x = 575, w = 100, key = "prof2" },
+    { title = "Roster",   x = 675, w = 75,  key = "roster" },
+    { title = "Conexión", x = 750, w = 95,  key = "lastOnline" },
 }
 
 -- Orden por defecto: conectados primero y después por días desde la última conexión
@@ -465,7 +465,7 @@ local function BuildMembersView(parent)
     -- Barra de filtros (todo dentro del contenedor)
     local searchLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     searchLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 12, -10)
-    searchLabel:SetText("Filtrar por nombre, clase, rango, rol, profesión o roster")
+    searchLabel:SetText("Buscar miembros")
 
     local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
     searchBox:SetSize(260, 20)
@@ -473,6 +473,11 @@ local function BuildMembersView(parent)
     searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+
+    -- Texto de ayuda dentro de la caja mientras está vacía
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
+    searchPlaceholder:SetText("Nombre, clase, rango, profesión, roster...")
 
     local btnShowAll = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnShowAll:SetSize(90, 22)
@@ -562,6 +567,7 @@ local function BuildMembersView(parent)
 
     searchBox:SetScript("OnTextChanged", function(self)
         searchQuery = string.lower(strtrim(self:GetText() or ""))
+        searchPlaceholder:SetShown((self:GetText() or "") == "")
         uiModule.RefreshList()
     end)
 
@@ -586,8 +592,30 @@ local function BuildMembersView(parent)
         return false
     end
 
+    -- Desglose de profesiones por expansión (solo propio o de miembros con GuildControl)
+    local function BuildExpansionText(fullName)
+        local lines = { "", "|cFFFFD100Profesiones por expansión|r" }
+        local breakdown = addonTable.Professions and addonTable.Professions.GetExpansionBreakdown
+            and addonTable.Professions.GetExpansionBreakdown(fullName)
+        if not breakdown then
+            table.insert(lines, "|cFF808080Sin datos. Solo está disponible para miembros que usan GuildControl.|r")
+            return table.concat(lines, "\n")
+        end
+        for _, prof in ipairs(breakdown) do
+            table.insert(lines, "|cFF00FFFF" .. prof.parent .. "|r")
+            for _, e in ipairs(prof.entries) do
+                local color = (e.max > 0 and e.level >= e.max) and "|cFF00FF00" or "|cFFFFFFFF"
+                table.insert(lines, "  " .. e.name .. ": " .. color .. e.level .. "/" .. e.max .. "|r")
+            end
+        end
+        return table.concat(lines, "\n")
+    end
+
+    local selectedFullName = nil
+
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
+        selectedFullName = fullName
         SetPreviewText(
             "|cFFFFD100" .. fullName .. "|r\n\n" ..
             "Nivel: " .. (data.level or 0) .. "\n" ..
@@ -598,7 +626,8 @@ local function BuildMembersView(parent)
             "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
             "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
             "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
-            "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
+            "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r")) .. "\n" ..
+            BuildExpansionText(fullName)
         )
     end
 
@@ -636,6 +665,7 @@ local function BuildMembersView(parent)
     end
 
     uiModule.ResetMembersSort = function()
+        selectedFullName = nil
         sortKey, sortAsc = DEFAULT_SORT_KEY, true
         UpdateSortIndicators()
     end
@@ -692,6 +722,12 @@ local function BuildMembersView(parent)
 
         scrollChild:SetHeight(math.max(1, #list * MEMBER_ROW_HEIGHT + 10))
         countText:SetText("Mostrando " .. #list .. " de " .. total)
+
+        -- Mantener al día la vista previa del miembro seleccionado (p. ej. al llegar su desglose)
+        local selectedData = selectedFullName and GuildControlDB.members[selectedFullName]
+        if selectedData and activeTab == "Miembros" then
+            ShowMemberPreview(selectedFullName, selectedData)
+        end
     end
 
     UpdateSortIndicators()
@@ -1174,8 +1210,156 @@ local function BuildConfigView(parent)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    view:SetScript("OnShow", RefreshConfigFields)
+    -- 9.3 Saludo automático
+    local greetLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    greetLabel:SetPoint("TOPLEFT", iconHint, "BOTTOMLEFT", 0, -110)
+    greetLabel:SetText("Saludo automático")
+
+    local chkGreet = CreateFrame("CheckButton", "GC_CfgAutoGreet", view, "UICheckButtonTemplate")
+    chkGreet:SetPoint("TOPLEFT", greetLabel, "BOTTOMLEFT", -4, -4)
+    _G[chkGreet:GetName() .. "Text"]:SetText("Responder cuando alguien de la hermandad salude")
+
+    local greetInput = CreateFrame("EditBox", "GC_CfgGreetMessage", view, "InputBoxTemplate")
+    greetInput:SetSize(300, 20)
+    greetInput:SetPoint("TOPLEFT", chkGreet, "BOTTOMLEFT", 10, -6)
+    greetInput:SetAutoFocus(false)
+    greetInput:SetMaxLetters(120)
+
+    local btnSaveGreet = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnSaveGreet:SetSize(90, 22)
+    btnSaveGreet:SetPoint("LEFT", greetInput, "RIGHT", 10, 0)
+    btnSaveGreet:SetText("Guardar")
+
+    local greetHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    greetHint:SetPoint("TOPLEFT", greetInput, "BOTTOMLEFT", -6, -6)
+    greetHint:SetText("{nombre} se sustituye por el nombre de quien saluda. Responde a saludos cortos (hola, buenas...) con un retraso de 2-6 s y como mucho una vez cada 30 min por persona.")
+    greetHint:SetWidth(620)
+    greetHint:SetJustifyH("LEFT")
+
+    local function SaveGreet()
+        local text = strtrim(greetInput:GetText() or "")
+        if text == "" then text = "¡Hola, {nombre}!" end
+        GuildControlDB.settings.greetMessage = text
+        greetInput:SetText(text)
+        greetInput:ClearFocus()
+    end
+
+    chkGreet:SetScript("OnClick", function(self) GuildControlDB.settings.autoGreet = self:GetChecked() and true or false end)
+    btnSaveGreet:SetScript("OnClick", SaveGreet)
+    greetInput:SetScript("OnEnterPressed", SaveGreet)
+    greetInput:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        self:SetText(GuildControlDB.settings.greetMessage or "")
+    end)
+
+    view:SetScript("OnShow", function()
+        RefreshConfigFields()
+        chkGreet:SetChecked(GuildControlDB.settings.autoGreet)
+        greetInput:SetText(GuildControlDB.settings.greetMessage or "")
+    end)
     containers.views["Configuracion"] = view
+end
+
+-- =========================================================================
+-- 10. PANEL DE CHAT DE HERMANDAD (CONTRAÍBLE, DEBAJO DE LA VENTANA)
+-- =========================================================================
+local CHAT_EXPANDED_HEIGHT, CHAT_COLLAPSED_HEIGHT = 190, 30
+
+local function FormatChatLine(entry)
+    local hex = entry.class and addonTable.GetClassColorHex(entry.class) or "40FF40"
+    return "|cFF808080[" .. entry.time .. "]|r |cFF" .. hex .. "[" .. entry.sender .. "]|r: " .. entry.text
+end
+
+local function BuildChatPanel(parent)
+    local panel = CreateBackdropBox(parent, 1300, CHAT_EXPANDED_HEIGHT)
+    panel:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, 2)
+    panel:SetPoint("TOPRIGHT", parent, "BOTTOMRIGHT", 0, 2)
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -9)
+    title:SetText("Chat de hermandad")
+
+    local unreadText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    unreadText:SetPoint("LEFT", title, "RIGHT", 10, 0)
+
+    local btnToggle = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnToggle:SetSize(90, 20)
+    btnToggle:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -5)
+
+    local messagesFrame = CreateFrame("ScrollingMessageFrame", nil, panel)
+    messagesFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -30)
+    messagesFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -14, 38)
+    messagesFrame:SetFontObject(ChatFontNormal)
+    messagesFrame:SetJustifyH("LEFT")
+    messagesFrame:SetFading(false)
+    messagesFrame:SetMaxLines(200)
+    messagesFrame:SetHyperlinksEnabled(true)
+    messagesFrame:EnableMouseWheel(true)
+    messagesFrame:SetScript("OnMouseWheel", function(self, delta)
+        if delta > 0 then self:ScrollUp() else self:ScrollDown() end
+    end)
+    messagesFrame:SetScript("OnHyperlinkClick", function(self, link, text, button)
+        SetItemRef(link, text, button)
+    end)
+
+    local input = CreateFrame("EditBox", "GC_GuildChatInput", panel, "InputBoxTemplate")
+    input:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 20, 10)
+    input:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -110, 10)
+    input:SetHeight(20)
+    input:SetAutoFocus(false)
+    input:SetMaxLetters(255)
+
+    local btnSend = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnSend:SetSize(90, 22)
+    btnSend:SetPoint("LEFT", input, "RIGHT", 8, 0)
+    btnSend:SetText("Enviar")
+
+    local function SendInput()
+        if addonTable.GuildChat then addonTable.GuildChat.Send(input:GetText()) end
+        input:SetText("")
+        input:ClearFocus()
+    end
+    input:SetScript("OnEnterPressed", SendInput)
+    input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    btnSend:SetScript("OnClick", SendInput)
+
+    local unread = 0
+
+    local function ApplyCollapsed()
+        local collapsed = GuildControlDB.settings.chatCollapsed
+        panel:SetHeight(collapsed and CHAT_COLLAPSED_HEIGHT or CHAT_EXPANDED_HEIGHT)
+        messagesFrame:SetShown(not collapsed)
+        input:SetShown(not collapsed)
+        btnSend:SetShown(not collapsed)
+        btnToggle:SetText(collapsed and "Expandir" or "Contraer")
+        if not collapsed then unread = 0 end
+        unreadText:SetText(unread > 0 and ("|cFF00FF00(" .. unread .. " nuevos)|r") or "")
+        -- Mantener el panel dentro de la pantalla al arrastrar la ventana
+        parent:SetClampRectInsets(0, 0, 0, -(panel:GetHeight() - 2))
+    end
+
+    btnToggle:SetScript("OnClick", function()
+        GuildControlDB.settings.chatCollapsed = not GuildControlDB.settings.chatCollapsed
+        ApplyCollapsed()
+    end)
+
+    -- Mensajes recibidos antes de abrir la ventana
+    if addonTable.GuildChat then
+        for _, entry in ipairs(addonTable.GuildChat.GetMessages()) do
+            messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+        end
+        addonTable.GuildChat.SetListener(function(entry)
+            messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+            if GuildControlDB.settings.chatCollapsed then
+                unread = unread + 1
+                unreadText:SetText("|cFF00FF00(" .. unread .. " nuevos)|r")
+            end
+        end)
+    end
+
+    parent:SetClampedToScreen(true)
+    ApplyCollapsed()
+    containers.chat = panel
 end
 
 -- =========================================================================
@@ -1212,6 +1396,8 @@ function uiModule.CreateUI()
     BuildPlaceholderView(mainContent, "Warning")
     BuildPlaceholderView(mainContent, "Black list")
     BuildConfigView(mainContent)
+
+    BuildChatPanel(GC_UI)
 
     SwitchTab("Miembros")
     GC_UI:Hide()

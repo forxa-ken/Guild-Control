@@ -89,14 +89,39 @@ function csvModule.CreateCSVFrame(parentUI)
     editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     scroll:SetScrollChild(editBox)
 
-    -- Clic en cualquier parte del área de texto: enfocar para poder seleccionar
+    -- WoW no permite a los addons escribir en el portapapeles: el texto se mantiene siempre
+    -- seleccionado y con el foco puesto para que el jugador lo copie con Ctrl+C
+    local currentText = ""
+
+    local function SelectAll()
+        editBox:SetFocus()
+        editBox:HighlightText()
+    end
+
+    local function ShowCSV(text)
+        currentText = text or ""
+        editBox:SetText(currentText)
+        editBox:SetCursorPosition(0)
+        scroll:SetVerticalScroll(0)
+        SelectAll()
+    end
+
+    -- Cualquier clic o intento de edición vuelve a dejar todo seleccionado
+    editBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    editBox:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+    editBox:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then
+            self:SetText(currentText)
+            self:HighlightText()
+        end
+    end)
     scroll:EnableMouse(true)
-    scroll:SetScript("OnMouseDown", function() editBox:SetFocus() end)
+    scroll:SetScript("OnMouseDown", SelectAll)
 
     local hintText = GC_CSVFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hintText:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 18, 14)
     hintText:SetTextColor(0.75, 0.75, 0.75)
-    hintText:SetText("Genera un CSV y pulsa Copiar.")
+    hintText:SetText("|cFF00FF00Texto seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo y pégalo en Google Sheets.")
 
     local btnCSVTotal = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
     btnCSVTotal:SetSize(120, 22) btnCSVTotal:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 15, 35) btnCSVTotal:SetText("CSV Total")
@@ -107,35 +132,19 @@ function csvModule.CreateCSVFrame(parentUI)
     local btnCSVAltas = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
     btnCSVAltas:SetSize(120, 22) btnCSVAltas:SetPoint("LEFT", btnCSVSalidas, "RIGHT", 8, 0) btnCSVAltas:SetText("CSV Altas Hoy")
 
-    local btnCopy = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
-    btnCopy:SetSize(90, 22) btnCopy:SetPoint("LEFT", btnCSVAltas, "RIGHT", 8, 0) btnCopy:SetText("Copiar")
-
-    -- WoW no permite a los addons escribir en el portapapeles: se selecciona todo el texto
-    -- con el foco puesto y el jugador lo copia con Ctrl+C
-    local function SelectAll()
-        if (editBox:GetText() or "") == "" then
-            if IsInGuild() then C_GuildInfo.GuildRoster() end
-            editBox:SetText(csvModule.GenerateCSVTotal())
-        end
-        editBox:SetFocus()
-        editBox:HighlightText()
-        scroll:SetVerticalScroll(0)
-        hintText:SetText("|cFF00FF00Texto seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo y pégalo en Google Sheets.")
-    end
-
-    local function ShowCSV(text)
-        editBox:SetText(text)
-        editBox:SetCursorPosition(0)
-        SelectAll()
-    end
-
-    btnCSVTotal:SetScript("OnClick", function()
+    local function ShowTotal()
         if IsInGuild() then C_GuildInfo.GuildRoster() end
         ShowCSV(csvModule.GenerateCSVTotal())
-    end)
+    end
+
+    btnCSVTotal:SetScript("OnClick", ShowTotal)
     btnCSVSalidas:SetScript("OnClick", function() ShowCSV(csvModule.GenerateCSVSalidas()) end)
     btnCSVAltas:SetScript("OnClick", function() ShowCSV(csvModule.GenerateCSVAltasHoy()) end)
-    btnCopy:SetScript("OnClick", SelectAll)
+
+    -- Al abrir el panel: CSV Total si aún no hay nada y el texto seleccionado
+    GC_CSVFrame:SetScript("OnShow", function()
+        if currentText == "" then ShowTotal() else SelectAll() end
+    end)
 end
 
 function csvModule.ShowFrame()
