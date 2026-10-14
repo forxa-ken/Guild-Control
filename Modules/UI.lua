@@ -456,35 +456,38 @@ local function BuildAchievementsView(parent)
     achChild:SetSize(achScroll:GetWidth(), achScroll:GetHeight())
     achScroll:SetScrollChild(achChild)
 
-    -- Extraer el árbol usando la API directa de Hermandad
+    -- Extraer el árbol usando los IDs oficiales de Hermandad
     local function BuildGuildCategories()
         if catChild.buttons then for _, b in pairs(catChild.buttons) do b:Hide() end end
         catChild.buttons = {}
 
-        local roots = GetGuildCategoryList and GetGuildCategoryList() or {}
+        -- Orden oficial exacto: General, Misiones, JcJ, Mazmorras, Profesiones, Reputación, Proezas
+        local roots = { 15076, 15428, 15078, 15077, 15079, 15080, 15088 }
         local yOffset = -5
         local firstSet = false
 
         for _, catId in ipairs(roots) do
             local title = GetCategoryInfo(catId)
             
-            if not firstSet then
-                currentCategoryId = catId
-                firstSet = true
+            if title then
+                if not firstSet then
+                    currentCategoryId = catId
+                    firstSet = true
+                end
+
+                local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
+                btn:SetSize(165, 22)
+                btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", 5, yOffset)
+                btn:SetText(title)
+
+                btn:SetScript("OnClick", function()
+                    currentCategoryId = catId
+                    uiModule.RefreshAchievements()
+                end)
+
+                table.insert(catChild.buttons, btn)
+                yOffset = yOffset - 25
             end
-
-            local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
-            btn:SetSize(165, 22)
-            btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", 5, yOffset)
-            btn:SetText(title or ("Cat " .. catId))
-
-            btn:SetScript("OnClick", function()
-                currentCategoryId = catId
-                uiModule.RefreshAchievements()
-            end)
-
-            table.insert(catChild.buttons, btn)
-            yOffset = yOffset - 25
         end
     end
 
