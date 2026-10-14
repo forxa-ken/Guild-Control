@@ -4,38 +4,33 @@ addonTable.UI = {}
 local uiModule = addonTable.UI
 
 local GC_UI = nil
-local GC_BajasFrame = nil
-local memberCountText = nil
-local searchBox = nil
+local activeTab = "Miembros"
+local selectedMember = nil
 
-local currentSearchQuery = ""
-local currentSortField = "name"
-local sortAscending = true
-local showOnlyOnline = false
+-- Referencias a los contenedores principales
+local containers = {
+    header = nil,
+    announcements = nil,
+    sidebar = nil,
+    mainContent = nil,
+    preview = nil,
+    views = {} -- Vistas específicas (Resumen, Miembros, Logros, etc.)
+}
 
-local function CreateInput(name, parent, width, xOffset, yOffset, placeholder)
-    local editBox = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
-    editBox:SetSize(width, 20)
-    editBox:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, yOffset)
-    editBox:SetAutoFocus(false)
-    local text = editBox:CreateFontString(name .. "Text", "OVERLAY", "GameFontNormalSmall")
-    text:SetPoint("BOTTOMLEFT", editBox, "TOPLEFT", 0, 2)
-    if placeholder and placeholder ~= "" then text:SetText(placeholder) end
-    return editBox
-end
-
-local function CreateSectionBackdrop(parent, width, height, xOffset, yOffset)
-    local val = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    val:SetSize(width, height)
-    val:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, yOffset)
-    val:SetBackdrop({
+local function CreateBackdropBox(parent, width, height, point, relativeTo, relativePoint, x, y)
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    frame:SetSize(width, height)
+    if point then
+        frame:SetPoint(point, relativeTo or parent, relativePoint or point, x or 0, y or 0)
+    end
+    frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true, tileSize = 16, edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 }
     })
-    val:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
-    return val
+    frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+    return frame
 end
 
 function uiModule.GetMainFrame()
@@ -46,144 +41,78 @@ function uiModule.IsShown()
     return GC_UI and GC_UI:IsShown()
 end
 
-function uiModule.UpdateMemberCounter()
-    if not memberCountText then return end
-    local gameCount = IsInGuild() and GetNumGuildMembers() or 0
-    local onlineCount = 0
-    if IsInGuild() then
-        for i = 1, gameCount do
-            local _, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-            if online == true or online == 1 or online == "true" then
-                onlineCount = onlineCount + 1
-            end
-        end
-    else
-        for _, data in pairs(GuildControlDB.members or {}) do
-            if data.isOnline then onlineCount = onlineCount + 1 end
-        end
-    end
-    memberCountText:SetText(string.format("Miembros: |cFF00FF00%d|r | En línea: |cFF00FFFF%d|r", gameCount, onlineCount))
-end
-
-function uiModule.CreateBajasFrame()
-    if GC_BajasFrame then return end
-    GC_BajasFrame = CreateFrame("Frame", "GuildControlBajasFrame", GC_UI, "BasicFrameTemplateWithInset")
-    GC_BajasFrame:SetSize(520, 380)
-    GC_BajasFrame:SetPoint("CENTER", GC_UI, "CENTER", 0, 0)
-    GC_BajasFrame:SetFrameStrata("DIALOG")
-    GC_BajasFrame:Hide()
-
-    GC_BajasFrame.title = GC_BajasFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    GC_BajasFrame.title:SetPoint("CENTER", GC_BajasFrame.TitleBg, "CENTER", 0, 0)
-    GC_BajasFrame.title:SetText("Historial de Salidas / Bajas")
-
-    local scroll = CreateFrame("ScrollFrame", nil, GC_BajasFrame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", GC_BajasFrame, "TOPLEFT", 15, -40)
-    scroll:SetPoint("BOTTOMRIGHT", GC_BajasFrame, "BOTTOMRIGHT", -35, 15)
-
-    local editBox = CreateFrame("EditBox", nil, scroll)
-    editBox:SetMultiLine(true)
-    editBox:SetFontObject(ChatFontNormal)
-    editBox:SetWidth(scroll:GetWidth())
-    editBox:SetAutoFocus(false)
-    scroll:SetScrollChild(editBox)
-
-    GC_BajasFrame.RefreshBajas = function()
-        local bajasLogs = { "Fecha/Hora           | Personaje          | Detalle" }
-        table.insert(bajasLogs, "------------------------------------------------------------------")
-        local count = 0
-        for _, log in ipairs(GuildControlDB.history or {}) do
-            if log.action == "BAJA" then
-                table.insert(bajasLogs, string.format("[%s]  %-18s  %s", log.date or "-", log.name or "-", log.info or ""))
-                count = count + 1
-            end
-        end
-        if count == 0 then table.insert(bajasLogs, "No hay registros de bajas aún.") end
-        editBox:SetText(table.concat(bajasLogs, "\n"))
-    end
-end
-
-function uiModule.ShowBajas()
-    if GC_UI then
-        GC_UI:Show()
-        if GC_BajasFrame then
-            GC_BajasFrame.RefreshBajas()
-            GC_BajasFrame:Show()
-        end
-    end
-end
-
-function uiModule.CreateUI()
-    if GC_UI then return end
-
-    GC_UI = CreateFrame("Frame", "GuildControlMainFrame", UIParent, "BasicFrameTemplateWithInset")
-    GC_UI:SetSize(1320, 710)
-    GC_UI:SetPoint("CENTER")
-    GC_UI:SetMovable(true)
-    GC_UI:EnableMouse(true)
-    GC_UI:RegisterForDrag("LeftButton")
-    GC_UI:SetScript("OnDragStart", GC_UI.StartMoving)
-    GC_UI:SetScript("OnDragStop", GC_UI.StopMovingOrSizing)
+-- =========================================================================
+-- 1. HEADER (BARRA SUPERIOR)
+-- =========================================================================
+local function BuildHeader(parent)
+    local header = CreateBackdropBox(parent, 1280, 50, "TOPLEFT", parent, "TOPLEFT", 10, -25)
     
-    GC_UI.title = GC_UI:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    GC_UI.title:SetPoint("CENTER", GC_UI.TitleBg, "CENTER", 0, 0)
-    GC_UI.title:SetText("Control Guild Lobo Gélido")
+    -- Logo Placeholder
+    local logoBg = header:CreateTexture(nil, "OVERLAY")
+    logoBg:SetSize(36, 36)
+    logoBg:SetPoint("LEFT", header, "LEFT", 10, 0)
+    logoBg:SetTexture("Interface\\Icons\\Achievement_GuildPerk_MobileBanking")
 
-    if addonTable.CSV and addonTable.CSV.CreateCSVFrame then
-        addonTable.CSV.CreateCSVFrame(GC_UI)
-    end
-    uiModule.CreateBajasFrame()
+    -- Nombre & Facción
+    local titleText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    titleText:SetPoint("LEFT", logoBg, "RIGHT", 10, 0)
+    titleText:SetText("|cFFFFD100Lobo Gélido|r  |cFF808080[Horda]|r")
 
-    local formBg = CreateFrame("Frame", nil, GC_UI, "BackdropTemplate")
-    formBg:SetSize(1280, 45)
-    formBg:SetPoint("TOP", GC_UI, "TOP", 0, -35)
-    formBg:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    formBg:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.8)
+    -- Indicadores del Centro/Derecha
+    local onlineText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    onlineText:SetPoint("RIGHT", header, "RIGHT", -220, 0)
+    header.onlineText = onlineText
 
-    local savePanel = CreateSectionBackdrop(formBg, 100, 37, 1165, -4)
-    local btnCSV = CreateFrame("Button", nil, savePanel, "UIPanelButtonTemplate")
-    btnCSV:SetSize(85, 22) btnCSV:SetPoint("CENTER", savePanel, "CENTER", 0, 0) btnCSV:SetText("Sheets/CSV")
-    btnCSV:SetScript("OnClick", function()
-        if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
-    end)
+    local membersText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    membersText:SetPoint("RIGHT", onlineText, "LEFT", -30, 0)
+    header.membersText = membersText
 
-    local annBg = CreateFrame("Frame", nil, GC_UI, "BackdropTemplate")
-    annBg:SetSize(1280, 65)
-    annBg:SetPoint("TOP", formBg, "BOTTOM", 0, -4)
-    annBg:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    annBg:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.8)
+    local warningsText = header:CreateFontString(nil, "OVERLAY", "GameFontRed")
+    warningsText:SetPoint("RIGHT", membersText, "LEFT", -30, 0)
+    warningsText:SetText("Warnings: 0")
 
-    local annTitle = annBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    annTitle:SetPoint("TOPLEFT", annBg, "TOPLEFT", 10, -4) 
-    annTitle:SetText("Configuración de Anuncios Múltiples")
+    -- Versión
+    local verText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -15, -8)
+    verText:SetText("v4.5.0")
 
-    local dropdownLabel = annBg:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    dropdownLabel:SetPoint("TOPLEFT", annBg, "TOPLEFT", 10, -22)
-    dropdownLabel:SetText("Seleccionar:")
+    containers.header = header
+end
 
-    local dropAnn = CreateFrame("DropdownButton", "GC_DropAnnSelect", annBg, "WowStyle1DropdownTemplate")
-    dropAnn:SetPoint("TOPLEFT", dropdownLabel, "BOTTOMLEFT", 0, -2)
-    dropAnn:SetWidth(130)
+-- =========================================================================
+-- 2. SUB-HEADER (ANUNCIOS MÚLTIPLES)
+-- =========================================================================
+local function BuildAnnouncementsBar(parent)
+    local annBar = CreateBackdropBox(parent, 1280, 45, "TOPLEFT", containers.header, "BOTTOMLEFT", 0, -5)
 
-    local chkEnable = CreateFrame("CheckButton", "GC_AnnActiveChk", annBg, "UICheckButtonTemplate")
-    chkEnable:SetPoint("TOPLEFT", annBg, "TOPLEFT", 160, -20)
+    local label = annBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("TOPLEFT", annBar, "TOPLEFT", 10, -4)
+    label:SetText("Configuración de mensajes múltiples")
+
+    local dropAnn = CreateFrame("DropdownButton", "GC_DropAnnSelect_New", annBar, "WowStyle1DropdownTemplate")
+    dropAnn:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
+    dropAnn:SetWidth(140)
+
+    local msgInput = CreateFrame("EditBox", "GC_AnnMsgInput_New", annBar, "InputBoxTemplate")
+    msgInput:SetSize(620, 20)
+    msgInput:SetPoint("LEFT", dropAnn, "RIGHT", 15, 0)
+    msgInput:SetAutoFocus(false)
+
+    local timeLabel = annBar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    timeLabel:SetPoint("LEFT", msgInput, "RIGHT", 15, 10)
+    timeLabel:SetText("Tiempo")
+
+    local timeInput = CreateFrame("EditBox", "GC_AnnTimeInput_New", annBar, "InputBoxTemplate")
+    timeInput:SetSize(50, 20)
+    timeInput:SetPoint("TOPLEFT", timeLabel, "BOTTOMLEFT", 0, -2)
+    timeInput:SetNumeric(true)
+    timeInput:SetAutoFocus(false)
+
+    local chkEnable = CreateFrame("CheckButton", "GC_AnnEnable_New", annBar, "UICheckButtonTemplate")
+    chkEnable:SetPoint("LEFT", timeInput, "RIGHT", 15, 0)
     _G[chkEnable:GetName() .. "Text"]:SetText("Activar")
 
-    local msgInput = CreateInput("GC_AnnMsgInput", annBg, 520, 240, -22, "Mensaje del anuncio...")
-    local timeInput = CreateInput("GC_AnnTimeInput", annBg, 50, 780, -22, "Tiempo (Min)")
-    timeInput:SetNumeric(true)
-
-    local function RefreshAnnFields()
+    local function RefreshFields()
         if addonTable.Announcements then
             local data = addonTable.Announcements.GetAnnouncementData()
             if data then
@@ -194,20 +123,17 @@ function uiModule.CreateUI()
         end
     end
 
-    dropAnn.RefreshMenu = function()
-        dropAnn:SetupMenu(function(owner, rootDescription)
-            for i = 1, 5 do
-                rootDescription:CreateRadio("Mensaje " .. i, 
-                    function() return addonTable.Announcements.GetSelectedIndex() == i end,
-                    function() 
-                        addonTable.Announcements.SetSelectedIndex(i)
-                        RefreshAnnFields()
-                    end
-                )
-            end
-        end)
-    end
-    dropAnn.RefreshMenu()
+    dropAnn:SetupMenu(function(owner, rootDescription)
+        for i = 1, 5 do
+            rootDescription:CreateRadio("Mensaje " .. i,
+                function() return addonTable.Announcements and addonTable.Announcements.GetSelectedIndex() == i end,
+                function()
+                    if addonTable.Announcements then addonTable.Announcements.SetSelectedIndex(i) end
+                    RefreshFields()
+                end
+            )
+        end
+    end)
     dropAnn:SetText("Mensaje 1")
 
     chkEnable:SetScript("OnClick", function(self)
@@ -222,217 +148,307 @@ function uiModule.CreateUI()
     end)
     timeInput:SetScript("OnTextChanged", function(self)
         if addonTable.Announcements then
-            local val = tonumber(self:GetText()) or 15
-            addonTable.Announcements.UpdateAnnouncementData(addonTable.Announcements.GetSelectedIndex(), nil, nil, val)
+            addonTable.Announcements.UpdateAnnouncementData(addonTable.Announcements.GetSelectedIndex(), nil, nil, tonumber(self:GetText()) or 15)
         end
     end)
 
-    memberCountText = annBg:CreateFontString(nil, "OVERLAY", "GameFontNormalMed3")
-    memberCountText:SetPoint("BOTTOMRIGHT", annBg, "BOTTOMRIGHT", -15, 6)
-    memberCountText:SetJustifyH("RIGHT")
+    RefreshFields()
+    containers.announcements = annBar
+end
 
-    local filterBg = CreateFrame("Frame", nil, GC_UI, "BackdropTemplate")
-    filterBg:SetSize(1280, 35)
-    filterBg:SetPoint("TOP", annBg, "BOTTOM", 0, -4)
-    filterBg:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    filterBg:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
-
-    searchBox = CreateInput("GC_SearchBox", filterBg, 220, 10, -8, "Buscar por nombre...")
-    searchBox:SetScript("OnTextChanged", function(self)
-        currentSearchQuery = string.lower(self:GetText() or "")
+-- =========================================================================
+-- 3. CAMBIO DE PESTAÑAS Y NAVEGACIÓN
+-- =========================================================================
+local function SwitchTab(tabName)
+    activeTab = tabName
+    for name, viewFrame in pairs(containers.views) do
+        if name == tabName then
+            viewFrame:Show()
+        else
+            viewFrame:Hide()
+        end
+    end
+    if tabName == "Miembros" and uiModule.RefreshList then
         uiModule.RefreshList()
-    end)
+    end
+end
 
-    local btnShowAll = CreateFrame("Button", nil, filterBg, "UIPanelButtonTemplate")
+-- =========================================================================
+-- 4. MENÚ LATERAL IZQUIERDO (SIDEBAR)
+-- =========================================================================
+local function BuildSidebar(parent)
+    local sidebar = CreateBackdropBox(parent, 150, 520, "TOPLEFT", containers.announcements, "BOTTOMLEFT", 0, -5)
+
+    local tabs = { "Resumen", "Miembros", "Logros", "Roster", "Warning", "Black list" }
+    local yOffset = -15
+
+    for _, tabName in ipairs(tabs) do
+        local btn = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
+        btn:SetSize(130, 25)
+        btn:SetPoint("TOP", sidebar, "TOP", 0, yOffset)
+        btn:SetText(tabName)
+        btn:SetScript("OnClick", function() SwitchTab(tabName) end)
+        yOffset = yOffset - 32
+    end
+
+    -- Botón de Configuración abajo del todo
+    local btnConfig = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
+    btnConfig:SetSize(130, 25)
+    btnConfig:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, 15)
+    btnConfig:SetText("Configuración")
+    btnConfig:SetScript("OnClick", function() SwitchTab("Configuracion") end)
+
+    containers.sidebar = sidebar
+end
+
+-- =========================================================================
+-- 5. PANEL LATERAL DERECHO (PREVIEW)
+-- =========================================================================
+local function BuildPreviewPanel(parent)
+    local preview = CreateBackdropBox(parent, 220, 520, "TOPRIGHT", containers.announcements, "BOTTOMRIGHT", 0, -5)
+
+    local title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", preview, "TOP", 0, -15)
+    title:SetText("Vista Previa")
+
+    local infoText = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    infoText:SetPoint("TOPLEFT", preview, "TOPLEFT", 15, -45)
+    infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 15)
+    infoText:SetJustifyH("LEFT")
+    infoText:SetJustifyV("TOP")
+    infoText:SetText("Selecciona un jugador de la lista para ver su información detallada.")
+
+    preview.infoText = infoText
+    containers.preview = preview
+end
+
+-- =========================================================================
+-- 6. VISTA DE MIEMBROS (CONTENEDOR PRINCIPAL DENTRO DE MAINCONTENT)
+-- =========================================================================
+local function BuildMembersView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+
+    -- Filtros superiores (Búsqueda, Miembros, En Línea)
+    local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
+    searchBox:SetSize(220, 20)
+    searchBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
+    searchBox:SetAutoFocus(false)
+
+    local searchLabel = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 2)
+    searchLabel:SetText("Buscar por nombre...")
+
+    local btnShowAll = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnShowAll:SetSize(90, 22)
-    btnShowAll:SetPoint("LEFT", searchBox, "RIGHT", 15, 2)
-    btnShowAll:SetText("Miembros")
+    btnShowAll:SetPoint("LEFT", searchBox, "RIGHT", 15, 0)
+    btnShowAll:SetText("Todos")
 
-    local btnShowOnline = CreateFrame("Button", nil, filterBg, "UIPanelButtonTemplate")
+    local btnShowOnline = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnShowOnline:SetSize(90, 22)
     btnShowOnline:SetPoint("LEFT", btnShowAll, "RIGHT", 8, 0)
     btnShowOnline:SetText("En línea")
 
+    local btnCSV = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnCSV:SetSize(100, 22)
+    btnCSV:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnCSV:SetText("Sheets / CSV")
+    btnCSV:SetScript("OnClick", function()
+        if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
+    end)
+
+    -- Encabezados de la Tabla
+    local headerBg = CreateFrame("Frame", nil, view)
+    headerBg:SetSize(880, 20)
+    headerBg:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -15)
+
+    local function CreateHeader(t, x, w)
+        local fs = headerBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", headerBg, "LEFT", x, 0)
+        fs:SetWidth(w)
+        fs:SetText(t)
+    end
+
+    CreateHeader("Nº", 5, 25)
+    CreateHeader("Nivel", 30, 35)
+    CreateHeader("Clase", 65, 70)
+    CreateHeader("Nombre", 135, 120)
+    CreateHeader("Rango", 255, 90)
+    CreateHeader("Rol", 345, 50)
+    CreateHeader("Enfoque", 395, 55)
+    CreateHeader("Prof. 1", 450, 100)
+    CreateHeader("Prof. 2", 550, 100)
+    CreateHeader("Roster", 650, 90)
+    CreateHeader("Conexión", 740, 90)
+
+    -- ScrollFrame de Miembros
+    local scrollFrame = CreateFrame("ScrollFrame", "GC_NewMembersScroll", view, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", headerBg, "BOTTOMLEFT", 0, -5)
+    scrollFrame:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -25, 10)
+
+    local scrollChild = CreateFrame("Frame")
+    scrollChild:SetSize(scrollFrame:GetWidth(), scrollFrame:GetHeight())
+    scrollFrame:SetScrollChild(scrollChild)
+
+    local showOnlyOnline = false
+    local searchQuery = ""
+
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = string.lower(self:GetText() or "")
+        uiModule.RefreshList()
+    end)
+
     btnShowAll:SetScript("OnClick", function()
         showOnlyOnline = false
-        btnShowAll:Disable()
-        btnShowOnline:Enable()
         uiModule.RefreshList()
     end)
 
     btnShowOnline:SetScript("OnClick", function()
         showOnlyOnline = true
-        btnShowOnline:Disable()
-        btnShowAll:Enable()
         uiModule.RefreshList()
     end)
-    btnShowAll:Disable()
-
-    local headerBg = CreateFrame("Frame", nil, GC_UI)
-    headerBg:SetSize(1280, 20)
-    headerBg:SetPoint("TOP", filterBg, "BOTTOM", 0, -8)
-
-    local function CreateSortableHeader(t, x, w, fieldKey)
-        local btn = CreateFrame("Button", nil, headerBg)
-        btn:SetSize(w, 20)
-        btn:SetPoint("LEFT", headerBg, "LEFT", x, 0)
-        
-        local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        fs:SetPoint("LEFT", btn, "LEFT", 0, 0)
-        fs:SetText(t)
-
-        btn:SetScript("OnClick", function()
-            if currentSortField == fieldKey then
-                sortAscending = not sortAscending
-            else
-                currentSortField = fieldKey
-                sortAscending = true
-            end
-            uiModule.RefreshList()
-        end)
-    end
-
-    local numFs = headerBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    numFs:SetPoint("LEFT", headerBg, "LEFT", 5, 0) numFs:SetWidth(25) numFs:SetText("Nº")
-
-    CreateSortableHeader("Nivel", 30, 35, "level")
-    CreateSortableHeader("Clase", 65, 70, "class")
-    CreateSortableHeader("Nombre", 135, 120, "name")
-    CreateSortableHeader("Rango", 255, 90, "rank")
-    CreateSortableHeader("Nota Pública", 345, 130, "publicNote")
-    CreateSortableHeader("Rol", 475, 50, "role")
-    CreateSortableHeader("Enfoque", 525, 55, "focus")
-    CreateSortableHeader("Prof. 1", 580, 110, "prof1")
-    CreateSortableHeader("Prof. 2", 690, 110, "prof2")
-    CreateSortableHeader("Roster", 800, 90, "roster")
-    CreateSortableHeader("Zona", 890, 110, "zone")
-    CreateSortableHeader("Última Conexión", 1000, 100, "lastOnline")
-
-    local scrollFrame = CreateFrame("ScrollFrame", "GC_ScrollFrame", GC_UI, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", headerBg, "BOTTOMLEFT", 0, -5)
-    scrollFrame:SetPoint("BOTTOMRIGHT", GC_UI, "BOTTOMRIGHT", -35, 15)
-    
-    local scrollChild = CreateFrame("Frame")
-    scrollChild:SetSize(scrollFrame:GetWidth(), scrollFrame:GetHeight())
-    scrollFrame:SetScrollChild(scrollChild)
 
     uiModule.RefreshList = function()
         if not scrollChild then return end
-        if scrollChild.rows then for _, row in pairs(scrollChild.rows) do row:Hide() end end
+        if scrollChild.rows then for _, r in pairs(scrollChild.rows) do r:Hide() end end
         scrollChild.rows = {}
 
-        local filteredList = {}
+        local yOffset, rowIndex = -5, 1
         for fullName, data in pairs(GuildControlDB.members or {}) do
-            local passSearch = (currentSearchQuery == "") or string.find(string.lower(fullName), currentSearchQuery, 1, true)
+            local passSearch = (searchQuery == "") or string.find(string.lower(fullName), searchQuery, 1, true)
             local passOnline = (not showOnlyOnline) or data.isOnline
 
             if passSearch and passOnline then
-                table.insert(filteredList, { name = fullName, data = data })
-            end
-        end
+                local row = CreateFrame("Button", nil, scrollChild)
+                row:SetSize(870, 22)
+                row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
 
-        table.sort(filteredList, function(a, b)
-            local valA, valB = "", ""
-            if currentSortField == "name" then
-                valA, valB = a.name, b.name
-            elseif currentSortField == "level" then
-                valA, valB = a.data.level or 0, b.data.level or 0
-            elseif currentSortField == "class" then
-                valA, valB = a.data.class or "", b.data.class or ""
-            elseif currentSortField == "rank" then
-                valA, valB = a.data.rank or "", b.data.rank or ""
-            elseif currentSortField == "publicNote" then
-                valA, valB = a.data.publicNote or "", b.data.publicNote or ""
-            elseif currentSortField == "role" then
-                valA, valB = a.data.role or "", b.data.role or ""
-            elseif currentSortField == "focus" then
-                valA, valB = a.data.focus or "", b.data.focus or ""
-            elseif currentSortField == "prof1" then
-                valA, valB = a.data.prof1 or "", b.data.prof1 or ""
-            elseif currentSortField == "prof2" then
-                valA, valB = a.data.prof2 or "", b.data.prof2 or ""
-            elseif currentSortField == "roster" then
-                valA, valB = a.data.roster or "", b.data.roster or ""
-            elseif currentSortField == "zone" then
-                valA, valB = a.data.zone or "", b.data.zone or ""
-            elseif currentSortField == "lastOnline" then
-                valA, valB = a.data.lastOnline or "", b.data.lastOnline or ""
-            end
-
-            if sortAscending then
-                return valA < valB
-            else
-                return valA > valB
-            end
-        end)
-
-        local yOffset, rowIndex = -5, 1
-        for _, item in ipairs(filteredList) do
-            local fullName, data = item.name, item.data
-            local row = CreateFrame("Frame", nil, scrollChild)
-            row:SetSize(1280, 22) row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-
-            if rowIndex % 2 == 0 then
-                local bg = row:CreateTexture(nil, "BACKGROUND")
-                bg:SetAllPoints() bg:SetColorTexture(1, 1, 1, 0.05)
-            end
-
-            local isOnline = data.isOnline
-            local baseColorHex = isOnline and addonTable.GetClassColorHex(data.class) or "888888"
-
-            local function CreateCell(t, x, w, colorHex)
-                local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                fs:SetPoint("LEFT", row, "LEFT", x, 0) fs:SetWidth(w) fs:SetJustifyH("LEFT")
-                if colorHex then
-                    fs:SetText("|cFF" .. colorHex .. tostring(t) .. "|r")
-                else
-                    fs:SetText(tostring(t))
+                if rowIndex % 2 == 0 then
+                    local bg = row:CreateTexture(nil, "BACKGROUND")
+                    bg:SetAllPoints()
+                    bg:SetColorTexture(1, 1, 1, 0.05)
                 end
+
+                local isOnline = data.isOnline
+                local hex = isOnline and addonTable.GetClassColorHex(data.class) or "888888"
+
+                local function Cell(t, x, w, cHex)
+                    local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    fs:SetPoint("LEFT", row, "LEFT", x, 0)
+                    fs:SetWidth(w)
+                    fs:SetJustifyH("LEFT")
+                    fs:SetText("|cFF" .. (cHex or "FFFFFF") .. tostring(t) .. "|r")
+                end
+
+                Cell(rowIndex, 5, 25, "888888")
+                Cell(data.level or 0, 30, 35, hex)
+                Cell(data.class or "Desconocida", 65, 70, hex)
+                Cell(fullName, 135, 120, hex)
+                Cell(data.rank or "Recluta", 255, 90, isOnline and "FFFFFF" or "888888")
+                Cell(data.role or "DPS", 345, 50, isOnline and "FF7F7F" or "888888")
+                Cell(data.focus or "PvE", 395, 55, isOnline and "FFFFFF" or "888888")
+                Cell(data.prof1 or "Ninguna", 450, 100, isOnline and "FFFFFF" or "888888")
+                Cell(data.prof2 or "Ninguna", 550, 100, isOnline and "FFFFFF" or "888888")
+                Cell(data.roster or "Sin Roster", 650, 90, isOnline and "00FFFF" or "888888")
+                Cell(data.lastOnline or "Online", 740, 90, isOnline and "00FF00" or "888888")
+
+                -- Selección para la Vista Previa lateral derecha
+                row:SetScript("OnClick", function()
+                    selectedMember = data
+                    if containers.preview and containers.preview.infoText then
+                        containers.preview.infoText:SetText(
+                            "|cFFFFD100" .. fullName .. "|r\n\n" ..
+                            "Nivel: " .. (data.level or 0) .. "\n" ..
+                            "Clase: " .. (data.class or "Desconocida") .. "\n" ..
+                            "Rango: " .. (data.rank or "Recluta") .. "\n" ..
+                            "Rol: " .. (data.role or "DPS") .. "\n" ..
+                            "Enfoque: " .. (data.focus or "PvE") .. "\n" ..
+                            "Roster: " .. (data.roster or "Sin Roster") .. "\n\n" ..
+                            "Prof. 1: " .. (data.prof1 or "Ninguna") .. "\n" ..
+                            "Prof. 2: " .. (data.prof2 or "Ninguna") .. "\n\n" ..
+                            "Estado: " .. (data.isOnline and "|cFF00FF00En línea|r" or ("|cFF888888" .. (data.lastOnline or "Desconectado") .. "|r"))
+                        )
+                    end
+                end)
+
+                table.insert(scrollChild.rows, row)
+                yOffset = yOffset - 24
+                rowIndex = rowIndex + 1
             end
-
-            CreateCell(tostring(rowIndex), 5, 25, "888888")
-            CreateCell(tostring(data.level or 0), 30, 35, baseColorHex)
-            CreateCell(data.class or "Desconocida", 65, 70, baseColorHex)
-            CreateCell(data.name or fullName, 135, 120, baseColorHex)
-            
-            local rankColor = isOnline and "FFFFFF" or "888888"
-            CreateCell(data.rank or "Recluta", 255, 90, rankColor)
-            CreateCell(data.publicNote or "", 345, 130, rankColor)
-            
-            local roleColor = "|cFF888888"
-            if isOnline then
-                if data.role == "DPS" then roleColor = "|cFFff7f7f"
-                elseif data.role == "Healer" then roleColor = "|cFF7fff7f"
-                elseif data.role == "Tank" then roleColor = "|cFF7f7fff"
-                else roleColor = "|cFFFFFFFF" end
-            end
-            local roleFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            roleFs:SetPoint("LEFT", row, "LEFT", 475, 0) roleFs:SetWidth(50) roleFs:SetJustifyH("LEFT")
-            roleFs:SetText(roleColor .. (data.role or "DPS") .. "|r")
-
-            CreateCell(data.focus or "PvE", 525, 55, rankColor)
-            CreateCell(data.prof1 or "Ninguna", 580, 110, rankColor)
-            CreateCell(data.prof2 or "Ninguna", 690, 110, rankColor)
-            CreateCell(data.roster or "Sin Roster", 800, 90, isOnline and "00ffff" or "888888")
-            CreateCell(data.zone or "Desconocida", 890, 110, rankColor)
-            
-            local onlineTextHex = isOnline and "00FF00" or "888888"
-            CreateCell(data.lastOnline or "Online", 1000, 100, onlineTextHex)
-
-            table.insert(scrollChild.rows, row)
-            yOffset = yOffset - 24
-            rowIndex = rowIndex + 1
         end
-        uiModule.UpdateMemberCounter()
     end
 
-    RefreshAnnFields()
+    containers.views["Miembros"] = view
+end
+
+-- =========================================================================
+-- 7. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
+-- =========================================================================
+local function BuildPlaceholderView(parent, tabName)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local text = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    text:SetPoint("CENTER", view, "CENTER", 0, 0)
+    text:SetText("Sección: |cFFFFD100" .. tabName .. "|r\n\n(En desarrollo)")
+
+    containers.views[tabName] = view
+end
+
+-- =========================================================================
+-- CONSTRUCCIÓN TOTAL DE LA UI
+-- =========================================================================
+function uiModule.CreateUI()
+    if GC_UI then return end
+
+    GC_UI = CreateFrame("Frame", "GuildControlMainFrame", UIParent, "BasicFrameTemplateWithInset")
+    GC_UI:SetSize(1300, 650)
+    GC_UI:SetPoint("CENTER")
+    GC_UI:SetMovable(true)
+    GC_UI:EnableMouse(true)
+    GC_UI:RegisterForDrag("LeftButton")
+    GC_UI:SetScript("OnDragStart", GC_UI.StartMoving)
+    GC_UI:SetScript("OnDragStop", GC_UI.StopMovingOrSizing)
+
+    GC_UI.title = GC_UI:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    GC_UI.title:SetPoint("CENTER", GC_UI.TitleBg, "CENTER", 0, 0)
+    GC_UI.title:SetText("GuildControl")
+
+    BuildHeader(GC_UI)
+    BuildAnnouncementsBar(GC_UI)
+    BuildSidebar(GC_UI)
+    BuildPreviewPanel(GC_UI)
+
+    -- Contenedor Principal Dinámico (Main Content Area)
+    local mainContent = CreateBackdropBox(GC_UI, 900, 520, "TOPLEFT", containers.sidebar, "TOPRIGHT", 5, 0)
+    containers.mainContent = mainContent
+
+    -- Inicialización de Vistas
+    BuildMembersView(mainContent)
+    BuildPlaceholderView(mainContent, "Resumen")
+    BuildPlaceholderView(mainContent, "Logros")
+    BuildPlaceholderView(mainContent, "Roster")
+    BuildPlaceholderView(mainContent, "Warning")
+    BuildPlaceholderView(mainContent, "Black list")
+    BuildPlaceholderView(mainContent, "Configuracion")
+
+    SwitchTab("Miembros")
     GC_UI:Hide()
+end
+
+function uiModule.UpdateMemberCounter()
+    if not containers.header then return end
+    local total = IsInGuild() and GetNumGuildMembers() or 0
+    local online = 0
+    if IsInGuild() then
+        for i = 1, total do
+            local _, _, _, _, _, _, _, _, isOnline = GetGuildRosterInfo(i)
+            if isOnline then online = online + 1 end
+        end
+    end
+    containers.header.membersText:SetText("Miembros: |cFF00FF00" .. total .. "|r")
+    containers.header.onlineText:SetText("Online: |cFF00FFFF" .. online .. "|r")
 end
 
 function uiModule.ToggleUI()
@@ -440,15 +456,8 @@ function uiModule.ToggleUI()
     if not GC_UI then uiModule.CreateUI() end
     if GC_UI:IsShown() then
         GC_UI:Hide()
-        if addonTable.CSV and addonTable.CSV.GC_CSVFrame then addonTable.CSV.GC_CSVFrame:Hide() end
-        if GC_BajasFrame then GC_BajasFrame:Hide() end
     else
-        if IsInGuild() then
-            C_GuildInfo.GuildRoster()
-        end
-        if addonTable.Professions and addonTable.Professions.RequestGuildProfessions then
-            addonTable.Professions.RequestGuildProfessions()
-        end
+        if IsInGuild() then C_GuildInfo.GuildRoster() end
         if uiModule.RefreshList then uiModule.RefreshList() end
         if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
         GC_UI:Show()
