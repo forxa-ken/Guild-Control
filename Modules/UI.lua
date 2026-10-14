@@ -864,6 +864,117 @@ function uiModule.CreateUI()
     GC_UI:Hide()
 end
 
+-- =========================================================================
+-- HISTORIAL DE BAJAS (/gct bajas)
+-- =========================================================================
+local GC_BajasFrame = nil
+
+local function CreateBajasFrame(parentUI)
+    if GC_BajasFrame then return end
+    GC_BajasFrame = CreateFrame("Frame", "GuildControlBajasFrame", parentUI, "BasicFrameTemplateWithInset")
+    GC_BajasFrame:SetSize(640, 440)
+    GC_BajasFrame:SetPoint("CENTER", parentUI, "CENTER", 0, 0)
+    GC_BajasFrame:SetFrameStrata("DIALOG")
+    GC_BajasFrame:Hide()
+
+    GC_BajasFrame.title = GC_BajasFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    GC_BajasFrame.title:SetPoint("CENTER", GC_BajasFrame.TitleBg, "CENTER", 0, 0)
+    GC_BajasFrame.title:SetText("Historial de bajas")
+
+    local headerBg = CreateFrame("Frame", nil, GC_BajasFrame)
+    headerBg:SetSize(590, 20)
+    headerBg:SetPoint("TOPLEFT", GC_BajasFrame, "TOPLEFT", 15, -32)
+
+    local function AddHeader(t, x, w)
+        local fs = headerBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", headerBg, "LEFT", x, 0)
+        fs:SetWidth(w)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(t)
+    end
+    AddHeader("Fecha", 5, 130)
+    AddHeader("Personaje", 140, 160)
+    AddHeader("Detalle", 305, 280)
+
+    local scroll = CreateFrame("ScrollFrame", "GC_BajasScroll", GC_BajasFrame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", headerBg, "BOTTOMLEFT", 0, -5)
+    scroll:SetPoint("BOTTOMRIGHT", GC_BajasFrame, "BOTTOMRIGHT", -35, 40)
+
+    local child = CreateFrame("Frame")
+    child:SetSize(590, 1)
+    scroll:SetScrollChild(child)
+
+    local emptyText = child:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("TOPLEFT", child, "TOPLEFT", 5, -10)
+    emptyText:SetText("No hay bajas registradas.")
+
+    local totalText = GC_BajasFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    totalText:SetPoint("BOTTOMLEFT", GC_BajasFrame, "BOTTOMLEFT", 18, 16)
+
+    local rows = {}
+
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+
+        row = CreateFrame("Frame", nil, child)
+        row:SetSize(590, 22)
+
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+
+        local function Cell(x, w)
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", x, 0)
+            fs:SetWidth(w)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            return fs
+        end
+        row.dateFs = Cell(5, 130)
+        row.nameFs = Cell(140, 160)
+        row.infoFs = Cell(305, 280)
+
+        rows[index] = row
+        return row
+    end
+
+    GC_BajasFrame.Refresh = function()
+        for _, r in ipairs(rows) do r:Hide() end
+
+        local count = 0
+        for _, log in ipairs(GuildControlDB.history or {}) do
+            if log.action == "BAJA" then
+                count = count + 1
+                local row = AcquireRow(count)
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -5 - (count - 1) * 24)
+                row.bg:SetShown(count % 2 == 0)
+                row.dateFs:SetText("|cFF808080" .. (log.date or "-") .. "|r")
+                row.nameFs:SetText("|cFFFF3333" .. (log.name or "-") .. "|r")
+                row.infoFs:SetText(log.info or "")
+                row:Show()
+            end
+        end
+
+        emptyText:SetShown(count == 0)
+        totalText:SetText("Total de bajas: |cFFFFD100" .. count .. "|r")
+        child:SetHeight(math.max(1, count * 24 + 10))
+        scroll:SetVerticalScroll(0)
+    end
+end
+
+function uiModule.ShowBajas()
+    addonTable.InitDB()
+    if not GC_UI or not GC_UI:IsShown() then uiModule.ToggleUI() end
+    if not GC_UI then return end
+
+    CreateBajasFrame(GC_UI)
+    GC_BajasFrame.Refresh()
+    GC_BajasFrame:Show()
+end
+
 function uiModule.UpdateMemberCounter()
     if not containers.header then return end
     local total = IsInGuild() and GetNumGuildMembers() or 0
