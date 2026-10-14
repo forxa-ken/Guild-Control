@@ -47,18 +47,15 @@ end
 local function BuildHeader(parent)
     local header = CreateBackdropBox(parent, 1280, 50, "TOPLEFT", parent, "TOPLEFT", 10, -25)
     
-    -- Logo Placeholder
     local logoBg = header:CreateTexture(nil, "OVERLAY")
     logoBg:SetSize(36, 36)
     logoBg:SetPoint("LEFT", header, "LEFT", 10, 0)
     logoBg:SetTexture("Interface\\Icons\\Achievement_GuildPerk_MobileBanking")
 
-    -- Nombre & Facción
     local titleText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     titleText:SetPoint("LEFT", logoBg, "RIGHT", 10, 0)
     titleText:SetText("|cFFFFD100Lobo Gélido|r  |cFF808080[Horda]|r")
 
-    -- Indicadores del Centro/Derecha
     local onlineText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     onlineText:SetPoint("RIGHT", header, "RIGHT", -220, 0)
     header.onlineText = onlineText
@@ -71,7 +68,6 @@ local function BuildHeader(parent)
     warningsText:SetPoint("RIGHT", membersText, "LEFT", -30, 0)
     warningsText:SetText("Warnings: 0")
 
-    -- Versión
     local verText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -15, -8)
     verText:SetText("v4.5.0")
@@ -170,6 +166,8 @@ local function SwitchTab(tabName)
     end
     if tabName == "Miembros" and uiModule.RefreshList then
         uiModule.RefreshList()
+    elseif tabName == "Logros" and uiModule.RefreshAchievements then
+        uiModule.RefreshAchievements()
     end
 end
 
@@ -191,7 +189,6 @@ local function BuildSidebar(parent)
         yOffset = yOffset - 32
     end
 
-    -- Botón de Configuración abajo del todo
     local btnConfig = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
     btnConfig:SetSize(130, 25)
     btnConfig:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, 15)
@@ -216,20 +213,19 @@ local function BuildPreviewPanel(parent)
     infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 15)
     infoText:SetJustifyH("LEFT")
     infoText:SetJustifyV("TOP")
-    infoText:SetText("Selecciona un jugador de la lista para ver su información detallada.")
+    infoText:SetText("Selecciona un elemento para ver su información detallada.")
 
     preview.infoText = infoText
     containers.preview = preview
 end
 
 -- =========================================================================
--- 6. VISTA DE MIEMBROS (CONTENEDOR PRINCIPAL DENTRO DE MAINCONTENT)
+-- 6. VISTA DE MIEMBROS
 -- =========================================================================
 local function BuildMembersView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
 
-    -- Filtros superiores (Búsqueda, Miembros, En Línea)
     local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
     searchBox:SetSize(220, 20)
     searchBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
@@ -257,7 +253,6 @@ local function BuildMembersView(parent)
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
     end)
 
-    -- Encabezados de la Tabla
     local headerBg = CreateFrame("Frame", nil, view)
     headerBg:SetSize(880, 20)
     headerBg:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -15)
@@ -281,7 +276,6 @@ local function BuildMembersView(parent)
     CreateHeader("Roster", 650, 90)
     CreateHeader("Conexión", 740, 90)
 
-    -- ScrollFrame de Miembros
     local scrollFrame = CreateFrame("ScrollFrame", "GC_NewMembersScroll", view, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", headerBg, "BOTTOMLEFT", 0, -5)
     scrollFrame:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -25, 10)
@@ -352,7 +346,6 @@ local function BuildMembersView(parent)
                 Cell(data.roster or "Sin Roster", 650, 90, isOnline and "00FFFF" or "888888")
                 Cell(data.lastOnline or "Online", 740, 90, isOnline and "00FF00" or "888888")
 
-                -- Selección para la Vista Previa lateral derecha
                 row:SetScript("OnClick", function()
                     selectedMember = data
                     if containers.preview and containers.preview.infoText then
@@ -382,7 +375,274 @@ local function BuildMembersView(parent)
 end
 
 -- =========================================================================
--- 7. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
+-- 7. VISTA DE LOGROS (IMPLEMENTACIÓN SEGÚN GRÁFICO)
+-- =========================================================================
+local function BuildAchievementsView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    -- 7.1 Encabezado de estadísticas (Puntos, Completados x/x, Último logro)
+    local headerFrame = CreateBackdropBox(view, 880, 45, "TOPLEFT", view, "TOPLEFT", 10, -10)
+
+    local pointsText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    pointsText:SetPoint("LEFT", headerFrame, "LEFT", 15, 0)
+    pointsText:SetText("Puntos: |cFFFFD1000|r")
+
+    local completedText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    completedText:SetPoint("LEFT", pointsText, "RIGHT", 40, 0)
+    completedText:SetText("Completados: |cFF00FF000/0|r")
+
+    local lastAchText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lastAchText:SetPoint("RIGHT", headerFrame, "RIGHT", -15, 0)
+    lastAchText:SetText("Último logro completado: |cFF808080Ninguno|r")
+
+    -- 7.2 Panel Izquierdo: Lista de Categorías de Logros de Hermandad
+    local catPanel = CreateBackdropBox(view, 200, 445, "TOPLEFT", headerFrame, "BOTTOMLEFT", 0, -5)
+
+    local catScroll = CreateFrame("ScrollFrame", "GC_AchCatScroll", catPanel, "UIPanelScrollFrameTemplate")
+    catScroll:SetPoint("TOPLEFT", catPanel, "TOPLEFT", 5, -5)
+    catScroll:SetPoint("BOTTOMRIGHT", catPanel, "BOTTOMRIGHT", -25, 5)
+
+    local catChild = CreateFrame("Frame")
+    catChild:SetSize(catScroll:GetWidth(), catScroll:GetHeight())
+    catScroll:SetScrollChild(catChild)
+
+    -- 7.3 Panel Derecho: Buscador, Filtros y Lista de Logros
+    local rightPanel = CreateBackdropBox(view, 675, 445, "TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, -5)
+
+    -- Buscador
+    local searchBox = CreateFrame("EditBox", "GC_AchSearchBox", rightPanel, "InputBoxTemplate")
+    searchBox:SetSize(220, 20)
+    searchBox:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 10, -10)
+    searchBox:SetAutoFocus(false)
+
+    local searchLabel = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 2)
+    searchLabel:SetText("Buscador por nombre de logros")
+
+    -- Filtros (Completados, Pendientes, Temporada)
+    local filterState = "TODOS" -- "TODOS", "COMPLETADOS", "PENDIENTES"
+    local filterSeasonalOnly = false
+
+    local btnFilterAll = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
+    btnFilterAll:SetSize(75, 22)
+    btnFilterAll:SetPoint("LEFT", searchBox, "RIGHT", 15, 0)
+    btnFilterAll:SetText("Todos")
+
+    local btnFilterDone = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
+    btnFilterDone:SetSize(90, 22)
+    btnFilterDone:SetPoint("LEFT", btnFilterAll, "RIGHT", 5, 0)
+    btnFilterDone:SetText("Completados")
+
+    local btnFilterPending = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
+    btnFilterPending:SetSize(80, 22)
+    btnFilterPending:SetPoint("LEFT", btnFilterDone, "RIGHT", 5, 0)
+    btnFilterPending:SetText("Pendientes")
+
+    local chkSeasonal = CreateFrame("CheckButton", "GC_ChkSeasonalAch", rightPanel, "UICheckButtonTemplate")
+    chkSeasonal:SetPoint("LEFT", btnFilterPending, "RIGHT", 10, 0)
+    _G[chkSeasonal:GetName() .. "Text"]:SetText("Temporada")
+
+    -- Encabezados de la Tabla de Logros
+    local achHeader = CreateFrame("Frame", nil, rightPanel)
+    achHeader:SetSize(655, 20)
+    achHeader:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -12)
+
+    local function AddAchHeader(t, x, w)
+        local fs = achHeader:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", achHeader, "LEFT", x, 0)
+        fs:SetWidth(w)
+        fs:SetText(t)
+    end
+    AddAchHeader("Estado", 5, 80)
+    AddAchHeader("Título del Logro", 90, 360)
+    AddAchHeader("Fecha / Progreso", 460, 180)
+
+    -- ScrollFrame de Logros
+    local achScroll = CreateFrame("ScrollFrame", "GC_AchScrollFrame", rightPanel, "UIPanelScrollFrameTemplate")
+    achScroll:SetPoint("TOPLEFT", achHeader, "BOTTOMLEFT", 0, -5)
+    achScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -25, 10)
+
+    local achChild = CreateFrame("Frame")
+    achChild:SetSize(achScroll:GetWidth(), achScroll:GetHeight())
+    achScroll:SetScrollChild(achChild)
+
+    local currentCategoryId = 15070 -- ID base de logros de Hermandad en WoW
+    local searchQuery = ""
+
+    -- Función principal de renderizado de logros
+    uiModule.RefreshAchievements = function()
+        if not achChild then return end
+        if achChild.rows then for _, r in pairs(achChild.rows) do r:Hide() end end
+        achChild.rows = {}
+
+        local guildPoints = GetTotalAchievementPoints and GetTotalAchievementPoints(true) or 0
+        pointsText:SetText("Puntos: |cFFFFD100" .. guildPoints .. "|r")
+
+        -- Obtener lista de logros de la categoría seleccionada
+        local numAchievements, _, _ = GetCategoryNumAchievements(currentCategoryId, true)
+        local totalCount, doneCount = 0, 0
+        local lastCompletedName, lastCompletedDate = nil, nil
+
+        local yOffset = -5
+        local rowIndex = 1
+
+        for i = 1, (numAchievements or 0) do
+            local id, name, points, completed, month, day, year, description, flags, icon, rewardText, isGuild, wasEarnedByMe, earnedBy = GetAchievementInfo(currentCategoryId, i)
+            
+            if id then
+                totalCount = totalCount + 1
+                if completed then
+                    doneCount = doneCount + 1
+                    local dateStr = string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0)
+                    lastCompletedName = name
+                    lastCompletedDate = dateStr
+                end
+
+                -- Filtro de búsqueda
+                local passSearch = (searchQuery == "") or string.find(string.lower(name or ""), searchQuery, 1, true)
+                
+                -- Filtro de estado
+                local passState = true
+                if filterState == "COMPLETADOS" and not completed then passState = false end
+                if filterState == "PENDIENTES" and completed then passState = false end
+
+                -- Filtro de temporada/disponibles (evalúa si el logro no es legado/imposible de obtener)
+                local isSeasonalOrAvailable = bit.band(flags or 0, ACHIEVEMENT_FLAGS_ACCOUNT or 0) == 0
+                local passSeasonal = (not filterSeasonalOnly) or isSeasonalOrAvailable
+
+                if passSearch and passState and passSeasonal then
+                    local row = CreateFrame("Button", nil, achChild)
+                    row:SetSize(650, 24)
+                    row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
+
+                    if rowIndex % 2 == 0 then
+                        local bg = row:CreateTexture(nil, "BACKGROUND")
+                        bg:SetAllPoints()
+                        bg:SetColorTexture(1, 1, 1, 0.05)
+                    end
+
+                    -- Icono + Nombre del logro
+                    local iconTex = row:CreateTexture(nil, "ARTWORK")
+                    iconTex:SetSize(20, 20)
+                    iconTex:SetPoint("LEFT", row, "LEFT", 90, 0)
+                    iconTex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+                    local titleFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    titleFs:SetPoint("LEFT", iconTex, "RIGHT", 8, 0)
+                    titleFs:SetWidth(330)
+                    titleFs:SetJustifyH("LEFT")
+                    titleFs:SetText(name or "Desconocido")
+
+                    -- Estado (Completado / Pendiente)
+                    local statusFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    statusFs:SetPoint("LEFT", row, "LEFT", 5, 0)
+                    statusFs:SetWidth(80)
+                    statusFs:SetJustifyH("LEFT")
+                    if completed then
+                        statusFs:SetText("|cFF00FF00Completado|r")
+                    else
+                        statusFs:SetText("|cFFFF3333Pendiente|r")
+                    end
+
+                    -- Fecha / Estado
+                    local dateFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    dateFs:SetPoint("LEFT", row, "LEFT", 460, 0)
+                    dateFs:SetWidth(180)
+                    dateFs:SetJustifyH("LEFT")
+                    if completed then
+                        dateFs:SetText(string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0))
+                    else
+                        dateFs:SetText("|cFF808080En progreso|r")
+                    end
+
+                    -- Al hacer clic: Redirigir a la interfaz oficial de Logros de Blizzard
+                    row:SetScript("OnClick", function()
+                        if not AchievementFrame then
+                            ToggleAchievementFrame()
+                        end
+                        if AchievementFrame and AchievementFrame_SelectAchievement then
+                            AchievementFrame_SelectAchievement(id)
+                        end
+                    end)
+
+                    table.insert(achChild.rows, row)
+                    yOffset = yOffset - 26
+                    rowIndex = rowIndex + 1
+                end
+            end
+        end
+
+        completedText:SetText("Completados: |cFF00FF00" .. doneCount .. "/" .. totalCount .. "|r")
+        if lastCompletedName then
+            lastAchText:SetText("Último logro completado: |cFFFFD100" .. lastCompletedName .. "|r (" .. (lastCompletedDate or "") .. ")")
+        else
+            lastAchText:SetText("Último logro completado: |cFF808080Ninguno|r")
+        end
+    end
+
+    -- 7.4 Cargar Categorías en el Panel Izquierdo
+    local function BuildCategories()
+        if catChild.buttons then for _, b in pairs(catChild.buttons) do b:Hide() end end
+        catChild.buttons = {}
+
+        -- Categorías nativas de hermandad en WoW Retail
+        local categories = GetCategoryList()
+        local yOffset = -5
+
+        for _, catId in ipairs(categories or {}) do
+            local title, parentID = GetCategoryInfo(catId)
+            -- Filtrar solo categorías relevantes o secundarias de hermandad
+            if catId == 15070 or parentID == 15070 then
+                local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
+                btn:SetSize(165, 22)
+                btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", 5, yOffset)
+                btn:SetText(title or ("Cat " .. catId))
+
+                btn:SetScript("OnClick", function()
+                    currentCategoryId = catId
+                    uiModule.RefreshAchievements()
+                end)
+
+                table.insert(catChild.buttons, btn)
+                yOffset = yOffset - 25
+            end
+        end
+    end
+
+    -- Eventos de interacción de búsqueda y filtros
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = string.lower(self:GetText() or "")
+        uiModule.RefreshAchievements()
+    end)
+
+    btnFilterAll:SetScript("OnClick", function()
+        filterState = "TODOS"
+        uiModule.RefreshAchievements()
+    end)
+
+    btnFilterDone:SetScript("OnClick", function()
+        filterState = "COMPLETADOS"
+        uiModule.RefreshAchievements()
+    end)
+
+    btnFilterPending:SetScript("OnClick", function()
+        filterState = "PENDIENTES"
+        uiModule.RefreshAchievements()
+    end)
+
+    chkSeasonal:SetScript("OnClick", function(self)
+        filterSeasonalOnly = self:GetChecked()
+        uiModule.RefreshAchievements()
+    end)
+
+    BuildCategories()
+    containers.views["Logros"] = view
+end
+
+-- =========================================================================
+-- 8. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
 -- =========================================================================
 local function BuildPlaceholderView(parent, tabName)
     local view = CreateFrame("Frame", nil, parent)
@@ -420,14 +680,12 @@ function uiModule.CreateUI()
     BuildSidebar(GC_UI)
     BuildPreviewPanel(GC_UI)
 
-    -- Contenedor Principal Dinámico (Main Content Area)
     local mainContent = CreateBackdropBox(GC_UI, 900, 520, "TOPLEFT", containers.sidebar, "TOPRIGHT", 5, 0)
     containers.mainContent = mainContent
 
-    -- Inicialización de Vistas
     BuildMembersView(mainContent)
+    BuildAchievementsView(mainContent)
     BuildPlaceholderView(mainContent, "Resumen")
-    BuildPlaceholderView(mainContent, "Logros")
     BuildPlaceholderView(mainContent, "Roster")
     BuildPlaceholderView(mainContent, "Warning")
     BuildPlaceholderView(mainContent, "Black list")
