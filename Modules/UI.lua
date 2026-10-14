@@ -1772,6 +1772,37 @@ local function BuildRosterView(parent)
     local criteriaStatus = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     criteriaStatus:SetPoint("RIGHT", criteria, "RIGHT", -10, 0)
 
+    -- Rosters que otros oficiales han compartido (solo visible si hay alguno)
+    local btnReceived = CreateFrame("Button", nil, criteria, "UIPanelButtonTemplate")
+    btnReceived:SetSize(120, 22)
+    btnReceived:SetPoint("RIGHT", criteriaStatus, "LEFT", -14, 0)
+    btnReceived:Hide()
+    btnReceived:SetScript("OnClick", function(self)
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle("Rosters recibidos")
+            for index, item in ipairs(R.GetReceived()) do
+                local label = item.roster.name .. " |cFF808080(" .. item.from .. ", " .. item.at .. ")|r"
+                local sub = root:CreateButton(label)
+                local existing = R.FindBySyncId(item.roster.syncId)
+                if existing then
+                    sub:CreateButton("Actualizar \"" .. existing.name .. "\"", function()
+                        R.ImportReceived(index, "replace")
+                        Refresh()
+                    end)
+                end
+                sub:CreateButton("Importar como roster nuevo", function()
+                    R.ImportReceived(index, "new")
+                    Refresh()
+                end)
+                sub:CreateButton("|cFFFF3333Descartar|r", function()
+                    R.DiscardReceived(index)
+                    Refresh()
+                end)
+            end
+        end)
+    end)
+    R.SetReceivedListener(function() Refresh() end)
+
     -- ---------------------------------------------------------------------
     -- Candidatos (izquierda)
     -- ---------------------------------------------------------------------
@@ -1881,8 +1912,9 @@ local function BuildRosterView(parent)
         for _, row in ipairs(candRows) do row:Hide() end
         local maxLevel = chkMaxLevel:GetChecked() and MaxPlayerLevel() or nil
         local groups = { tank = {}, healer = {}, dps = {} }
+        local effective = R.GetEffectiveMembers(roster)
         for fullName, m in pairs(GuildControlDB.members) do
-            local pass = not roster.members[fullName]
+            local pass = not effective[fullName]
                 and ((not chkOnline:GetChecked()) or m.isOnline)
                 and ((not maxLevel) or (tonumber(m.level) or 0) >= maxLevel)
             if pass and candQuery ~= "" then
@@ -1929,6 +1961,77 @@ local function BuildRosterView(parent)
     -- ---------------------------------------------------------------------
     local compPanel = CreateBackdropBox(view, 644, 374, "TOPLEFT", candPanel, "TOPRIGHT", 6, 0)
 
+    -- Selector de jefe: "Base" o una variante con sus propios cambios
+    local dropVariant = CreateFrame("DropdownButton", "GC_RosterVariant", compPanel, "WowStyle1DropdownTemplate")
+    dropVariant:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -6)
+    dropVariant:SetWidth(160)
+    dropVariant:SetupMenu(function(_, root)
+        local roster = R.GetSelected()
+        root:CreateRadio("Base (todos los jefes)",
+            function() return R.GetSelectedVariant(roster) == nil end,
+            function() R.SelectVariant(roster, nil); Refresh() end)
+        for _, variant in ipairs(R.GetVariants(roster)) do
+            local id = variant.id
+            root:CreateRadio(variant.name,
+                function() return roster.selectedVariant == id end,
+                function() R.SelectVariant(roster, id); Refresh() end)
+        end
+    end)
+
+    local variantInput = CreateFrame("EditBox", nil, compPanel, "InputBoxTemplate")
+    variantInput:SetSize(140, 20)
+    variantInput:SetPoint("LEFT", dropVariant, "RIGHT", 14, 0)
+    variantInput:SetAutoFocus(false)
+    variantInput:SetMaxLetters(30)
+    variantInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local variantPlaceholder = variantInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    variantPlaceholder:SetPoint("LEFT", variantInput, "LEFT", 2, 0)
+    variantPlaceholder:SetText("Nombre del jefe")
+    variantInput:SetScript("OnTextChanged", function(self) variantPlaceholder:SetShown((self:GetText() or "") == "") end)
+
+    local function AddVariant()
+        R.AddVariant(R.GetSelected(), variantInput:GetText())
+        variantInput:SetText("")
+        variantInput:ClearFocus()
+        Refresh()
+    end
+    variantInput:SetScript("OnEnterPressed", AddVariant)
+
+    local btnAddVariant = CreateFrame("Button", nil, compPanel, "UIPanelButtonTemplate")
+    btnAddVariant:SetSize(100, 22)
+    btnAddVariant:SetPoint("LEFT", variantInput, "RIGHT", 8, 0)
+    btnAddVariant:SetText("Añadir jefe")
+    btnAddVariant:SetScript("OnClick", AddVariant)
+
+    local deleteVariantArmedUntil = 0
+    local btnDeleteVariant = CreateFrame("Button", nil, compPanel, "UIPanelButtonTemplate")
+    btnDeleteVariant:SetSize(110, 22)
+    btnDeleteVariant:SetPoint("LEFT", btnAddVariant, "RIGHT", 6, 0)
+    btnDeleteVariant:SetText("Eliminar jefe")
+    btnDeleteVariant:SetScript("OnClick", function(self)
+        local roster = R.GetSelected()
+        local variant = R.GetSelectedVariant(roster)
+        if not variant then return end
+        if GetTime() < deleteVariantArmedUntil then
+            deleteVariantArmedUntil = 0
+            self:SetText("Eliminar jefe")
+            R.DeleteVariant(roster, variant)
+            Refresh()
+        else
+            deleteVariantArmedUntil = GetTime() + 4
+            self:SetText("|cFFFF3333¿Seguro?|r")
+            C_Timer.After(4, function()
+                if GetTime() >= deleteVariantArmedUntil then self:SetText("Eliminar jefe") end
+            end)
+        end
+    end)
+
+    local variantDiffText = compPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    variantDiffText:SetPoint("LEFT", btnDeleteVariant, "RIGHT", 10, 0)
+    variantDiffText:SetPoint("RIGHT", compPanel, "RIGHT", -10, 0)
+    variantDiffText:SetJustifyH("LEFT")
+    variantDiffText:SetWordWrap(false)
+
     -- Cada bloque muestra sus integrantes en una cuadrícula de "cols" columnas
     local blocks = {}
     local function CreateBlock(slot, x, y, width, height, cols)
@@ -1944,16 +2047,16 @@ local function BuildRosterView(parent)
         return block
     end
 
-    CreateBlock("tank", 12, -10, 140, 236, 1)
-    CreateBlock("healer", 160, -10, 150, 236, 1)
-    CreateBlock("dps", 318, -10, 316, 236, 2)
-    CreateBlock("bench", 12, -256, 622, 108, 4)
+    CreateBlock("tank", 12, -38, 140, 210, 1)
+    CreateBlock("healer", 160, -38, 150, 210, 1)
+    CreateBlock("dps", 318, -38, 316, 210, 2)
+    CreateBlock("bench", 12, -262, 622, 104, 4)
 
     local divider = compPanel:CreateTexture(nil, "ARTWORK")
     divider:SetColorTexture(1, 1, 1, 0.12)
     divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -250)
-    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -250)
+    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -255)
+    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -255)
 
     local function AcquireSlotRow(block, index)
         local row = block.rows[index]
@@ -1979,12 +2082,14 @@ local function BuildRosterView(parent)
                     if slot ~= block.slot then
                         root:CreateButton("Mover a " .. R.SLOT_LABELS[slot], function()
                             R.AddMember(R.GetSelected(), name, slot)
-                            if slot ~= "bench" then R.SetMemberRole(name, slot) end
+                            -- El rol general solo cambia al editar la base, no un jefe concreto
+                            if slot ~= "bench" and not R.GetSelectedVariant(R.GetSelected()) then R.SetMemberRole(name, slot) end
                             Refresh()
                         end)
                     end
                 end
-                root:CreateButton("Quitar del roster", function()
+                local removeLabel = R.GetSelectedVariant(R.GetSelected()) and "No juega este jefe" or "Quitar del roster"
+                root:CreateButton(removeLabel, function()
                     R.RemoveMember(R.GetSelected(), name)
                     Refresh()
                 end)
@@ -2041,7 +2146,7 @@ local function BuildRosterView(parent)
         return btn
     end
 
-    local btnInvite = CreateAction("Invitar al grupo", 140, nil, function()
+    local btnInvite = CreateAction("Invitar al grupo", 130, nil, function()
         local count = R.InviteRoster(R.GetSelected())
         if count == 0 then
             PrintGC("No hay titulares conectados a los que invitar.")
@@ -2049,7 +2154,7 @@ local function BuildRosterView(parent)
             PrintGC("Invitando a |cFFFFD100" .. count .. "|r titulares. Con más de 4 el grupo se convierte en banda cuando acepte el primero.")
         end
     end)
-    local btnAnnounce = CreateAction("Anunciar en hermandad", 170, btnInvite, function()
+    local btnAnnounce = CreateAction("Anunciar", 90, btnInvite, function()
         if not IsInGuild() then return end
         for _, line in ipairs(R.BuildAnnounceLines(R.GetSelected())) do
             if C_ChatInfo and C_ChatInfo.SendChatMessage then
@@ -2059,32 +2164,71 @@ local function BuildRosterView(parent)
             end
         end
     end)
-    local btnExport = CreateAction("Exportar CSV", 120, btnAnnounce, function()
+    local btnExport = CreateAction("Exportar CSV", 110, btnAnnounce, function()
         if addonTable.CSV and addonTable.CSV.ShowText then
             addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
         end
     end)
+    -- Envía el roster completo (base, jefes, fechas y asistencia) a los demás usuarios de GuildControl
+    local btnShare = CreateAction("Compartir", 100, btnExport, function()
+        local roster = R.GetSelected()
+        local parts = R.ShareRoster(roster)
+        if parts == 0 then
+            PrintGC("|cFFFF3333No se pudo compartir el roster.|r")
+        else
+            PrintGC("Compartiendo |cFFFFD100" .. roster.name .. "|r con la hermandad (" .. parts .. " mensajes). Los demás usuarios de GuildControl lo verán en Recibidos.")
+        end
+    end)
+    btnShare:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Compartir roster", 1, 1, 1)
+        GameTooltip:AddLine("Lo envía a quien use GuildControl en la hermandad. Cada uno decide si lo importa.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnShare:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- En la base vacía el roster; en un jefe lo restablece a la base. Pide un segundo clic.
     local clearArmedUntil = 0
-    CreateAction("Vaciar roster", 120, btnExport, function(self)
+    local btnClear
+    local function ClearLabel()
+        return R.GetSelectedVariant(R.GetSelected()) and "Restablecer jefe" or "Vaciar roster"
+    end
+    btnClear = CreateAction("Vaciar roster", 130, btnShare, function(self)
         if GetTime() < clearArmedUntil then
             clearArmedUntil = 0
-            self:SetText("Vaciar roster")
             R.Clear(R.GetSelected())
             Refresh()
         else
             clearArmedUntil = GetTime() + 4
             self:SetText("|cFFFF3333¿Seguro?|r")
             C_Timer.After(4, function()
-                if GetTime() >= clearArmedUntil then self:SetText("Vaciar roster") end
+                if GetTime() >= clearArmedUntil then self:SetText(ClearLabel()) end
             end)
         end
     end)
 
     -- ---------------------------------------------------------------------
-    -- Resumen en el panel de vista previa: cobertura y armaduras
+    -- Resumen en el panel de vista previa: jefe, cobertura, armaduras y asistencia
     -- ---------------------------------------------------------------------
+    local function ShortList(names)
+        local shorts = {}
+        for _, name in ipairs(names) do table.insert(shorts, string.match(name, "^([^-]+)") or name) end
+        return table.concat(shorts, ", ")
+    end
+
     local function BuildSummaryText(roster)
-        local lines = { "|cFFFFD100" .. roster.name .. "|r", R.DifficultyLabel(roster) .. " · " .. roster.size .. " jugadores", "" }
+        local lines = { "|cFFFFD100" .. R.GetDisplayName(roster) .. "|r", R.DifficultyLabel(roster) .. " · " .. roster.size .. " jugadores", "" }
+        local diff = R.GetVariantDiff(roster)
+        if diff then
+            table.insert(lines, "|cFFFFD100Cambios respecto a la base|r")
+            if #diff.entering + #diff.leaving + #diff.roleChanges == 0 then
+                table.insert(lines, "|cFF808080Igual que la base|r")
+            end
+            if #diff.entering > 0 then table.insert(lines, "|cFF00FF00Entran:|r " .. ShortList(diff.entering)) end
+            if #diff.leaving > 0 then table.insert(lines, "|cFFFF3333Salen:|r " .. ShortList(diff.leaving)) end
+            if #diff.roleChanges > 0 then table.insert(lines, "|cFFFFD100Cambian de rol:|r " .. ShortList(diff.roleChanges)) end
+            table.insert(lines, "")
+        end
         table.insert(lines, "|cFFFFD100Cobertura|r")
         for _, item in ipairs(R.GetCoverage(roster)) do
             if item.count > 0 then
@@ -2096,17 +2240,15 @@ local function BuildRosterView(parent)
         table.insert(lines, "")
         table.insert(lines, "|cFFFFD100Armaduras (titulares)|r")
         local armor = R.GetArmorCounts(roster)
-        for _, a in ipairs(R.ARMOR_TYPES) do
-            table.insert(lines, a.label .. ": " .. armor[a.key])
-        end
+        local armorParts = {}
+        for _, a in ipairs(R.ARMOR_TYPES) do table.insert(armorParts, a.label .. " " .. armor[a.key]) end
+        table.insert(lines, table.concat(armorParts, " · "))
         table.insert(lines, "")
         table.insert(lines, "|cFFFFD100Asistencia|r")
         local eventCount = #R.GetEventsSorted(roster)
         local average = R.GetRosterAttendanceAverage(roster)
         table.insert(lines, "Fechas registradas: " .. eventCount)
         table.insert(lines, "Media del roster: " .. (average and (average .. "%") or "|cFF808080sin datos|r"))
-        table.insert(lines, "")
-        table.insert(lines, "|cFF808080La cobertura se calcula por clase; el juego no da la especialización de otros jugadores.|r")
         return table.concat(lines, "\n")
     end
 
@@ -2125,6 +2267,22 @@ local function BuildRosterView(parent)
         dropRoster:SetText(roster.name)
         if not nameInput:HasFocus() then nameInput:SetText(roster.name) end
         dropDifficulty:SetText(R.DifficultyLabel(roster))
+
+        -- Jefe seleccionado, diferencias con la base y rosters recibidos
+        local variant = R.GetSelectedVariant(roster)
+        dropVariant:SetText(variant and variant.name or "Base")
+        btnDeleteVariant:SetShown(variant ~= nil)
+        if GetTime() >= clearArmedUntil then btnClear:SetText(ClearLabel()) end
+        local diff = R.GetVariantDiff(roster)
+        if diff then
+            variantDiffText:SetText("|cFF00FF00" .. #diff.entering .. " entran|r · |cFFFF3333" .. #diff.leaving
+                .. " salen|r · |cFFFFD100" .. #diff.roleChanges .. " cambian de rol|r")
+        else
+            variantDiffText:SetText("|cFF808080Base: se aplica a todos los jefes.|r")
+        end
+        local receivedCount = #R.GetReceived()
+        btnReceived:SetShown(receivedCount > 0)
+        btnReceived:SetText("|cFF00FF00Recibidos (" .. receivedCount .. ")|r")
 
         local targets = R.GetTargets(roster)
         sizeText:SetText(roster.size)

@@ -138,11 +138,112 @@ function rosterModule.Rename(roster, name)
     end
 end
 
+-- =========================================================================
+-- INTEGRANTES Y VARIANTES POR JEFE (FASE 3)
+-- =========================================================================
+-- La composición base está en roster.members. Cada jefe es una variante con
+-- overrides[nombre] = "tank"|"healer"|"dps"|"bench" que se aplican sobre la base;
+-- "bench" en una variante significa que no juega ese jefe.
+--   roster.variants[id] = { id, name, overrides }, roster.variantOrder = {id...},
+--   roster.selectedVariant = id (nil = base)
+
+local function Variants(roster)
+    if type(roster.variants) ~= "table" then roster.variants = {} end
+    if type(roster.variantOrder) ~= "table" then roster.variantOrder = {} end
+    if type(roster.nextVariantId) ~= "number" then roster.nextVariantId = 1 end
+    return roster.variants
+end
+
+function rosterModule.GetVariants(roster)
+    local variants = Variants(roster)
+    local list = {}
+    for _, id in ipairs(roster.variantOrder) do
+        if variants[id] then table.insert(list, variants[id]) end
+    end
+    return list
+end
+
+function rosterModule.GetSelectedVariant(roster)
+    local variant = roster.selectedVariant and Variants(roster)[roster.selectedVariant]
+    if not variant then roster.selectedVariant = nil end
+    return variant
+end
+
+function rosterModule.SelectVariant(roster, id)
+    roster.selectedVariant = id and Variants(roster)[id] and id or nil
+end
+
+function rosterModule.AddVariant(roster, name)
+    local variants = Variants(roster)
+    local id = roster.nextVariantId
+    roster.nextVariantId = id + 1
+    name = strtrim(name or "")
+    if name == "" then name = "Jefe " .. (#roster.variantOrder + 1) end
+    variants[id] = { id = id, name = name, overrides = {} }
+    table.insert(roster.variantOrder, id)
+    roster.selectedVariant = id
+    return variants[id]
+end
+
+function rosterModule.DeleteVariant(roster, variant)
+    if not variant then return end
+    Variants(roster)[variant.id] = nil
+    for i = #roster.variantOrder, 1, -1 do
+        if roster.variantOrder[i] == variant.id then table.remove(roster.variantOrder, i) end
+    end
+    if roster.selectedVariant == variant.id then roster.selectedVariant = nil end
+    rosterModule.SyncMemberRosterField()
+end
+
+-- Composición efectiva (base + variante seleccionada): { [nombre] = puesto }
+function rosterModule.GetEffectiveMembers(roster, variant)
+    variant = variant or rosterModule.GetSelectedVariant(roster)
+    if not variant then return roster.members end
+    local result = {}
+    for name, slot in pairs(roster.members) do result[name] = slot end
+    for name, slot in pairs(variant.overrides) do result[name] = slot end
+    return result
+end
+
+-- Quién entra y quién sale respecto a la base en la variante seleccionada
+function rosterModule.GetVariantDiff(roster)
+    local variant = rosterModule.GetSelectedVariant(roster)
+    if not variant then return nil end
+    local effective = rosterModule.GetEffectiveMembers(roster, variant)
+    local entering, leaving, roleChanges = {}, {}, {}
+    local function IsStarter(slot) return slot and slot ~= "bench" end
+    for name, slot in pairs(effective) do
+        local baseSlot = roster.members[name]
+        if IsStarter(slot) and not IsStarter(baseSlot) then table.insert(entering, name)
+        elseif IsStarter(slot) and IsStarter(baseSlot) and slot ~= baseSlot then table.insert(roleChanges, name) end
+    end
+    for name, baseSlot in pairs(roster.members) do
+        if IsStarter(baseSlot) and not IsStarter(effective[name]) then table.insert(leaving, name) end
+    end
+    table.sort(entering)
+    table.sort(leaving)
+    table.sort(roleChanges)
+    return { entering = entering, leaving = leaving, roleChanges = roleChanges }
+end
+
+local function DeepCopy(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for k, v in pairs(value) do copy[k] = DeepCopy(v) end
+    return copy
+end
+rosterModule.DeepCopy = DeepCopy
+
 function rosterModule.Duplicate(roster)
     if not roster then return nil end
     local copy = rosterModule.Create(roster.name .. " (copia)")
     copy.difficulty, copy.size, copy.tanks, copy.healers = roster.difficulty, roster.size, roster.tanks, roster.healers
     for name, slot in pairs(roster.members) do copy.members[name] = slot end
+    -- Las variantes por jefe se copian; las fechas y la asistencia no
+    copy.variants = DeepCopy(roster.variants or {})
+    copy.variantOrder = DeepCopy(roster.variantOrder or {})
+    copy.nextVariantId = roster.nextVariantId
+    copy.selectedVariant = nil
     rosterModule.SyncMemberRosterField()
     return copy
 end
@@ -187,27 +288,46 @@ function rosterModule.GetTargets(roster)
 end
 
 -- =========================================================================
--- INTEGRANTES
+-- INTEGRANTES (actúan sobre la variante seleccionada o sobre la base)
 -- =========================================================================
 function rosterModule.AddMember(roster, fullName, slot)
     if not roster or not fullName then return end
-    roster.members[fullName] = slot or rosterModule.GetMemberSlotForRole(fullName)
+    slot = slot or rosterModule.GetMemberSlotForRole(fullName)
+    local variant = rosterModule.GetSelectedVariant(roster)
+    if variant then
+        -- Si coincide con la base no hace falta override
+        variant.overrides[fullName] = (roster.members[fullName] ~= slot) and slot or nil
+    else
+        roster.members[fullName] = slot
+    end
     rosterModule.SyncMemberRosterField()
 end
 
+-- En una variante, quitar a alguien de la base = no juega ese jefe (banca)
 function rosterModule.RemoveMember(roster, fullName)
     if not roster or not fullName then return end
-    roster.members[fullName] = nil
+    local variant = rosterModule.GetSelectedVariant(roster)
+    if variant then
+        variant.overrides[fullName] = roster.members[fullName] and "bench" or nil
+    else
+        roster.members[fullName] = nil
+    end
     rosterModule.SyncMemberRosterField()
 end
 
+-- Base: vacía el roster. Variante: la restablece a la base.
 function rosterModule.Clear(roster)
     if not roster then return end
-    wipe(roster.members)
+    local variant = rosterModule.GetSelectedVariant(roster)
+    if variant then
+        wipe(variant.overrides)
+    else
+        wipe(roster.members)
+    end
     rosterModule.SyncMemberRosterField()
 end
 
--- Quita del roster a quien ya no está en la hermandad
+-- Quita a quien ya no está en la hermandad (base y variantes)
 function rosterModule.Prune(roster)
     if not roster then return end
     local changed = false
@@ -217,13 +337,21 @@ function rosterModule.Prune(roster)
             changed = true
         end
     end
+    for _, variant in pairs(Variants(roster)) do
+        for name in pairs(variant.overrides) do
+            if not GuildControlDB.members[name] then
+                variant.overrides[name] = nil
+                changed = true
+            end
+        end
+    end
     if changed then rosterModule.SyncMemberRosterField() end
 end
 
--- { tank = {nombres}, healer = {...}, dps = {...}, bench = {...} } ordenados por clase y nombre
+-- { tank = {nombres}, healer = {...}, dps = {...}, bench = {...} } de la composición efectiva
 function rosterModule.GetMembersBySlot(roster)
     local result = { tank = {}, healer = {}, dps = {}, bench = {} }
-    for name, slot in pairs(roster.members) do
+    for name, slot in pairs(rosterModule.GetEffectiveMembers(roster)) do
         if result[slot] then table.insert(result[slot], name) end
     end
     for _, list in pairs(result) do
@@ -237,9 +365,9 @@ function rosterModule.GetMembersBySlot(roster)
     return result
 end
 
--- Titulares (todos menos la banca)
+-- Titulares de la composición efectiva (todos menos la banca)
 local function ForEachStarter(roster, fn)
-    for name, slot in pairs(roster.members) do
+    for name, slot in pairs(rosterModule.GetEffectiveMembers(roster)) do
         if slot ~= "bench" then
             local m = GuildControlDB.members[name]
             if m then fn(name, m) end
@@ -247,11 +375,19 @@ local function ForEachStarter(roster, fn)
     end
 end
 
--- member.roster = nombres de los rosters en los que está ("Sin Roster" si ninguno)
+-- member.roster = nombres de los rosters en los que está ("Sin Roster" si ninguno).
+-- Cuenta la base y a quien solo juega algún jefe.
 function rosterModule.SyncMemberRosterField()
     local byMember = {}
     for _, roster in ipairs(rosterModule.GetAll()) do
-        for name in pairs(roster.members) do
+        local inRoster = {}
+        for name in pairs(roster.members) do inRoster[name] = true end
+        for _, variant in pairs(Variants(roster)) do
+            for name, slot in pairs(variant.overrides) do
+                if slot ~= "bench" then inRoster[name] = true end
+            end
+        end
+        for name in pairs(inRoster) do
             byMember[name] = byMember[name] or {}
             table.insert(byMember[name], roster.name)
         end
@@ -302,9 +438,15 @@ local function ShortName(name)
     return string.match(name, "^([^-]+)") or name
 end
 
+-- "Roster 1" o "Roster 1 · Jefe 2" si hay una variante seleccionada
+function rosterModule.GetDisplayName(roster)
+    local variant = rosterModule.GetSelectedVariant(roster)
+    return roster.name .. (variant and (" · " .. variant.name) or "")
+end
+
 -- Mensajes de chat (máximo 255 bytes cada uno) con la composición
 function rosterModule.BuildAnnounceLines(roster)
-    local lines = { "Roster " .. roster.name .. " (" .. DifficultyLabel(roster) .. " " .. roster.size .. ")" }
+    local lines = { "Roster " .. rosterModule.GetDisplayName(roster) .. " (" .. DifficultyLabel(roster) .. " " .. roster.size .. ")" }
     local bySlot = rosterModule.GetMembersBySlot(roster)
     for _, slot in ipairs(rosterModule.SLOTS) do
         local names = bySlot[slot]
@@ -335,7 +477,7 @@ function rosterModule.BuildCSV(roster)
             local m = GuildControlDB.members[name] or {}
             local stats = rosterModule.GetAttendanceStats(roster, name)
             table.insert(lines, string.format("%s,%s,%s,%s,%s,%s,%s,%s",
-                roster.name, DifficultyLabel(roster), rosterModule.SLOT_LABELS[slot], name,
+                rosterModule.GetDisplayName(roster), DifficultyLabel(roster), rosterModule.SLOT_LABELS[slot], name,
                 rosterModule.GetClassName(m.class), tostring(m.level or ""), m.rank or "",
                 stats.percent and (stats.percent .. "%") or ""))
         end
@@ -590,4 +732,301 @@ function rosterModule.ImportCalendarEvents(roster)
         end
     end
     return added
+end
+
+
+-- =========================================================================
+-- COMPARTIR ROSTERS ENTRE OFICIALES (FASE 3)
+-- =========================================================================
+-- Un roster se serializa, se trocea en mensajes de addon (prefijo GuildControlRost,
+-- canal GUILD) y el receptor lo guarda como "recibido" hasta que decide importarlo.
+-- roster.syncId identifica el mismo roster en distintos clientes para poder actualizarlo.
+local SYNC_PREFIX = "GuildControlRost"
+local SYNC_CHUNK_BYTES = 200
+local SYNC_SEND_INTERVAL = 0.3
+local SYNC_PARTIAL_TIMEOUT = 120
+
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
+end
+
+-- Serializador propio: cadenas con longitud ("s5:Texto"), números, booleanos y tablas
+local function Serialize(value, out)
+    local t = type(value)
+    if t == "string" then
+        table.insert(out, "s" .. #value .. ":" .. value)
+    elseif t == "number" then
+        table.insert(out, "n" .. tostring(value) .. ";")
+    elseif t == "boolean" then
+        table.insert(out, value and "b1" or "b0")
+    elseif t == "table" then
+        table.insert(out, "t")
+        for k, v in pairs(value) do
+            local kt, vt = type(k), type(v)
+            if (kt == "string" or kt == "number") and (vt == "string" or vt == "number" or vt == "boolean" or vt == "table") then
+                Serialize(k, out)
+                Serialize(v, out)
+            end
+        end
+        table.insert(out, "e")
+    end
+end
+
+local function Deserialize(text, pos, depth)
+    if depth > 20 then error("anidamiento excesivo") end
+    local tag = string.sub(text, pos, pos)
+    if tag == "s" then
+        local len, rest = string.match(text, "^(%d+):()", pos + 1)
+        len = tonumber(len)
+        if not len then error("cadena mal formada") end
+        return string.sub(text, rest, rest + len - 1), rest + len
+    elseif tag == "n" then
+        local num, rest = string.match(text, "^([^;]+);()", pos + 1)
+        if not tonumber(num) then error("número mal formado") end
+        return tonumber(num), rest
+    elseif tag == "b" then
+        return string.sub(text, pos + 1, pos + 1) == "1", pos + 2
+    elseif tag == "t" then
+        local result = {}
+        pos = pos + 1
+        while string.sub(text, pos, pos) ~= "e" do
+            if pos > #text then error("tabla sin cerrar") end
+            local k, v
+            k, pos = Deserialize(text, pos, depth + 1)
+            v, pos = Deserialize(text, pos, depth + 1)
+            result[k] = v
+        end
+        return result, pos + 1
+    end
+    error("tipo desconocido")
+end
+
+-- Copia limpia de un roster recibido: solo campos conocidos y con tipos válidos
+local VALID_SLOTS = { tank = true, healer = true, dps = true, bench = true }
+local VALID_STATUS = { present = true, late = true, absent = true, excused = true }
+local VALID_DIFFICULTY = { normal = true, heroic = true, mythic = true }
+
+local function CleanString(value, maxLen)
+    if type(value) ~= "string" then return nil end
+    return string.sub(value, 1, maxLen or 60)
+end
+
+local function SanitizeRoster(raw)
+    if type(raw) ~= "table" then return nil end
+    local roster = {
+        name = CleanString(raw.name, 30) or "Roster recibido",
+        syncId = CleanString(raw.syncId, 80),
+        difficulty = VALID_DIFFICULTY[raw.difficulty] and raw.difficulty or "heroic",
+        size = math.max(rosterModule.MIN_SIZE, math.min(rosterModule.MAX_SIZE, math.floor(tonumber(raw.size) or 20))),
+        tanks = math.max(0, math.floor(tonumber(raw.tanks) or 2)),
+        healers = math.max(0, math.floor(tonumber(raw.healers) or 4)),
+        members = {},
+        variants = {}, variantOrder = {}, nextVariantId = 1,
+        events = {}, nextEventId = 1,
+    }
+    if type(raw.members) == "table" then
+        for name, slot in pairs(raw.members) do
+            if type(name) == "string" and VALID_SLOTS[slot] then roster.members[CleanString(name)] = slot end
+        end
+    end
+    if type(raw.variants) == "table" then
+        local order = type(raw.variantOrder) == "table" and raw.variantOrder or {}
+        for _, oldId in ipairs(order) do
+            local v = raw.variants[oldId]
+            if type(v) == "table" then
+                local id = roster.nextVariantId
+                roster.nextVariantId = id + 1
+                local clean = { id = id, name = CleanString(v.name, 30) or ("Jefe " .. id), overrides = {} }
+                if type(v.overrides) == "table" then
+                    for name, slot in pairs(v.overrides) do
+                        if type(name) == "string" and VALID_SLOTS[slot] then clean.overrides[CleanString(name)] = slot end
+                    end
+                end
+                roster.variants[id] = clean
+                table.insert(roster.variantOrder, id)
+            end
+        end
+    end
+    if type(raw.events) == "table" then
+        for _, e in pairs(raw.events) do
+            if type(e) == "table" then
+                local date, time = rosterModule.ParseDateTime(e.date, e.time)
+                if date then
+                    local id = roster.nextEventId
+                    roster.nextEventId = id + 1
+                    local clean = { id = id, date = date, time = time, note = CleanString(e.note, 40) or "", attendance = {} }
+                    if type(e.attendance) == "table" then
+                        for name, status in pairs(e.attendance) do
+                            if type(name) == "string" and VALID_STATUS[status] then clean.attendance[CleanString(name)] = status end
+                        end
+                    end
+                    roster.events[id] = clean
+                end
+            end
+        end
+    end
+    return roster
+end
+
+-- -------------------------------------------------------------------------
+-- Envío
+-- -------------------------------------------------------------------------
+local sendQueue = {}
+local sendTicker = nil
+
+local function SendSucceeded(result)
+    if result == nil or result == true or result == 0 then return true end
+    if Enum and Enum.SendAddonMessageResult and result == Enum.SendAddonMessageResult.Success then return true end
+    return false
+end
+
+local function ProcessSendQueue()
+    local msg = sendQueue[1]
+    if not msg then
+        if sendTicker then sendTicker:Cancel() end
+        sendTicker = nil
+        return
+    end
+    local ok, result = pcall(C_ChatInfo.SendAddonMessage, SYNC_PREFIX, msg, "GUILD")
+    -- Si el servidor limita el envío, se reintenta el mismo trozo en el siguiente tic
+    if ok and SendSucceeded(result) then table.remove(sendQueue, 1) end
+end
+
+local function EnsureSyncId(roster)
+    if not roster.syncId then
+        roster.syncId = (UnitName("player") or "?") .. "-" .. time() .. "-" .. roster.id
+    end
+    return roster.syncId
+end
+
+-- Devuelve el número de mensajes que se enviarán
+function rosterModule.ShareRoster(roster)
+    if not roster or not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return 0 end
+    EnsureSyncId(roster)
+    local payload = {
+        version = 1,
+        roster = {
+            name = roster.name, syncId = roster.syncId, difficulty = roster.difficulty, size = roster.size,
+            tanks = roster.tanks, healers = roster.healers, members = roster.members,
+            variants = roster.variants, variantOrder = roster.variantOrder, events = roster.events,
+        },
+    }
+    local out = {}
+    Serialize(payload, out)
+    local data = table.concat(out)
+
+    local msgId = tostring(math.random(100000, 999999))
+    local total = math.ceil(#data / SYNC_CHUNK_BYTES)
+    for i = 1, total do
+        local chunk = string.sub(data, (i - 1) * SYNC_CHUNK_BYTES + 1, i * SYNC_CHUNK_BYTES)
+        table.insert(sendQueue, "D" .. msgId .. ":" .. i .. ":" .. total .. ":" .. chunk)
+    end
+    if not sendTicker then sendTicker = C_Timer.NewTicker(SYNC_SEND_INTERVAL, ProcessSendQueue) end
+    return total
+end
+
+function rosterModule.GetPendingSendCount()
+    return #sendQueue
+end
+
+-- -------------------------------------------------------------------------
+-- Recepción
+-- -------------------------------------------------------------------------
+local partials = {}         -- [remitente:msgId] = { total, parts = {}, count, started }
+local received = {}         -- { {from, roster, at}, ... } (solo durante la sesión)
+local receivedListener = nil
+
+function rosterModule.SetReceivedListener(fn)
+    receivedListener = fn
+end
+
+function rosterModule.GetReceived()
+    return received
+end
+
+function rosterModule.FindBySyncId(syncId)
+    if not syncId then return nil end
+    for _, roster in ipairs(rosterModule.GetAll()) do
+        if roster.syncId == syncId then return roster end
+    end
+    return nil
+end
+
+local function OnRosterReceived(sender, data)
+    local ok, payload = pcall(Deserialize, data, 1, 0)
+    if not ok or type(payload) ~= "table" or payload.version ~= 1 then return end
+    local roster = SanitizeRoster(payload.roster)
+    if not roster then return end
+
+    -- Un envío nuevo del mismo roster sustituye al pendiente anterior
+    for i = #received, 1, -1 do
+        if received[i].roster.syncId and received[i].roster.syncId == roster.syncId then table.remove(received, i) end
+    end
+    table.insert(received, { from = sender, roster = roster, at = date("%H:%M") })
+    print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. "|r ha compartido el roster |cFFFFD100" .. roster.name
+        .. "|r. Revísalo en Roster > Recibidos.")
+    if receivedListener then receivedListener() end
+end
+
+local syncFrame = CreateFrame("Frame")
+syncFrame:RegisterEvent("CHAT_MSG_ADDON")
+syncFrame:SetScript("OnEvent", function(_, _, prefix, msg, channel, sender)
+    if prefix ~= SYNC_PREFIX or channel ~= "GUILD" then return end
+    if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
+    if not msg or not sender then return end
+    -- Ignorar mis propios envíos
+    local short = string.match(sender, "^([^-]+)") or sender
+    if short == UnitName("player") then return end
+
+    local msgId, index, total, chunk = string.match(msg, "^D(%d+):(%d+):(%d+):(.*)$")
+    index, total = tonumber(index), tonumber(total)
+    if not msgId or not index or not total or total > 500 then return end
+
+    local now = GetTime()
+    for key, partial in pairs(partials) do
+        if now - partial.started > SYNC_PARTIAL_TIMEOUT then partials[key] = nil end
+    end
+
+    local key = sender .. ":" .. msgId
+    local partial = partials[key]
+    if not partial then
+        partial = { total = total, parts = {}, count = 0, started = now }
+        partials[key] = partial
+    end
+    if not partial.parts[index] then
+        partial.parts[index] = chunk
+        partial.count = partial.count + 1
+    end
+    if partial.count == partial.total then
+        partials[key] = nil
+        OnRosterReceived(sender, table.concat(partial.parts))
+    end
+end)
+
+-- Importa un roster recibido. mode = "new" (crea uno nuevo) o "replace" (sustituye al
+-- que tiene el mismo syncId, conservando su identificador local).
+function rosterModule.ImportReceived(index, mode)
+    local item = received[index]
+    if not item then return nil end
+    local incoming = item.roster
+    local target = (mode == "replace") and rosterModule.FindBySyncId(incoming.syncId) or nil
+
+    if not target then
+        -- Si ya hay una copia local enlazada, la nueva queda independiente (sin syncId)
+        if rosterModule.FindBySyncId(incoming.syncId) then incoming.syncId = nil end
+        target = rosterModule.Create(incoming.name)
+    end
+    for _, field in ipairs({ "name", "syncId", "difficulty", "size", "tanks", "healers",
+                             "members", "variants", "variantOrder", "nextVariantId", "events", "nextEventId" }) do
+        target[field] = incoming[field]
+    end
+    target.selectedVariant = nil
+    Data().selected = target.id
+    table.remove(received, index)
+    rosterModule.SyncMemberRosterField()
+    return target
+end
+
+function rosterModule.DiscardReceived(index)
+    table.remove(received, index)
 end

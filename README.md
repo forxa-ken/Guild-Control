@@ -52,6 +52,8 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 
 La columna Roster de Miembros muestra en qué rosters está cada uno.
 La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV del roster la incluye.
+- **Jefes**: encima de la composición, el selector **Base / Jefe** permite crear variantes por jefe (**Añadir jefe**, **Eliminar jefe**). Cada jefe parte de la base y solo guarda sus cambios: quién entra, quién se queda en la banca y quién cambia de rol. La vista previa muestra quién entra y quién sale respecto a la base, y Invitar, Anunciar y Exportar usan la composición del jefe seleccionado. En un jefe, **Restablecer jefe** vuelve a la base.
+- **Compartir**: envía el roster completo (base, jefes, fechas y asistencia) a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
 
 ## ✉️ Invitar nuevos miembros
 
