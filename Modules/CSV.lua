@@ -142,6 +142,9 @@ function csvModule.CreateCSVFrame(parentUI)
     btnCSVAltas:SetScript("OnClick", function() ShowCSV(csvModule.GenerateCSVAltasHoy()) end)
 
     -- Al abrir el panel: CSV Total si aún no hay nada y el texto seleccionado
+    -- Para que otros módulos (p. ej. el roster) muestren su propio CSV
+    GC_CSVFrame.ShowCSV = ShowCSV
+
     GC_CSVFrame:SetScript("OnShow", function()
         if currentText == "" then ShowTotal() else SelectAll() end
     end)
@@ -161,4 +164,10 @@ function csvModule.ShowFrame()
     -- Creación perezosa: el frame se construye la primera vez que se pide
     csvModule.CreateCSVFrame(mainUI)
     if GC_CSVFrame then GC_CSVFrame:Show() end
+end
+
+-- Abre el panel con un texto CSV ya generado
+function csvModule.ShowText(text)
+    csvModule.ShowFrame()
+    if GC_CSVFrame and GC_CSVFrame.ShowCSV then GC_CSVFrame.ShowCSV(text) end
 end

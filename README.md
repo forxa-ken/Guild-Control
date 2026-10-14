@@ -11,6 +11,7 @@
 - **`Modules/CSV.lua`**: Exportador e importador de listas masivas, altas del día y bajas en formato CSV compatibles con Google Sheets.
 - **`Modules/Professions.lua`**: Módulo aislado para el escaneo y sincronización de profesiones de los miembros.
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
+- **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 
 ## 🏆 Panel de logros
 
@@ -35,6 +36,19 @@ En la pestaña **Configuración** puedes personalizar el encabezado del panel:
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
+
+## 🛡️ Roster de banda
+
+La pestaña **Roster** sirve para montar las composiciones de banda:
+
+- **Arriba**: selector de roster, nombre editable (Enter para guardar) y botones **Nuevo**, **Duplicar** y **Eliminar** (pide un segundo clic).
+- **Criterios**: dificultad (Normal, Heroica o Mítica), tamaño de 10 a 25 (Mítica siempre 20), y número de tanques y sanadores; los DPS son el resto. Los contadores se ponen en verde al completarse.
+- **Candidatos** (izquierda): miembros agrupados por rol con el color de su clase, buscador y filtros de conectados y nivel máximo. Clic para añadirlo al roster en su rol; clic derecho para cambiarle el rol o añadirlo como suplente.
+- **Composición** (centro): columnas de Tanques, Sanadores y DPS, y la banca de suplentes. Clic sobre un integrante para moverlo o quitarlo.
+- **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase) y reparto de armaduras de los titulares.
+- **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad, exportarlo a CSV y vaciarlo.
+
+La columna Roster de Miembros muestra en qué rosters está cada uno.
 
 ## ✉️ Invitar nuevos miembros
 

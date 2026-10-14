@@ -268,6 +268,8 @@ local function SwitchTab(tabName)
         uiModule.RefreshList()
     elseif tabName == "Logros" and uiModule.RefreshAchievements then
         uiModule.RefreshAchievements()
+    elseif tabName == "Roster" and uiModule.RefreshRoster then
+        uiModule.RefreshRoster()
     end
 end
 
@@ -1183,6 +1185,580 @@ local function BuildPlaceholderView(parent, tabName)
     text:SetText("Sección: |cFFFFD100" .. tabName .. "|r\n\n(En desarrollo)")
 
     containers.views[tabName] = view
+end
+
+-- =========================================================================
+-- 8a. VISTA ROSTER (CONSUME MODULES/ROSTER.LUA)
+-- =========================================================================
+local ROSTER_ROW_HEIGHT = 18
+
+-- Nombre corto con el color de su clase (gris si está desconectado)
+local function ColoredMemberName(fullName)
+    local m = GuildControlDB.members[fullName] or {}
+    local short = string.match(fullName, "^([^-]+)") or fullName
+    local hex = addonTable.GetClassColorHex(m.class)
+    if not m.isOnline then return "|cFF" .. hex .. short .. "|r|cFF808080 ·|r" end
+    return "|cFF" .. hex .. short .. "|r"
+end
+
+local function ShowMemberTooltip(owner, fullName)
+    local R = addonTable.Roster
+    local m = GuildControlDB.members[fullName] or {}
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(fullName, 1, 0.82, 0)
+    GameTooltip:AddDoubleLine("Clase", R.GetClassName(m.class), 0.7, 0.7, 0.7, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Nivel", tostring(m.level or "?"), 0.7, 0.7, 0.7, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Rol", m.role or "DPS", 0.7, 0.7, 0.7, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Rango", m.rank or "-", 0.7, 0.7, 0.7, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Estado", m.isOnline and "En línea" or (m.lastOnline or "Desconectado"),
+        0.7, 0.7, 0.7, m.isOnline and 0 or 0.6, m.isOnline and 1 or 0.6, m.isOnline and 0 or 0.6)
+    GameTooltip:Show()
+end
+
+local function BuildRosterView(parent)
+    local R = addonTable.Roster
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local Refresh   -- declaración adelantada
+
+    -- ---------------------------------------------------------------------
+    -- Barra superior: selector, nombre y crear/duplicar/eliminar
+    -- ---------------------------------------------------------------------
+    local dropRoster = CreateFrame("DropdownButton", "GC_RosterSelect", view, "WowStyle1DropdownTemplate")
+    dropRoster:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
+    dropRoster:SetWidth(170)
+
+    local nameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    nameInput:SetSize(170, 20)
+    nameInput:SetPoint("LEFT", dropRoster, "RIGHT", 16, 0)
+    nameInput:SetAutoFocus(false)
+    nameInput:SetMaxLetters(30)
+
+    local nameLabel = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    nameLabel:SetPoint("BOTTOMLEFT", nameInput, "TOPLEFT", -4, 1)
+    nameLabel:SetText("Nombre (Enter para guardar)")
+
+    local function SaveName()
+        R.Rename(R.GetSelected(), nameInput:GetText())
+        nameInput:ClearFocus()
+        Refresh()
+    end
+    nameInput:SetScript("OnEnterPressed", SaveName)
+    nameInput:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        self:SetText(R.GetSelected().name)
+    end)
+
+    local btnNew = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnNew:SetSize(80, 22)
+    btnNew:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
+    btnNew:SetText("Nuevo")
+    btnNew:SetScript("OnClick", function()
+        R.Create()
+        Refresh()
+        nameInput:SetFocus()
+        nameInput:HighlightText()
+    end)
+
+    local btnDuplicate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnDuplicate:SetSize(90, 22)
+    btnDuplicate:SetPoint("LEFT", btnNew, "RIGHT", 6, 0)
+    btnDuplicate:SetText("Duplicar")
+    btnDuplicate:SetScript("OnClick", function()
+        R.Duplicate(R.GetSelected())
+        Refresh()
+    end)
+
+    -- Eliminar pide un segundo clic en 4 s para confirmar
+    local btnDelete = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnDelete:SetSize(100, 22)
+    btnDelete:SetPoint("LEFT", btnDuplicate, "RIGHT", 6, 0)
+    btnDelete:SetText("Eliminar")
+    local deleteArmedUntil = 0
+    btnDelete:SetScript("OnClick", function(self)
+        if GetTime() < deleteArmedUntil then
+            deleteArmedUntil = 0
+            self:SetText("Eliminar")
+            R.Delete(R.GetSelected())
+            Refresh()
+        else
+            deleteArmedUntil = GetTime() + 4
+            self:SetText("|cFFFF3333¿Seguro?|r")
+            C_Timer.After(4, function()
+                if GetTime() >= deleteArmedUntil then self:SetText("Eliminar") end
+            end)
+        end
+    end)
+
+    dropRoster:SetupMenu(function(_, rootDescription)
+        for _, roster in ipairs(R.GetAll()) do
+            local id = roster.id
+            rootDescription:CreateRadio(roster.name,
+                function() return R.GetSelected().id == id end,
+                function()
+                    R.Select(id)
+                    Refresh()
+                end)
+        end
+    end)
+
+    -- ---------------------------------------------------------------------
+    -- Criterios: dificultad, tamaño y objetivos por rol
+    -- ---------------------------------------------------------------------
+    local criteria = CreateBackdropBox(view, 880, 34, "TOPLEFT", view, "TOPLEFT", 10, -40)
+
+    local dropDifficulty = CreateFrame("DropdownButton", "GC_RosterDifficulty", criteria, "WowStyle1DropdownTemplate")
+    dropDifficulty:SetPoint("LEFT", criteria, "LEFT", 8, 0)
+    dropDifficulty:SetWidth(110)
+    dropDifficulty:SetupMenu(function(_, rootDescription)
+        for _, diff in ipairs(R.DIFFICULTIES) do
+            local key = diff.key
+            rootDescription:CreateRadio(diff.label,
+                function() return R.GetSelected().difficulty == key end,
+                function()
+                    R.SetDifficulty(R.GetSelected(), key)
+                    Refresh()
+                end)
+        end
+    end)
+
+    local sizeLabel = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sizeLabel:SetPoint("LEFT", dropDifficulty, "RIGHT", 14, 0)
+    sizeLabel:SetText("Tamaño:")
+
+    local btnSizeDown = CreateFrame("Button", nil, criteria, "UIPanelButtonTemplate")
+    btnSizeDown:SetSize(22, 20)
+    btnSizeDown:SetPoint("LEFT", sizeLabel, "RIGHT", 6, 0)
+    btnSizeDown:SetText("-")
+
+    local sizeText = criteria:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sizeText:SetPoint("LEFT", btnSizeDown, "RIGHT", 4, 0)
+    sizeText:SetWidth(26)
+
+    local btnSizeUp = CreateFrame("Button", nil, criteria, "UIPanelButtonTemplate")
+    btnSizeUp:SetSize(22, 20)
+    btnSizeUp:SetPoint("LEFT", sizeText, "RIGHT", 4, 0)
+    btnSizeUp:SetText("+")
+
+    btnSizeDown:SetScript("OnClick", function()
+        local roster = R.GetSelected()
+        R.SetSize(roster, roster.size - 1)
+        Refresh()
+    end)
+    btnSizeUp:SetScript("OnClick", function()
+        local roster = R.GetSelected()
+        R.SetSize(roster, roster.size + 1)
+        Refresh()
+    end)
+
+    -- Objetivos editables de tanques y sanadores; los DPS son el resto
+    local function CreateTargetInput(anchor, labelText, slot)
+        local label = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", anchor, "RIGHT", 18, 0)
+        label:SetText(labelText)
+        local input = CreateFrame("EditBox", nil, criteria, "InputBoxTemplate")
+        input:SetSize(28, 20)
+        input:SetPoint("LEFT", label, "RIGHT", 8, 0)
+        input:SetAutoFocus(false)
+        input:SetNumeric(true)
+        input:SetMaxLetters(2)
+        input:SetJustifyH("CENTER")
+        local function Save(self)
+            R.SetTarget(R.GetSelected(), slot, self:GetText())
+            self:ClearFocus()
+            Refresh()
+        end
+        input:SetScript("OnEnterPressed", Save)
+        input:SetScript("OnEditFocusLost", function(self)
+            local roster = R.GetSelected()
+            R.SetTarget(roster, slot, self:GetText())
+            Refresh()
+        end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        return input
+    end
+
+    local tankTarget = CreateTargetInput(btnSizeUp, "Tanques:", "tank")
+    local healerTarget = CreateTargetInput(tankTarget, "Sanadores:", "healer")
+
+    local dpsTargetText = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dpsTargetText:SetPoint("LEFT", healerTarget, "RIGHT", 18, 0)
+
+    local criteriaStatus = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    criteriaStatus:SetPoint("RIGHT", criteria, "RIGHT", -10, 0)
+
+    -- ---------------------------------------------------------------------
+    -- Candidatos (izquierda)
+    -- ---------------------------------------------------------------------
+    local candPanel = CreateBackdropBox(view, 230, 404, "TOPLEFT", criteria, "BOTTOMLEFT", 0, -6)
+
+    local candTitle = candPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    candTitle:SetPoint("TOPLEFT", candPanel, "TOPLEFT", 10, -8)
+    candTitle:SetText("Candidatos")
+
+    local candSearch = CreateFrame("EditBox", nil, candPanel, "InputBoxTemplate")
+    candSearch:SetSize(200, 20)
+    candSearch:SetPoint("TOPLEFT", candTitle, "BOTTOMLEFT", 4, -6)
+    candSearch:SetAutoFocus(false)
+    candSearch:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    candSearch:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    local candPlaceholder = candSearch:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    candPlaceholder:SetPoint("LEFT", candSearch, "LEFT", 2, 0)
+    candPlaceholder:SetText("Nombre o clase...")
+
+    local chkOnline = CreateFrame("CheckButton", "GC_RosterOnlyOnline", candPanel, "UICheckButtonTemplate")
+    chkOnline:SetSize(22, 22)
+    chkOnline:SetPoint("TOPLEFT", candSearch, "BOTTOMLEFT", -8, -2)
+    _G[chkOnline:GetName() .. "Text"]:SetText("Conectados")
+
+    local chkMaxLevel = CreateFrame("CheckButton", "GC_RosterOnlyMaxLevel", candPanel, "UICheckButtonTemplate")
+    chkMaxLevel:SetSize(22, 22)
+    chkMaxLevel:SetPoint("LEFT", chkOnline, "RIGHT", 82, 0)
+    _G[chkMaxLevel:GetName() .. "Text"]:SetText("Nivel máx.")
+    chkMaxLevel:SetChecked(true)
+
+    local candScroll = CreateFrame("ScrollFrame", "GC_RosterCandScroll", candPanel, "UIPanelScrollFrameTemplate")
+    candScroll:SetPoint("TOPLEFT", chkOnline, "BOTTOMLEFT", 4, -4)
+    candScroll:SetPoint("BOTTOMRIGHT", candPanel, "BOTTOMRIGHT", -26, 24)
+    local candChild = CreateFrame("Frame")
+    candChild:SetSize(190, 1)
+    candScroll:SetScrollChild(candChild)
+
+    local candHint = candPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    candHint:SetPoint("BOTTOMLEFT", candPanel, "BOTTOMLEFT", 10, 8)
+    candHint:SetText("Clic: añadir · Clic derecho: rol")
+
+    local candQuery = ""
+    candSearch:SetScript("OnTextChanged", function(self)
+        candQuery = string.lower(strtrim(self:GetText() or ""))
+        candPlaceholder:SetShown((self:GetText() or "") == "")
+        Refresh()
+    end)
+    chkOnline:SetScript("OnClick", function() Refresh() end)
+    chkMaxLevel:SetScript("OnClick", function() Refresh() end)
+
+    local function MaxPlayerLevel()
+        if GetMaxLevelForPlayerExpansion then
+            local ok, level = pcall(GetMaxLevelForPlayerExpansion)
+            if ok and level then return level end
+        end
+        return nil
+    end
+
+    local candRows = {}
+    local function AcquireCandRow(index)
+        local row = candRows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, candChild)
+        row:SetSize(190, ROSTER_ROW_HEIGHT)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.text:SetWidth(150)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        row.level = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.level:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+
+        row:SetScript("OnClick", function(self, button)
+            if not self.fullName then return end
+            if button == "RightButton" then
+                local name = self.fullName
+                MenuUtil.CreateContextMenu(self, function(_, root)
+                    root:CreateTitle(name)
+                    for _, slot in ipairs({ "tank", "healer", "dps" }) do
+                        root:CreateButton("Rol: " .. R.SLOT_LABELS[slot], function()
+                            R.SetMemberRole(name, slot)
+                            Refresh()
+                        end)
+                    end
+                    root:CreateButton("Añadir como suplente", function()
+                        R.AddMember(R.GetSelected(), name, "bench")
+                        Refresh()
+                    end)
+                    root:CreateButton("Susurrar", function() WhisperTo(name) end)
+                end)
+            else
+                R.AddMember(R.GetSelected(), self.fullName)
+                Refresh()
+            end
+        end)
+        row:SetScript("OnEnter", function(self) if self.fullName then ShowMemberTooltip(self, self.fullName) end end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        candRows[index] = row
+        return row
+    end
+
+    local function RefreshCandidates(roster)
+        for _, row in ipairs(candRows) do row:Hide() end
+        local maxLevel = chkMaxLevel:GetChecked() and MaxPlayerLevel() or nil
+        local groups = { tank = {}, healer = {}, dps = {} }
+        for fullName, m in pairs(GuildControlDB.members) do
+            local pass = not roster.members[fullName]
+                and ((not chkOnline:GetChecked()) or m.isOnline)
+                and ((not maxLevel) or (tonumber(m.level) or 0) >= maxLevel)
+            if pass and candQuery ~= "" then
+                local className = string.lower(R.GetClassName(m.class))
+                pass = string.find(string.lower(fullName), candQuery, 1, true) or string.find(className, candQuery, 1, true)
+            end
+            if pass then table.insert(groups[R.GetMemberSlotForRole(fullName)], fullName) end
+        end
+
+        local index, y = 0, 0
+        for _, slot in ipairs({ "tank", "healer", "dps" }) do
+            local list = groups[slot]
+            table.sort(list, function(a, b)
+                local ma, mb = GuildControlDB.members[a], GuildControlDB.members[b]
+                if (ma.isOnline and true or false) ~= (mb.isOnline and true or false) then return ma.isOnline and true or false end
+                return a < b
+            end)
+            -- Cabecera del grupo
+            index = index + 1
+            local header = AcquireCandRow(index)
+            header.fullName = nil
+            header:SetPoint("TOPLEFT", candChild, "TOPLEFT", 0, -y)
+            header.text:SetText("|cFFFFD100" .. R.SLOT_LABELS[slot] .. " (" .. #list .. ")|r")
+            header.level:SetText("")
+            header:Show()
+            y = y + ROSTER_ROW_HEIGHT
+            for _, fullName in ipairs(list) do
+                index = index + 1
+                local row = AcquireCandRow(index)
+                row.fullName = fullName
+                row:SetPoint("TOPLEFT", candChild, "TOPLEFT", 0, -y)
+                row.text:SetText("  " .. ColoredMemberName(fullName))
+                row.level:SetText(tostring(GuildControlDB.members[fullName].level or ""))
+                row:Show()
+                y = y + ROSTER_ROW_HEIGHT
+            end
+            y = y + 4
+        end
+        candChild:SetHeight(math.max(1, y))
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Composición (centro): columnas por rol y banca
+    -- ---------------------------------------------------------------------
+    local compPanel = CreateBackdropBox(view, 644, 374, "TOPLEFT", candPanel, "TOPRIGHT", 6, 0)
+
+    -- Cada bloque muestra sus integrantes en una cuadrícula de "cols" columnas
+    local blocks = {}
+    local function CreateBlock(slot, x, y, width, height, cols)
+        local block = CreateFrame("Frame", nil, compPanel)
+        block:SetPoint("TOPLEFT", compPanel, "TOPLEFT", x, y)
+        block:SetSize(width, height)
+        block.slot, block.cols, block.rows = slot, cols, {}
+        block.title = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        block.title:SetPoint("TOPLEFT", block, "TOPLEFT", 0, 0)
+        block.more = block:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        block.more:SetPoint("BOTTOMRIGHT", block, "BOTTOMRIGHT", 0, 0)
+        blocks[slot] = block
+        return block
+    end
+
+    CreateBlock("tank", 12, -10, 140, 236, 1)
+    CreateBlock("healer", 160, -10, 150, 236, 1)
+    CreateBlock("dps", 318, -10, 316, 236, 2)
+    CreateBlock("bench", 12, -256, 622, 108, 4)
+
+    local divider = compPanel:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(1, 1, 1, 0.12)
+    divider:SetHeight(1)
+    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -250)
+    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -250)
+
+    local function AcquireSlotRow(block, index)
+        local row = block.rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, block)
+        row:SetHeight(ROSTER_ROW_HEIGHT)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", row, "LEFT", 2, 0)
+        row.text:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+
+        row:SetScript("OnClick", function(self)
+            local name = self.fullName
+            if not name then return end
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle(name)
+                for _, slot in ipairs(R.SLOTS) do
+                    if slot ~= block.slot then
+                        root:CreateButton("Mover a " .. R.SLOT_LABELS[slot], function()
+                            R.AddMember(R.GetSelected(), name, slot)
+                            if slot ~= "bench" then R.SetMemberRole(name, slot) end
+                            Refresh()
+                        end)
+                    end
+                end
+                root:CreateButton("Quitar del roster", function()
+                    R.RemoveMember(R.GetSelected(), name)
+                    Refresh()
+                end)
+                root:CreateButton("Susurrar", function() WhisperTo(name) end)
+            end)
+        end)
+        row:SetScript("OnEnter", function(self) if self.fullName then ShowMemberTooltip(self, self.fullName) end end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        block.rows[index] = row
+        return row
+    end
+
+    local function RefreshBlock(block, names, target)
+        local count = #names
+        if block.slot == "bench" then
+            block.title:SetText("Suplentes (" .. count .. ")")
+        else
+            local color = (count == target) and "|cFF00FF00" or (count > target and "|cFFFF7F00" or "|cFFFFD100")
+            block.title:SetText(R.SLOT_LABELS[block.slot] .. " " .. color .. count .. "/" .. target .. "|r")
+        end
+
+        for _, row in ipairs(block.rows) do row:Hide() end
+        local colWidth = math.floor(block:GetWidth() / block.cols)
+        local maxRows = math.floor((block:GetHeight() - 34) / ROSTER_ROW_HEIGHT)
+        local capacity = maxRows * block.cols
+        for i, name in ipairs(names) do
+            if i > capacity then break end
+            local row = AcquireSlotRow(block, i)
+            local col, line = (i - 1) % block.cols, math.floor((i - 1) / block.cols)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", block, "TOPLEFT", col * colWidth, -18 - line * ROSTER_ROW_HEIGHT)
+            row:SetWidth(colWidth - 4)
+            row.fullName = name
+            local m = GuildControlDB.members[name] or {}
+            row.text:SetText(ColoredMemberName(name) .. " |cFF808080" .. R.GetClassName(m.class) .. "|r")
+            row:Show()
+        end
+        block.more:SetText(count > capacity and ("y " .. (count - capacity) .. " más") or "")
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Acciones (abajo)
+    -- ---------------------------------------------------------------------
+    local actionsBar = CreateFrame("Frame", nil, view)
+    actionsBar:SetPoint("TOPLEFT", compPanel, "BOTTOMLEFT", 0, -6)
+    actionsBar:SetSize(644, 24)
+
+    local function CreateAction(text, width, anchor, onClick)
+        local btn = CreateFrame("Button", nil, actionsBar, "UIPanelButtonTemplate")
+        btn:SetSize(width, 22)
+        if anchor then btn:SetPoint("LEFT", anchor, "RIGHT", 6, 0) else btn:SetPoint("LEFT", actionsBar, "LEFT", 0, 0) end
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+
+    local btnInvite = CreateAction("Invitar al grupo", 140, nil, function()
+        local count = R.InviteRoster(R.GetSelected())
+        if count == 0 then
+            PrintGC("No hay titulares conectados a los que invitar.")
+        else
+            PrintGC("Invitando a |cFFFFD100" .. count .. "|r titulares. Con más de 4 el grupo se convierte en banda cuando acepte el primero.")
+        end
+    end)
+    local btnAnnounce = CreateAction("Anunciar en hermandad", 170, btnInvite, function()
+        if not IsInGuild() then return end
+        for _, line in ipairs(R.BuildAnnounceLines(R.GetSelected())) do
+            if C_ChatInfo and C_ChatInfo.SendChatMessage then
+                C_ChatInfo.SendChatMessage(line, "GUILD")
+            else
+                SendChatMessage(line, "GUILD")
+            end
+        end
+    end)
+    local btnExport = CreateAction("Exportar CSV", 120, btnAnnounce, function()
+        if addonTable.CSV and addonTable.CSV.ShowText then
+            addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
+        end
+    end)
+    local clearArmedUntil = 0
+    CreateAction("Vaciar roster", 120, btnExport, function(self)
+        if GetTime() < clearArmedUntil then
+            clearArmedUntil = 0
+            self:SetText("Vaciar roster")
+            R.Clear(R.GetSelected())
+            Refresh()
+        else
+            clearArmedUntil = GetTime() + 4
+            self:SetText("|cFFFF3333¿Seguro?|r")
+            C_Timer.After(4, function()
+                if GetTime() >= clearArmedUntil then self:SetText("Vaciar roster") end
+            end)
+        end
+    end)
+
+    -- ---------------------------------------------------------------------
+    -- Resumen en el panel de vista previa: cobertura y armaduras
+    -- ---------------------------------------------------------------------
+    local function BuildSummaryText(roster)
+        local lines = { "|cFFFFD100" .. roster.name .. "|r", R.DifficultyLabel(roster) .. " · " .. roster.size .. " jugadores", "" }
+        table.insert(lines, "|cFFFFD100Cobertura|r")
+        for _, item in ipairs(R.GetCoverage(roster)) do
+            if item.count > 0 then
+                table.insert(lines, "|cFF00FF00+|r " .. item.label .. " |cFF808080(" .. item.count .. ")|r")
+            else
+                table.insert(lines, "|cFFFF3333-|r |cFFBFBFBF" .. item.label .. "|r")
+            end
+        end
+        table.insert(lines, "")
+        table.insert(lines, "|cFFFFD100Armaduras (titulares)|r")
+        local armor = R.GetArmorCounts(roster)
+        for _, a in ipairs(R.ARMOR_TYPES) do
+            table.insert(lines, a.label .. ": " .. armor[a.key])
+        end
+        table.insert(lines, "")
+        table.insert(lines, "|cFF808080La cobertura se calcula por clase; el juego no da la especialización de otros jugadores.|r")
+        return table.concat(lines, "\n")
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Refresco general
+    -- ---------------------------------------------------------------------
+    Refresh = function()
+        if not view:IsShown() then return end
+        local roster = R.GetSelected()
+        R.Prune(roster)
+
+        dropRoster:SetText(roster.name)
+        if not nameInput:HasFocus() then nameInput:SetText(roster.name) end
+        dropDifficulty:SetText(R.DifficultyLabel(roster))
+
+        local targets = R.GetTargets(roster)
+        sizeText:SetText(roster.size)
+        local isMythic = roster.difficulty == "mythic"
+        btnSizeDown:SetEnabled(not isMythic and roster.size > R.MIN_SIZE)
+        btnSizeUp:SetEnabled(not isMythic and roster.size < R.MAX_SIZE)
+        if not tankTarget:HasFocus() then tankTarget:SetText(targets.tank) end
+        if not healerTarget:HasFocus() then healerTarget:SetText(targets.healer) end
+        dpsTargetText:SetText("DPS: " .. targets.dps)
+
+        local bySlot = R.GetMembersBySlot(roster)
+        local starters = #bySlot.tank + #bySlot.healer + #bySlot.dps
+        local color = starters == roster.size and "|cFF00FF00" or (starters > roster.size and "|cFFFF7F00" or "|cFFFFD100")
+        criteriaStatus:SetText("Titulares: " .. color .. starters .. "/" .. roster.size .. "|r")
+
+        RefreshBlock(blocks.tank, bySlot.tank, targets.tank)
+        RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
+        RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
+        RefreshBlock(blocks.bench, bySlot.bench, 0)
+        RefreshCandidates(roster)
+
+        if activeTab == "Roster" then SetPreviewText(BuildSummaryText(roster)) end
+    end
+
+    uiModule.RefreshRoster = Refresh
+    view:SetScript("OnShow", Refresh)
+    containers.views["Roster"] = view
 end
 
 -- =========================================================================
@@ -2472,7 +3048,7 @@ function uiModule.CreateUI()
     BuildMembersView(mainContent)
     BuildAchievementsView(mainContent)
     BuildPlaceholderView(mainContent, "Resumen")
-    BuildPlaceholderView(mainContent, "Roster")
+    BuildRosterView(mainContent)
     BuildPlaceholderView(mainContent, "Warning")
     BuildInviteView(mainContent)
     BuildPlaceholderView(mainContent, "Black list")
