@@ -7,9 +7,10 @@ local chatModule = addonTable.GuildChat
 -- responde automáticamente a los saludos de otros miembros.
 
 local MAX_MESSAGES = 200
-local GREET_PLAYER_COOLDOWN = 30 * 60   -- no volver a saludar a la misma persona en 30 min
+local DEFAULT_GREET_COOLDOWN_MIN = 30  -- no volver a saludar a la misma persona (configurable)
 local GREET_GLOBAL_COOLDOWN = 20        -- como mucho un saludo automático cada 20 s
-local GREET_MIN_DELAY, GREET_MAX_DELAY = 2, 6
+local DEFAULT_GREET_DELAY = 2           -- segundos antes de responder (configurable)
+local GREET_DELAY_JITTER = 4            -- hasta 4 s extra aleatorios para que solo responda un cliente
 local GREET_MAX_LENGTH = 40             -- mensajes más largos no se consideran un saludo
 
 local messages = {}      -- { {time, sender, class, text}, ... } (más antiguo primero)
@@ -102,7 +103,7 @@ local function AddMessage(sender, text, guid)
         local ok, _, englishClass = pcall(GetPlayerInfoByGUID, guid)
         if ok then class = englishClass end
     end
-    local entry = { time = date("%H:%M"), sender = ShortName(sender), class = class, text = text }
+    local entry = { time = date("%H:%M"), sender = ShortName(sender), fullName = sender, class = class, text = text }
     table.insert(messages, entry)
     if #messages > MAX_MESSAGES then table.remove(messages, 1) end
     if listener then listener(entry) end
@@ -130,11 +131,12 @@ local function ScheduleGreet(sender)
     local name = ShortName(sender)
     local now = GetTime()
     if pendingGreets[name] then return end
-    if lastGreetByPlayer[name] and now - lastGreetByPlayer[name] < GREET_PLAYER_COOLDOWN then return end
+    local cooldown = (tonumber(settings.greetCooldown) or DEFAULT_GREET_COOLDOWN_MIN) * 60
+    if lastGreetByPlayer[name] and now - lastGreetByPlayer[name] < cooldown then return end
     if now - lastGreetTime < GREET_GLOBAL_COOLDOWN then return end
 
     -- Retraso aleatorio para parecer natural y para que solo responda un cliente con GuildControl
-    local delay = GREET_MIN_DELAY + math.random() * (GREET_MAX_DELAY - GREET_MIN_DELAY)
+    local delay = math.max(1, tonumber(settings.greetDelay) or DEFAULT_GREET_DELAY) + math.random() * GREET_DELAY_JITTER
     pendingGreets[name] = C_Timer.NewTimer(delay, function()
         pendingGreets[name] = nil
         if not IsInGuild() or not GetSettings().autoGreet then return end

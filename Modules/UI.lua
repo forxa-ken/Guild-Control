@@ -787,7 +787,7 @@ local function BuildAchievementsView(parent)
     local currentCategoryId = nil
     local searchQuery = ""
     local filterState = "TODOS"
-    local filterWithPoints = false
+    local filterSeason = false
 
     local achRows = {}      -- pool de filas de logros
     local catButtons = {}   -- pool de botones de categoría
@@ -821,14 +821,21 @@ local function BuildAchievementsView(parent)
     -- 7.3 Panel Derecho: Buscador, Filtros y Lista de Logros
     local rightPanel = CreateBackdropBox(view, 675, 445, "TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, -5)
 
+    -- Etiqueta y caja dentro del panel (antes la etiqueta quedaba por encima del borde)
+    local searchLabel = rightPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 12, -8)
+    searchLabel:SetText("Buscar logros")
+
     local searchBox = CreateFrame("EditBox", "GC_AchSearchBox", rightPanel, "InputBoxTemplate")
     searchBox:SetSize(200, 20)
-    searchBox:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 10, -10)
+    searchBox:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 5, -4)
     searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
-    local searchLabel = searchBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("BOTTOMLEFT", searchBox, "TOPLEFT", 0, 2)
-    searchLabel:SetText("Buscador por nombre...")
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
+    searchPlaceholder:SetText("Nombre del logro...")
 
     local btnFilterAll = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
     btnFilterAll:SetSize(65, 22)
@@ -845,9 +852,17 @@ local function BuildAchievementsView(parent)
     btnFilterPending:SetPoint("LEFT", btnFilterDone, "RIGHT", 4, 0)
     btnFilterPending:SetText("Pendientes")
 
-    local chkPoints = CreateFrame("CheckButton", "GC_ChkPointsAch", rightPanel, "UICheckButtonTemplate")
-    chkPoints:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
-    _G[chkPoints:GetName() .. "Text"]:SetText("Solo con puntos")
+    -- Logros de temporada: busca en todas las categorías de hermandad
+    local chkSeason = CreateFrame("CheckButton", "GC_ChkSeasonAch", rightPanel, "UICheckButtonTemplate")
+    chkSeason:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
+    _G[chkSeason:GetName() .. "Text"]:SetText("Logros de temporada")
+    chkSeason:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Logros de temporada", 1, 0.82, 0)
+        GameTooltip:AddLine("Muestra, de todas las categorías, los logros de temporada (Mítica+, bandas, JcJ) y los de eventos del mundo.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    chkSeason:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- Encabezados de la Tabla
     local achHeader = CreateFrame("Frame", nil, rightPanel)
@@ -1008,42 +1023,57 @@ local function BuildAchievementsView(parent)
         UpdateGuildSummary()
 
         for _, r in ipairs(achRows) do r:Hide() end
-        if not currentCategoryId then
+        if not currentCategoryId and not filterSeason then
             achChild:SetHeight(1)
             return
         end
 
-        local numAchievements = GetCategoryNumAchievements(currentCategoryId, true) or 0
+        -- Con el filtro de temporada se recorren todas las categorías de hermandad
+        local categoriesToScan = {}
+        if filterSeason then
+            for _, cat in ipairs(addonTable.Achievements.GetCategories()) do
+                table.insert(categoriesToScan, cat)
+            end
+        else
+            categoriesToScan[1] = { id = currentCategoryId }
+        end
+
         local yOffset = -5
         local rowIndex = 0
+        local seen = {}
 
-        for i = 1, numAchievements do
-            local id, name, points, completed, month, day, year, _, _, icon = GetAchievementInfo(currentCategoryId, i)
+        for _, cat in ipairs(categoriesToScan) do
+            local numAchievements = GetCategoryNumAchievements(cat.id, true) or 0
+            for i = 1, numAchievements do
+                local id, name, points, completed, month, day, year, description, _, icon = GetAchievementInfo(cat.id, i)
 
-            if id then
-                local passSearch = (searchQuery == "") or string.find(string.lower(name or ""), searchQuery, 1, true)
+                if id and not seen[id] then
+                    seen[id] = true
+                    local passSearch = (searchQuery == "") or string.find(string.lower(name or ""), searchQuery, 1, true)
 
-                local passState = true
-                if filterState == "COMPLETADOS" and not completed then passState = false end
-                if filterState == "PENDIENTES" and completed then passState = false end
+                    local passState = true
+                    if filterState == "COMPLETADOS" and not completed then passState = false end
+                    if filterState == "PENDIENTES" and completed then passState = false end
 
-                local passPoints = (not filterWithPoints) or ((points or 0) > 0)
+                    local passSeason = (not filterSeason)
+                        or addonTable.Achievements.IsSeasonal(name, description, cat.title)
 
-                if passSearch and passState and passPoints then
-                    rowIndex = rowIndex + 1
-                    local row = AcquireAchRow(rowIndex)
+                    if passSearch and passState and passSeason then
+                        rowIndex = rowIndex + 1
+                        local row = AcquireAchRow(rowIndex)
 
-                    row.achId = id
-                    row:ClearAllPoints()
-                    row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
-                    row.bg:SetShown(rowIndex % 2 == 0)
-                    row.iconTex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-                    row.titleFs:SetText(name or "Desconocido")
-                    row.statusFs:SetText(completed and "|cFF00FF00Completado|r" or "|cFFFF3333Pendiente|r")
-                    row.dateFs:SetText(completed and addonTable.Achievements.FormatDate(day, month, year) or "|cFF808080En progreso|r")
-                    row:Show()
+                        row.achId = id
+                        row:ClearAllPoints()
+                        row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
+                        row.bg:SetShown(rowIndex % 2 == 0)
+                        row.iconTex:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                        row.titleFs:SetText(name or "Desconocido")
+                        row.statusFs:SetText(completed and "|cFF00FF00Completado|r" or "|cFFFF3333Pendiente|r")
+                        row.dateFs:SetText(completed and addonTable.Achievements.FormatDate(day, month, year) or "|cFF808080En progreso|r")
+                        row:Show()
 
-                    yOffset = yOffset - 26
+                        yOffset = yOffset - 26
+                    end
                 end
             end
         end
@@ -1058,13 +1088,14 @@ local function BuildAchievementsView(parent)
 
     searchBox:SetScript("OnTextChanged", function(self)
         searchQuery = string.lower(self:GetText() or "")
+        searchPlaceholder:SetShown((self:GetText() or "") == "")
         uiModule.RefreshAchievements()
     end)
 
     btnFilterAll:SetScript("OnClick", function() filterState = "TODOS"; uiModule.RefreshAchievements() end)
     btnFilterDone:SetScript("OnClick", function() filterState = "COMPLETADOS"; uiModule.RefreshAchievements() end)
     btnFilterPending:SetScript("OnClick", function() filterState = "PENDIENTES"; uiModule.RefreshAchievements() end)
-    chkPoints:SetScript("OnClick", function(self) filterWithPoints = self:GetChecked(); uiModule.RefreshAchievements() end)
+    chkSeason:SetScript("OnClick", function(self) filterSeason = self:GetChecked() and true or false; uiModule.RefreshAchievements() end)
 
     containers.views["Logros"] = view
 end
@@ -1237,7 +1268,7 @@ local function BuildConfigView(parent)
 
     local greetHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     greetHint:SetPoint("TOPLEFT", greetInput, "BOTTOMLEFT", -6, -6)
-    greetHint:SetText("{nombre} se sustituye por el nombre de quien saluda. Responde a saludos cortos (hola, buenas...) con un retraso de 2-6 s y como mucho una vez cada 30 min por persona.")
+    greetHint:SetText("{nombre} se sustituye por el nombre de quien saluda. Responde a saludos cortos (hola, buenas...). Los tiempos se ajustan en la columna derecha.")
     greetHint:SetWidth(620)
     greetHint:SetJustifyH("LEFT")
 
@@ -1277,8 +1308,53 @@ local function BuildConfigView(parent)
         uiModule.ApplyWindowStrata()
     end)
 
+    -- 9.5 Tiempos del saludo automático (columna derecha)
+    local timesLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    timesLabel:SetPoint("TOPLEFT", onTopHint, "BOTTOMLEFT", 0, -30)
+    timesLabel:SetText("Tiempos del saludo")
+
+    -- Campo numérico con su texto a la derecha; guarda al escribir dentro de [minValue, maxValue]
+    local function CreateNumberSetting(anchor, xOffset, yOffset, labelText, key, minValue, maxValue)
+        local input = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+        input:SetSize(40, 20)
+        input:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", xOffset, yOffset)
+        input:SetAutoFocus(false)
+        input:SetNumeric(true)
+        input:SetMaxLetters(4)
+        input:SetJustifyH("CENTER")
+
+        local text = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("LEFT", input, "RIGHT", 8, 0)
+        text:SetWidth(160)
+        text:SetJustifyH("LEFT")
+        text:SetText(labelText)
+
+        input:SetScript("OnTextChanged", function(self, userInput)
+            if not userInput then return end
+            local value = tonumber(self:GetText())
+            if value then
+                GuildControlDB.settings[key] = math.min(maxValue, math.max(minValue, value))
+            end
+        end)
+        input:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(GuildControlDB.settings[key])) end)
+        input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        return input
+    end
+
+    local delayInput = CreateNumberSetting(timesLabel, 6, -8, "Segundos de espera antes de responder (1-60)", "greetDelay", 1, 60)
+    local cooldownInput = CreateNumberSetting(delayInput, 0, -18, "Minutos sin volver a saludar a la misma persona (1-1440)", "greetCooldown", 1, 1440)
+
+    local timesHint = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    timesHint:SetPoint("TOPLEFT", cooldownInput, "BOTTOMLEFT", -6, -10)
+    timesHint:SetWidth(210)
+    timesHint:SetJustifyH("LEFT")
+    timesHint:SetText("A la espera se suman hasta 4 s aleatorios para que, si varios miembros usan GuildControl, solo responda uno.")
+
     view:SetScript("OnShow", function()
         RefreshConfigFields()
+        delayInput:SetText(tostring(GuildControlDB.settings.greetDelay))
+        cooldownInput:SetText(tostring(GuildControlDB.settings.greetCooldown))
         chkOnTop:SetChecked(GuildControlDB.settings.windowOnTop)
         chkGreet:SetChecked(GuildControlDB.settings.autoGreet)
         greetInput:SetText(GuildControlDB.settings.greetMessage or "")
@@ -1290,10 +1366,24 @@ end
 -- 10. PANEL DE CHAT DE HERMANDAD (CONTRAÍBLE, DEBAJO DE LA VENTANA)
 -- =========================================================================
 local CHAT_EXPANDED_HEIGHT, CHAT_COLLAPSED_HEIGHT = 190, 30
+local CHAT_MAX_PERSON_TABS = 6
+local CHAT_GENERAL_TAB = "General"
 
+-- El nombre es un enlace de jugador: clic izquierdo abre su pestaña, clic derecho el menú del juego
 local function FormatChatLine(entry)
     local hex = entry.class and addonTable.GetClassColorHex(entry.class) or "40FF40"
-    return "|cFF808080[" .. entry.time .. "]|r |cFF" .. hex .. "[" .. entry.sender .. "]|r: " .. entry.text
+    local linkName = entry.fullName or entry.sender
+    return "|cFF808080[" .. entry.time .. "]|r |Hplayer:" .. linkName .. "|h|cFF" .. hex .. "[" .. entry.sender .. "]|r|h: " .. entry.text
+end
+
+-- Un mensaje pertenece a la conversación con "person" si lo escribe esa persona
+-- o si lo escribo yo y la menciona
+local function EntryMatchesPerson(entry, person)
+    if entry.sender == person then return true end
+    if entry.sender == UnitName("player") then
+        return string.find(string.lower(entry.text), string.lower(person), 1, true) ~= nil
+    end
+    return false
 end
 
 local function BuildChatPanel(parent)
@@ -1312,8 +1402,12 @@ local function BuildChatPanel(parent)
     btnToggle:SetSize(90, 20)
     btnToggle:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -5)
 
+    local tabHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    tabHint:SetPoint("RIGHT", btnToggle, "LEFT", -12, 0)
+    tabHint:SetText("Clic en un nombre: conversación con esa persona")
+
     local messagesFrame = CreateFrame("ScrollingMessageFrame", nil, panel)
-    messagesFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -30)
+    messagesFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -32)
     messagesFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -14, 38)
     messagesFrame:SetFontObject(ChatFontNormal)
     messagesFrame:SetJustifyH("LEFT")
@@ -1323,9 +1417,6 @@ local function BuildChatPanel(parent)
     messagesFrame:EnableMouseWheel(true)
     messagesFrame:SetScript("OnMouseWheel", function(self, delta)
         if delta > 0 then self:ScrollUp() else self:ScrollDown() end
-    end)
-    messagesFrame:SetScript("OnHyperlinkClick", function(self, link, text, button)
-        SetItemRef(link, text, button)
     end)
 
     local input = CreateFrame("EditBox", "GC_GuildChatInput", panel, "InputBoxTemplate")
@@ -1349,7 +1440,117 @@ local function BuildChatPanel(parent)
     input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     btnSend:SetScript("OnClick", SendInput)
 
-    local unread = 0
+    -- ---------------------------------------------------------------------
+    -- Pestañas: "General" + una por persona (nombre corto)
+    -- ---------------------------------------------------------------------
+    local tabs = {}            -- lista ordenada de { name, button, unread }
+    local activeTabName = CHAT_GENERAL_TAB
+    local unread = 0           -- mensajes nuevos con el panel contraído
+    local SelectTab            -- declaración adelantada
+
+    local function FindTab(name)
+        for i, tab in ipairs(tabs) do
+            if tab.name == name then return tab, i end
+        end
+    end
+
+    local function EntryMatchesTab(entry, tabName)
+        return tabName == CHAT_GENERAL_TAB or EntryMatchesPerson(entry, tabName)
+    end
+
+    local function LayoutTabs()
+        local previous = nil
+        for _, tab in ipairs(tabs) do
+            tab.button:ClearAllPoints()
+            if previous then
+                tab.button:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+            else
+                tab.button:SetPoint("TOPLEFT", panel, "TOPLEFT", 170, -5)
+            end
+            local label = tab.name
+            if tab.unread > 0 then label = label .. " |cFF00FF00(" .. tab.unread .. ")|r" end
+            tab.button:SetText(label)
+            tab.button:SetEnabled(tab.name ~= activeTabName)
+            tab.button:SetShown(not GuildControlDB.settings.chatCollapsed)
+            previous = tab.button
+        end
+        -- Con muchas pestañas la ayuda no cabe
+        tabHint:SetShown(not GuildControlDB.settings.chatCollapsed and #tabs <= 3)
+    end
+
+    local function RenderMessages()
+        messagesFrame:Clear()
+        if not addonTable.GuildChat then return end
+        for _, entry in ipairs(addonTable.GuildChat.GetMessages()) do
+            if EntryMatchesTab(entry, activeTabName) then
+                messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+            end
+        end
+    end
+
+    local function CloseTab(name)
+        local tab, index = FindTab(name)
+        if not tab or name == CHAT_GENERAL_TAB then return end
+        tab.button:Hide()
+        table.remove(tabs, index)
+        if activeTabName == name then
+            SelectTab(CHAT_GENERAL_TAB)
+        else
+            LayoutTabs()
+        end
+    end
+
+    local function CreateTab(name)
+        local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        button:SetSize(name == CHAT_GENERAL_TAB and 80 or 120, 20)
+        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        button:SetScript("OnClick", function(_, mouseButton)
+            if mouseButton == "RightButton" then CloseTab(name) else SelectTab(name) end
+        end)
+
+        if name ~= CHAT_GENERAL_TAB then
+            button:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText("Conversación con " .. name, 1, 1, 1)
+                GameTooltip:AddLine("Clic derecho: cerrar pestaña", 0.7, 0.7, 0.7)
+                GameTooltip:Show()
+            end)
+            button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+
+        local tab = { name = name, button = button, unread = 0 }
+        table.insert(tabs, tab)
+        return tab
+    end
+
+    SelectTab = function(name)
+        local tab = FindTab(name)
+        if not tab then
+            -- Si ya hay demasiadas pestañas de personas, se cierra la más antigua
+            if #tabs - 1 >= CHAT_MAX_PERSON_TABS then
+                local oldest = tabs[2]
+                oldest.button:Hide()
+                table.remove(tabs, 2)
+            end
+            tab = CreateTab(name)
+        end
+        tab.unread = 0
+        activeTabName = name
+        LayoutTabs()
+        RenderMessages()
+    end
+
+    messagesFrame:SetScript("OnHyperlinkClick", function(self, link, text, button)
+        local linkType, target = string.match(link, "^(%a+):([^:]+)")
+        if linkType == "player" and button == "LeftButton" and target then
+            local short = Ambiguate and Ambiguate(target, "guild") or target
+            if short ~= UnitName("player") then
+                SelectTab(short)
+                return
+            end
+        end
+        SetItemRef(link, text, button)
+    end)
 
     local function ApplyCollapsed()
         local collapsed = GuildControlDB.settings.chatCollapsed
@@ -1357,9 +1558,11 @@ local function BuildChatPanel(parent)
         messagesFrame:SetShown(not collapsed)
         input:SetShown(not collapsed)
         btnSend:SetShown(not collapsed)
+        tabHint:SetShown(not collapsed)
         btnToggle:SetText(collapsed and "Expandir" or "Contraer")
         if not collapsed then unread = 0 end
         unreadText:SetText(unread > 0 and ("|cFF00FF00(" .. unread .. " nuevos)|r") or "")
+        LayoutTabs()
         -- Mantener el panel dentro de la pantalla al arrastrar la ventana
         parent:SetClampRectInsets(0, 0, 0, -(panel:GetHeight() - 2))
     end
@@ -1369,13 +1572,22 @@ local function BuildChatPanel(parent)
         ApplyCollapsed()
     end)
 
-    -- Mensajes recibidos antes de abrir la ventana
+    CreateTab(CHAT_GENERAL_TAB)
+
+    -- Mensajes nuevos: a la pestaña activa si le corresponden; en las demás suman como no leídos
     if addonTable.GuildChat then
-        for _, entry in ipairs(addonTable.GuildChat.GetMessages()) do
-            messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
-        end
         addonTable.GuildChat.SetListener(function(entry)
-            messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+            if EntryMatchesTab(entry, activeTabName) then
+                messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+            end
+            local changed = false
+            for _, tab in ipairs(tabs) do
+                if tab.name ~= activeTabName and tab.name ~= CHAT_GENERAL_TAB and EntryMatchesPerson(entry, tab.name) then
+                    tab.unread = tab.unread + 1
+                    changed = true
+                end
+            end
+            if changed then LayoutTabs() end
             if GuildControlDB.settings.chatCollapsed then
                 unread = unread + 1
                 unreadText:SetText("|cFF00FF00(" .. unread .. " nuevos)|r")
@@ -1384,6 +1596,7 @@ local function BuildChatPanel(parent)
     end
 
     parent:SetClampedToScreen(true)
+    RenderMessages()
     ApplyCollapsed()
     containers.chat = panel
 end

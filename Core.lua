@@ -63,6 +63,8 @@ function addonTable.InitDB()
     if type(GuildControlDB.settings.windowOnTop) ~= "boolean" then GuildControlDB.settings.windowOnTop = false end
     if type(GuildControlDB.settings.chatCollapsed) ~= "boolean" then GuildControlDB.settings.chatCollapsed = false end
     if type(GuildControlDB.settings.autoGreet) ~= "boolean" then GuildControlDB.settings.autoGreet = true end
+    if type(GuildControlDB.settings.greetDelay) ~= "number" then GuildControlDB.settings.greetDelay = 2 end        -- segundos
+    if type(GuildControlDB.settings.greetCooldown) ~= "number" then GuildControlDB.settings.greetCooldown = 30 end -- minutos
     if type(GuildControlDB.settings.greetMessage) ~= "string" or GuildControlDB.settings.greetMessage == "" then
         GuildControlDB.settings.greetMessage = "¡Hola, {nombre}!"
     end

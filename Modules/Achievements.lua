@@ -33,6 +33,26 @@ function achModule.GetCategories()
     return result
 end
 
+-- Logro de temporada: su nombre o descripción habla de una temporada (Mítica+, bandas, JcJ)
+-- o pertenece a la categoría de eventos del mundo. El juego no tiene un indicador propio.
+local SEASON_WORDS = { "temporada", "season" }
+local EVENT_CATEGORY_WORDS = { "evento", "event" }
+
+local function ContainsAny(text, words)
+    if not text or text == "" then return false end
+    text = string.lower(text)
+    for _, word in ipairs(words) do
+        if string.find(text, word, 1, true) then return true end
+    end
+    return false
+end
+
+function achModule.IsSeasonal(name, description, categoryTitle)
+    return ContainsAny(name, SEASON_WORDS)
+        or ContainsAny(description, SEASON_WORDS)
+        or ContainsAny(categoryTitle, EVENT_CATEGORY_WORDS)
+end
+
 -- Formatea fecha de logro (el año viene en 2 dígitos)
 function achModule.FormatDate(day, month, year)
     return string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0)
