@@ -19,6 +19,8 @@
 
 ## 🚀 Comandos
 
-- `/gct` - Abre o cierra la interfaz principal del addon.
+- `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.
 - `/gct csv` - Abre directamente el panel de exportación a Google Sheets / CSV.
 - `/gct bajas` - Abre el historial de bajas y salidas de la hermandad.
+
+Todos los comandos funcionan también con el alias `/gctc` (por ejemplo, `/gctc csv`).
