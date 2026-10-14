@@ -81,8 +81,22 @@ function csvModule.CreateCSVFrame(parentUI)
     editBox:SetFontObject(ChatFontNormal)
     -- Ancho fijo (600 - 15 - 35): con el frame oculto scroll:GetWidth() puede devolver 0
     editBox:SetWidth(550)
+    -- Sin altura el EditBox no recibe clics ni foco y no se puede seleccionar el texto
+    editBox:SetHeight(330)
+    editBox:SetMaxLetters(0)
+    if editBox.SetMaxBytes then editBox:SetMaxBytes(0) end
     editBox:SetAutoFocus(false)
+    editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     scroll:SetScrollChild(editBox)
+
+    -- Clic en cualquier parte del área de texto: enfocar para poder seleccionar
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() editBox:SetFocus() end)
+
+    local hintText = GC_CSVFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hintText:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 18, 14)
+    hintText:SetTextColor(0.75, 0.75, 0.75)
+    hintText:SetText("Genera un CSV y pulsa Copiar.")
 
     local btnCSVTotal = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
     btnCSVTotal:SetSize(120, 22) btnCSVTotal:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 15, 35) btnCSVTotal:SetText("CSV Total")
@@ -96,16 +110,32 @@ function csvModule.CreateCSVFrame(parentUI)
     local btnCopy = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
     btnCopy:SetSize(90, 22) btnCopy:SetPoint("LEFT", btnCSVAltas, "RIGHT", 8, 0) btnCopy:SetText("Copiar")
 
+    -- WoW no permite a los addons escribir en el portapapeles: se selecciona todo el texto
+    -- con el foco puesto y el jugador lo copia con Ctrl+C
+    local function SelectAll()
+        if (editBox:GetText() or "") == "" then
+            if IsInGuild() then C_GuildInfo.GuildRoster() end
+            editBox:SetText(csvModule.GenerateCSVTotal())
+        end
+        editBox:SetFocus()
+        editBox:HighlightText()
+        scroll:SetVerticalScroll(0)
+        hintText:SetText("|cFF00FF00Texto seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo y pégalo en Google Sheets.")
+    end
+
+    local function ShowCSV(text)
+        editBox:SetText(text)
+        editBox:SetCursorPosition(0)
+        SelectAll()
+    end
+
     btnCSVTotal:SetScript("OnClick", function()
         if IsInGuild() then C_GuildInfo.GuildRoster() end
-        editBox:SetText(csvModule.GenerateCSVTotal())
-        editBox:HighlightText()
-        editBox:SetFocus()
+        ShowCSV(csvModule.GenerateCSVTotal())
     end)
-
-    btnCSVSalidas:SetScript("OnClick", function() editBox:SetText(csvModule.GenerateCSVSalidas()); editBox:HighlightText(); editBox:SetFocus() end)
-    btnCSVAltas:SetScript("OnClick", function() editBox:SetText(csvModule.GenerateCSVAltasHoy()); editBox:HighlightText(); editBox:SetFocus() end)
-    btnCopy:SetScript("OnClick", function() editBox:HighlightText(); editBox:SetFocus() end)
+    btnCSVSalidas:SetScript("OnClick", function() ShowCSV(csvModule.GenerateCSVSalidas()) end)
+    btnCSVAltas:SetScript("OnClick", function() ShowCSV(csvModule.GenerateCSVAltasHoy()) end)
+    btnCopy:SetScript("OnClick", SelectAll)
 end
 
 function csvModule.ShowFrame()
@@ -122,4 +152,4 @@ function csvModule.ShowFrame()
     -- Creación perezosa: el frame se construye la primera vez que se pide
     csvModule.CreateCSVFrame(mainUI)
     if GC_CSVFrame then GC_CSVFrame:Show() end
-end
+end
