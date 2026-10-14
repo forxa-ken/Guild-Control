@@ -374,22 +374,22 @@ local function BuildMembersView(parent)
     containers.views["Miembros"] = view
 end
 
+
 -- =========================================================================
--- 7. VISTA DE LOGROS (EXCLUSIVO HERMANDAD - DEDICADO Y OPTIMIZADO)
+-- 7. VISTA DE LOGROS (EXCLUSIVA DE HERMANDAD - SIN LAG Y DATOS EXACTOS)
 -- =========================================================================
 local function BuildAchievementsView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
     view:Hide()
 
-    -- Categoría base de logros de Hermandad en WoW Retail
-    local GUILD_CATEGORY_BASE = 15070
+    local GUILD_CATEGORY_BASE = 15070 -- ID Base de Logros de Hermandad
     local currentCategoryId = GUILD_CATEGORY_BASE
     local searchQuery = ""
-    local filterState = "TODOS" -- "TODOS", "COMPLETADOS", "PENDIENTES"
+    local filterState = "TODOS"
     local filterSeasonalOnly = false
 
-    -- 7.1 Encabezado de estadísticas
+    -- 7.1 Encabezado de estadísticas de Hermandad
     local headerFrame = CreateBackdropBox(view, 880, 45, "TOPLEFT", view, "TOPLEFT", 10, -10)
 
     local pointsText = headerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -415,7 +415,7 @@ local function BuildAchievementsView(parent)
     catChild:SetSize(catScroll:GetWidth(), catScroll:GetHeight())
     catScroll:SetScrollChild(catChild)
 
-    -- 7.3 Panel Derecho: Buscador, Filtros y Lista
+    -- 7.3 Panel Derecho: Buscador, Filtros y Lista de Logros
     local rightPanel = CreateBackdropBox(view, 675, 445, "TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, -5)
 
     local searchBox = CreateFrame("EditBox", "GC_AchSearchBox", rightPanel, "InputBoxTemplate")
@@ -446,7 +446,7 @@ local function BuildAchievementsView(parent)
     chkSeasonal:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
     _G[chkSeasonal:GetName() .. "Text"]:SetText("Temporada")
 
-    -- Encabezados
+    -- Encabezados de la Tabla
     local achHeader = CreateFrame("Frame", nil, rightPanel)
     achHeader:SetSize(655, 20)
     achHeader:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -12)
@@ -470,23 +470,17 @@ local function BuildAchievementsView(parent)
     achChild:SetSize(achScroll:GetWidth(), achScroll:GetHeight())
     achScroll:SetScrollChild(achChild)
 
-    -- Cargar Categorías de Hermandad
+    -- Construir la lista de categorías exclusivas de hermandad
     local function BuildGuildCategories()
         if catChild.buttons then for _, b in pairs(catChild.buttons) do b:Hide() end end
         catChild.buttons = {}
 
         local categories = GetCategoryList()
         local yOffset = -5
-        local firstSet = false
 
         for _, catId in ipairs(categories or {}) do
             local title, parentID = GetCategoryInfo(catId)
             if catId == GUILD_CATEGORY_BASE or parentID == GUILD_CATEGORY_BASE then
-                if not firstSet then
-                    currentCategoryId = catId
-                    firstSet = true
-                end
-
                 local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
                 btn:SetSize(165, 22)
                 btn:SetPoint("TOPLEFT", catChild, "TOPLEFT", 5, yOffset)
@@ -503,7 +497,7 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Escaneo global rápido de resumen de Hermandad (Sin Lag)
+    -- Cálculo exacto de totales globales de la hermandad
     local function CalculateGuildSummary()
         local guildPoints = GetTotalAchievementPoints and GetTotalAchievementPoints(true) or 0
         pointsText:SetText("Puntos: |cFFFFD100" .. guildPoints .. "|r")
@@ -545,11 +539,16 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Renderizado de la lista
+    -- Renderizado de la tabla de logros
     uiModule.RefreshAchievements = function()
         if not achChild then return end
         if achChild.rows then for _, r in pairs(achChild.rows) do r:Hide() end end
         achChild.rows = {}
+
+        -- Forzar carga de datos de hermandad si la interfaz oficial no se ha sincronizado
+        if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
+            AchievementFrame_LoadUI()
+        end
 
         CalculateGuildSummary()
 
@@ -603,7 +602,7 @@ local function BuildAchievementsView(parent)
                     dateFs:SetJustifyH("LEFT")
                     dateFs:SetText(completed and string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0) or "|cFF808080En progreso|r")
 
-                    -- Clic: Abrir la interfaz oficial de Blizzard y navegar al logro
+                    -- Redirección limpia al marco nativo de Blizzard en la pestaña de Guild
                     row:SetScript("OnClick", function()
                         if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
                             AchievementFrame_LoadUI()
@@ -627,7 +626,7 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Eventos de filtros
+    -- Eventos del buscador y filtros
     searchBox:SetScript("OnTextChanged", function(self)
         searchQuery = string.lower(self:GetText() or "")
         uiModule.RefreshAchievements()
@@ -641,6 +640,7 @@ local function BuildAchievementsView(parent)
     BuildGuildCategories()
     containers.views["Logros"] = view
 end
+
 
 -- =========================================================================
 -- 8. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
