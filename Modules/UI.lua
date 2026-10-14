@@ -375,16 +375,16 @@ local function BuildMembersView(parent)
 end
 
 -- =========================================================================
--- 7. VISTA DE LOGROS (PAGINACIÓN JUGADOR / HERMANDAD + NATIVE REDIRECT)
+-- 7. VISTA DE LOGROS (EXCLUSIVO HERMANDAD - DEDICADO Y OPTIMIZADO)
 -- =========================================================================
 local function BuildAchievementsView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
     view:Hide()
 
-    -- Estado interno de Logros
-    local achievementMode = "GUILD" -- "GUILD" o "PLAYER"
-    local currentCategoryId = 15070 -- Categoría inicial (Hermandad)
+    -- Categoría base de logros de Hermandad en WoW Retail
+    local GUILD_CATEGORY_BASE = 15070
+    local currentCategoryId = GUILD_CATEGORY_BASE
     local searchQuery = ""
     local filterState = "TODOS" -- "TODOS", "COMPLETADOS", "PENDIENTES"
     local filterSeasonalOnly = false
@@ -404,38 +404,8 @@ local function BuildAchievementsView(parent)
     lastAchText:SetPoint("RIGHT", headerFrame, "RIGHT", -15, 0)
     lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
 
-    -- 7.2 Selector de Modo (Jugador / Hermandad) con resaltado visual de selección
-    local btnModeGuild = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnModeGuild:SetSize(110, 24)
-    btnModeGuild:SetPoint("TOPLEFT", headerFrame, "BOTTOMLEFT", 0, -5)
-    btnModeGuild:SetText("Hermandad")
-
-    local btnModePlayer = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnModePlayer:SetSize(110, 24)
-    btnModePlayer:SetPoint("LEFT", btnModeGuild, "RIGHT", 5, 0)
-    btnModePlayer:SetText("Jugador")
-
-    -- Texturas de selección para resaltar el botón activo
-    local selTexGuild = btnModeGuild:CreateTexture(nil, "HIGHLIGHT")
-    selTexGuild:SetAllPoints()
-    selTexGuild:SetColorTexture(1, 0.82, 0, 0.3)
-
-    local selTexPlayer = btnModePlayer:CreateTexture(nil, "HIGHLIGHT")
-    selTexPlayer:SetAllPoints()
-    selTexPlayer:SetColorTexture(1, 0.82, 0, 0.3)
-
-    local function UpdateModeButtonsUI()
-        if achievementMode == "GUILD" then
-            btnModeGuild:LockHighlight()
-            btnModePlayer:UnlockHighlight()
-        else
-            btnModePlayer:LockHighlight()
-            btnModeGuild:UnlockHighlight()
-        end
-    end
-
-    -- 7.3 Panel Izquierdo: Lista de Categorías de Logros
-    local catPanel = CreateBackdropBox(view, 200, 415, "TOPLEFT", btnModeGuild, "BOTTOMLEFT", 0, -5)
+    -- 7.2 Panel Izquierdo: Categorías de Hermandad
+    local catPanel = CreateBackdropBox(view, 200, 445, "TOPLEFT", headerFrame, "BOTTOMLEFT", 0, -5)
 
     local catScroll = CreateFrame("ScrollFrame", "GC_AchCatScroll", catPanel, "UIPanelScrollFrameTemplate")
     catScroll:SetPoint("TOPLEFT", catPanel, "TOPLEFT", 5, -5)
@@ -445,8 +415,8 @@ local function BuildAchievementsView(parent)
     catChild:SetSize(catScroll:GetWidth(), catScroll:GetHeight())
     catScroll:SetScrollChild(catChild)
 
-    -- 7.4 Panel Derecho: Buscador, Filtros y Lista de Logros
-    local rightPanel = CreateBackdropBox(view, 675, 415, "TOPRIGHT", view, "TOPRIGHT", -10, -60)
+    -- 7.3 Panel Derecho: Buscador, Filtros y Lista
+    local rightPanel = CreateBackdropBox(view, 675, 445, "TOPRIGHT", headerFrame, "BOTTOMRIGHT", 0, -5)
 
     local searchBox = CreateFrame("EditBox", "GC_AchSearchBox", rightPanel, "InputBoxTemplate")
     searchBox:SetSize(200, 20)
@@ -476,7 +446,7 @@ local function BuildAchievementsView(parent)
     chkSeasonal:SetPoint("LEFT", btnFilterPending, "RIGHT", 8, 0)
     _G[chkSeasonal:GetName() .. "Text"]:SetText("Temporada")
 
-    -- Encabezados de la Tabla
+    -- Encabezados
     local achHeader = CreateFrame("Frame", nil, rightPanel)
     achHeader:SetSize(655, 20)
     achHeader:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", -5, -12)
@@ -500,23 +470,21 @@ local function BuildAchievementsView(parent)
     achChild:SetSize(achScroll:GetWidth(), achScroll:GetHeight())
     achScroll:SetScrollChild(achChild)
 
-    -- Cargar Categorías
-    local function BuildCategories()
+    -- Cargar Categorías de Hermandad
+    local function BuildGuildCategories()
         if catChild.buttons then for _, b in pairs(catChild.buttons) do b:Hide() end end
         catChild.buttons = {}
 
         local categories = GetCategoryList()
         local yOffset = -5
-        local firstCategorySet = false
+        local firstSet = false
 
         for _, catId in ipairs(categories or {}) do
             local title, parentID = GetCategoryInfo(catId)
-            local isGuildCat = (catId == 15070 or parentID == 15070)
-
-            if (achievementMode == "GUILD" and isGuildCat) or (achievementMode == "PLAYER" and not isGuildCat and parentID == -1) then
-                if not firstCategorySet then
+            if catId == GUILD_CATEGORY_BASE or parentID == GUILD_CATEGORY_BASE then
+                if not firstSet then
                     currentCategoryId = catId
-                    firstCategorySet = true
+                    firstSet = true
                 end
 
                 local btn = CreateFrame("Button", nil, catChild, "UIPanelButtonTemplate")
@@ -535,32 +503,32 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Cálculo global de la hermandad (Totales + Último logro conseguido)
-    local function CalculateGuildOverallStats()
-        local isGuild = (achievementMode == "GUILD")
-        local totalGuildDone, totalGuildCount = 0, 0
-        local latestAchName, latestAchDate = nil, nil
-        local latestTimestamp = 0
+    -- Escaneo global rápido de resumen de Hermandad (Sin Lag)
+    local function CalculateGuildSummary()
+        local guildPoints = GetTotalAchievementPoints and GetTotalAchievementPoints(true) or 0
+        pointsText:SetText("Puntos: |cFFFFD100" .. guildPoints .. "|r")
+
+        local totalCount, doneCount = 0, 0
+        local latestName, latestDate = nil, nil
+        local latestTS = 0
 
         local categories = GetCategoryList()
         for _, catId in ipairs(categories or {}) do
             local _, parentID = GetCategoryInfo(catId)
-            local isGuildCat = (catId == 15070 or parentID == 15070)
-
-            if (isGuild and isGuildCat) or (not isGuild and not isGuildCat) then
-                local numAch = GetCategoryNumAchievements(catId, isGuild) or 0
+            if catId == GUILD_CATEGORY_BASE or parentID == GUILD_CATEGORY_BASE then
+                local numAch = GetCategoryNumAchievements(catId, true) or 0
                 for i = 1, numAch do
                     local _, name, _, completed, month, day, year = GetAchievementInfo(catId, i)
                     if name then
-                        totalGuildCount = totalGuildCount + 1
+                        totalCount = totalCount + 1
                         if completed then
-                            totalGuildDone = totalGuildDone + 1
-                            if year and month and day and (year > 0) then
+                            doneCount = doneCount + 1
+                            if year and month and day and year > 0 then
                                 local ts = (year * 10000) + (month * 100) + day
-                                if ts > latestTimestamp then
-                                    latestTimestamp = ts
-                                    latestAchName = name
-                                    latestAchDate = string.format("%02d/%02d/20%02d", day, month, year)
+                                if ts > latestTS then
+                                    latestTS = ts
+                                    latestName = name
+                                    latestDate = string.format("%02d/%02d/20%02d", day, month, year)
                                 end
                             end
                         end
@@ -569,29 +537,23 @@ local function BuildAchievementsView(parent)
             end
         end
 
-        completedText:SetText("Completados: |cFF00FF00" .. totalGuildDone .. "/" .. totalGuildCount .. "|r")
-        if latestAchName then
-            lastAchText:SetText("Último logro: |cFFFFD100" .. latestAchName .. "|r (" .. (latestAchDate or "") .. ")")
+        completedText:SetText("Completados: |cFF00FF00" .. doneCount .. "/" .. totalCount .. "|r")
+        if latestName then
+            lastAchText:SetText("Último logro: |cFFFFD100" .. latestName .. "|r (" .. (latestDate or "") .. ")")
         else
             lastAchText:SetText("Último logro: |cFF808080Ninguno|r")
         end
     end
 
-    -- Renderizado de logros para la categoría seleccionada
+    -- Renderizado de la lista
     uiModule.RefreshAchievements = function()
         if not achChild then return end
         if achChild.rows then for _, r in pairs(achChild.rows) do r:Hide() end end
         achChild.rows = {}
 
-        UpdateModeButtonsUI()
+        CalculateGuildSummary()
 
-        local isGuildMode = (achievementMode == "GUILD")
-        local totalPoints = GetTotalAchievementPoints and GetTotalAchievementPoints(isGuildMode) or 0
-        pointsText:SetText("Puntos: |cFFFFD100" .. totalPoints .. "|r")
-
-        CalculateGuildOverallStats()
-
-        local numAchievements = GetCategoryNumAchievements(currentCategoryId, isGuildMode) or 0
+        local numAchievements = GetCategoryNumAchievements(currentCategoryId, true) or 0
         local yOffset = -5
         local rowIndex = 1
 
@@ -641,13 +603,16 @@ local function BuildAchievementsView(parent)
                     dateFs:SetJustifyH("LEFT")
                     dateFs:SetText(completed and string.format("%02d/%02d/20%02d", day or 0, month or 0, year or 0) or "|cFF808080En progreso|r")
 
-                    -- Clic en el logro: Cargar la UI oficial de Blizzard y navegar al logro
+                    -- Clic: Abrir la interfaz oficial de Blizzard y navegar al logro
                     row:SetScript("OnClick", function()
                         if not C_AddOns.IsAddOnLoaded("Blizzard_AchievementUI") then
                             AchievementFrame_LoadUI()
                         end
                         if AchievementFrame then
                             ShowUIPanel(AchievementFrame)
+                            if AchievementFrame_ToggleGuildTab then
+                                AchievementFrame_ToggleGuildTab(true)
+                            end
                             if AchievementFrame_SelectAchievement then
                                 AchievementFrame_SelectAchievement(id)
                             end
@@ -662,19 +627,7 @@ local function BuildAchievementsView(parent)
         end
     end
 
-    -- Controladores de botones
-    btnModeGuild:SetScript("OnClick", function()
-        achievementMode = "GUILD"
-        BuildCategories()
-        uiModule.RefreshAchievements()
-    end)
-
-    btnModePlayer:SetScript("OnClick", function()
-        achievementMode = "PLAYER"
-        BuildCategories()
-        uiModule.RefreshAchievements()
-    end)
-
+    -- Eventos de filtros
     searchBox:SetScript("OnTextChanged", function(self)
         searchQuery = string.lower(self:GetText() or "")
         uiModule.RefreshAchievements()
@@ -685,10 +638,9 @@ local function BuildAchievementsView(parent)
     btnFilterPending:SetScript("OnClick", function() filterState = "PENDIENTES"; uiModule.RefreshAchievements() end)
     chkSeasonal:SetScript("OnClick", function(self) filterSeasonalOnly = self:GetChecked(); uiModule.RefreshAchievements() end)
 
-    BuildCategories()
+    BuildGuildCategories()
     containers.views["Logros"] = view
 end
-
 
 -- =========================================================================
 -- 8. VISTAS PLACEHOLDER (PARA COMPLETAR EN FUTUROS PASOS)
