@@ -9,4 +9,5 @@ Core.lua
 Modules\Professions.lua
 Modules\Announcements.lua
 Modules\CSV.lua
+Modules\Achievements.lua
 Modules\UI.lua
