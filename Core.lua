@@ -216,7 +216,9 @@ function addonTable.ScanGuildRosterForChanges()
         if fullName then
             currentGuildOnlineMap[fullName] = true
 
-            local _, _, days = GetGuildRosterLastOnline(i)
+            -- Años, meses y días desde la última conexión (antes solo se miraban los días)
+            local years, months, days = GetGuildRosterLastOnline(i)
+            days = (years or 0) * 365 + (months or 0) * 30 + (days or 0)
             local isReallyOnline = (online == true or online == 1 or online == "true")
             local lastOnlineStr = "Online"
             
@@ -242,6 +244,7 @@ function addonTable.ScanGuildRosterForChanges()
                     class = classFileName or "Desconocida",
                     zone = zoneName or "Desconocida",
                     lastOnline = lastOnlineStr,
+                    offlineDays = isReallyOnline and 0 or days,
                     isOnline = isReallyOnline,
                     guid = guid,
                     rankIndex = rankIndex
@@ -256,6 +259,7 @@ function addonTable.ScanGuildRosterForChanges()
                 m.class = classFileName or m.class or "Desconocida"
                 m.zone = zoneName or m.zone or "Desconocida"
                 m.lastOnline = lastOnlineStr
+                m.offlineDays = isReallyOnline and 0 or days
                 if rosterBaselineDone and addonTable.GuildChat then
                     if isReallyOnline and not m.isOnline and addonTable.GuildChat.MarkOnline then
                         addonTable.GuildChat.MarkOnline(fullName)
@@ -282,6 +286,11 @@ function addonTable.ScanGuildRosterForChanges()
     if addonTable.Professions and addonTable.Professions.Scan then
         addonTable.Professions.Scan()
     end
+    -- Puntuación Mítica+ de cada miembro (lista de la hermandad del juego)
+    if addonTable.MythicPlus and addonTable.MythicPlus.UpdateScores then
+        addonTable.MythicPlus.UpdateScores()
+    end
+
     -- Roles declarados por otros personajes de esta cuenta (comparten SavedVariables)
     if addonTable.Profiles and addonTable.Profiles.ApplyAccountProfiles then
         addonTable.Profiles.ApplyAccountProfiles()

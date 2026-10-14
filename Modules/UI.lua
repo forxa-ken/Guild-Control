@@ -21,7 +21,7 @@ local containers = {
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Mi perfil", "Mis rosters", "Roster", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Profesiones", "Míticas+", "Mi perfil", "Mis rosters", "Roster", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -353,7 +353,18 @@ end
 local function SetPreviewText(text)
     if containers.preview and containers.preview.infoText then
         containers.preview.infoText:SetText(text or PREVIEW_DEFAULT_TEXT)
+        -- Cada vista previa nueva empieza sin botón de acción
+        if containers.preview.actionButton then containers.preview.actionButton:Hide() end
     end
+end
+
+-- Botón opcional al pie de la vista previa (por ejemplo "Ver en la interfaz del juego")
+local function SetPreviewAction(label, onClick)
+    local btn = containers.preview and containers.preview.actionButton
+    if not btn then return end
+    btn:SetText(label)
+    btn:SetScript("OnClick", onClick)
+    btn:Show()
 end
 
 local function SwitchTab(tabName)
@@ -454,12 +465,18 @@ local function BuildPreviewPanel(parent)
 
     local infoText = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     infoText:SetPoint("TOPLEFT", preview, "TOPLEFT", 15, -45)
-    infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 15)
+    infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 44)
     infoText:SetJustifyH("LEFT")
     infoText:SetJustifyV("TOP")
     infoText:SetText(PREVIEW_DEFAULT_TEXT)
 
     preview.infoText = infoText
+
+    local actionButton = CreateFrame("Button", nil, preview, "UIPanelButtonTemplate")
+    actionButton:SetSize(190, 22)
+    actionButton:SetPoint("BOTTOM", preview, "BOTTOM", 0, 14)
+    actionButton:Hide()
+    preview.actionButton = actionButton
     containers.preview = preview
 end
 
@@ -537,6 +554,14 @@ local function BuildAchievementPreviewText(id)
     return table.concat(lines, "\n")
 end
 
+-- Vista previa de un logro con el botón para abrirlo en la ventana de logros del juego
+local function ShowAchievementPreviewWithButton(id)
+    SetPreviewText(BuildAchievementPreviewText(id))
+    SetPreviewAction("Ver en la interfaz del juego", function()
+        if addonTable.Achievements then addonTable.Achievements.OpenAchievement(id) end
+    end)
+end
+
 function uiModule.ShowAchievementPreview(id)
     if not id then return end
     selectedAchievementId = id
@@ -544,13 +569,13 @@ function uiModule.ShowAchievementPreview(id)
     if addonTable.Achievements then
         addonTable.Achievements.RequestMembers(id)
     end
-    SetPreviewText(BuildAchievementPreviewText(id))
+    ShowAchievementPreviewWithButton(id)
 
     -- La lista de participantes puede tardar en llegar del servidor: reintento único
     if C_Timer and C_Timer.After then
         C_Timer.After(1, function()
             if selectedAchievementId == id and activeTab == "Logros" then
-                SetPreviewText(BuildAchievementPreviewText(id))
+                ShowAchievementPreviewWithButton(id)
             end
         end)
     end
@@ -4344,12 +4369,32 @@ local function BuildSummaryView(parent)
     -- Vista previa de una noticia en el panel derecho (logro u objeto)
     local function ShowNewsPreview(item)
         if item.achievementId then
-            SetPreviewText(BuildAchievementPreviewText(item.achievementId))
+            ShowAchievementPreviewWithButton(item.achievementId)
         elseif item.link then
             SetPreviewText("|cFFFFD100Botín|r\n\n" .. item.link .. "\n\nObtenido por: |cFFFFFFFF" .. (item.who or "-") .. "|r\n"
-                .. "Fecha: " .. (item.dateText or "-") .. "\n\n|cFF808080Pasa el ratón por la noticia para ver el objeto.|r")
+                .. "Fecha: " .. (item.dateText or "-") .. "\n\n|cFF808080Pasa el ratón por la noticia para ver el objeto. Shift+clic para compartirlo en la hermandad.|r")
         else
             SetPreviewText("|cFFFFD100" .. (item.title or "") .. "|r\n\n" .. (item.detail or "") .. "\n\nFecha: " .. (item.dateText or "-"))
+        end
+    end
+
+    -- Shift+clic: comparte el objeto o el logro en el chat de hermandad
+    local function ShareNewsItem(item)
+        if not IsInGuild() then return end
+        local msg
+        if item.link then
+            msg = "Botín de " .. (item.who or "?") .. ": " .. item.link
+        elseif item.achievementId and GetAchievementLink then
+            local link = GetAchievementLink(item.achievementId)
+            if link then
+                msg = (item.kind == "guildAchievement" and "La hermandad ha conseguido " or ((item.who or "?") .. " ha conseguido ")) .. link
+            end
+        end
+        if not msg then return end
+        if C_ChatInfo and C_ChatInfo.SendChatMessage then
+            C_ChatInfo.SendChatMessage(msg, "GUILD")
+        else
+            SendChatMessage(msg, "GUILD")
         end
     end
 
@@ -4395,7 +4440,10 @@ local function BuildSummaryView(parent)
             end
         end)
         card:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        card:SetScript("OnClick", function(self) if self.item then ShowNewsPreview(self.item) end end)
+        card:SetScript("OnClick", function(self)
+            if not self.item then return end
+            if IsShiftKeyDown() then ShareNewsItem(self.item) else ShowNewsPreview(self.item) end
+        end)
         cards[index] = card
         return card
     end
@@ -4458,6 +4506,20 @@ local function BuildSummaryView(parent)
     local rostersBox = SideBox("Rosters", 118, raidsBox)
     local officersBox = SideBox("Oficiales", 162, rostersBox)
 
+    -- La lista de oficiales puede ser larga: va dentro de un scroll
+    officersBox.text:Hide()
+    local officersScroll = CreateFrame("ScrollFrame", "GC_SummaryOfficersScroll", officersBox, "UIPanelScrollFrameTemplate")
+    officersScroll:SetPoint("TOPLEFT", officersBox.title, "BOTTOMLEFT", 0, -6)
+    officersScroll:SetPoint("BOTTOMRIGHT", officersBox, "BOTTOMRIGHT", -28, 8)
+    local officersChild = CreateFrame("Frame")
+    officersChild:SetSize(262, 1)
+    officersScroll:SetScrollChild(officersChild)
+    local officersText = officersChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    officersText:SetPoint("TOPLEFT", officersChild, "TOPLEFT", 0, 0)
+    officersText:SetWidth(262)
+    officersText:SetJustifyH("LEFT")
+    officersText:SetSpacing(3)
+
     local WEEKDAYS = { "Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb" }
     local function ShortEventDate(event)
         local y, mo, d = string.match(event.date or "", "^(%d+)-(%d+)-(%d+)$")
@@ -4490,20 +4552,18 @@ local function BuildSummaryView(parent)
         end
         rostersBox.text:SetText(#rosterLines > 0 and table.concat(rosterLines, "\n") or "|cFF808080Todavía no hay rosters.|r")
 
-        -- Oficiales de la hermandad con su rango (conectados en verde)
+        -- Todos los oficiales de la hermandad con su rango (conectados con punto verde)
         local officerLines = {}
         local officers = N.GetOfficers()
-        for i, o in ipairs(officers) do
-            if i > 8 then
-                table.insert(officerLines, "|cFF808080y " .. (#officers - 8) .. " más...|r")
-                break
-            end
+        for _, o in ipairs(officers) do
             local short = string.match(o.name, "^([^-]+)") or o.name
-            local dot = o.online and "|TInterface\\COMMON\\Indicator-Green:12:12|t " or "|TInterface\\COMMON\\Indicator-Gray:12:12|t "
+            local dot = o.online and "|TInterface\COMMON\Indicator-Green:12:12|t " or "|TInterface\COMMON\Indicator-Gray:12:12|t "
             table.insert(officerLines, dot .. "|cFF" .. addonTable.GetClassColorHex(o.class) .. short .. "|r  |cFFBFBFBF" .. o.rank .. "|r")
         end
-        officersBox.text:SetText(#officerLines > 0 and table.concat(officerLines, "\n")
+        officersBox.title:SetText("Oficiales (" .. #officers .. ")")
+        officersText:SetText(#officerLines > 0 and table.concat(officerLines, "\n")
             or "|cFF808080No se han encontrado oficiales. El rango de oficial se ajusta en Mi perfil.|r")
+        officersChild:SetHeight(math.max(1, officersText:GetStringHeight() + 4))
     end
 
     -- Noticias agrupadas por semana (cabecera "Esta semana", "Semana pasada", "Semana del...")
@@ -4804,6 +4864,670 @@ local function BuildBlacklistView(parent)
     end)
     view:SetScript("OnShow", Refresh)
     containers.views["Black list"] = view
+end
+
+-- =========================================================================
+-- 8g. VISTA WARNING (MIEMBROS INACTIVOS Y MIEMBROS EN LA LISTA NEGRA)
+-- =========================================================================
+local INACTIVE_OPTIONS = { 14, 30, 60, 90, 180, 365 }
+local WARNING_ROW_HEIGHT = 22
+
+-- Miembros que no se conectan desde hace al menos "days" días (más antiguos primero)
+local function GetInactiveMembers(days, includeAlts)
+    local list = {}
+    for fullName, m in pairs(GuildControlDB.members or {}) do
+        local isAlt = m.declared and m.declared.charType == "alt"
+        if not m.isOnline and (m.offlineDays or 0) >= days and (includeAlts or not isAlt) then
+            table.insert(list, { name = fullName, data = m })
+        end
+    end
+    table.sort(list, function(a, b)
+        if (a.data.offlineDays or 0) ~= (b.data.offlineDays or 0) then return (a.data.offlineDays or 0) > (b.data.offlineDays or 0) end
+        return a.name < b.name
+    end)
+    return list
+end
+
+-- Total de avisos para la caja "Warnings" del encabezado
+function uiModule.CountWarnings()
+    local settings = GuildControlDB.settings or {}
+    local inactive = #GetInactiveMembers(settings.inactiveDays or 30, settings.inactiveIncludeAlts ~= false)
+    local blacklisted = addonTable.Blacklist and addonTable.Blacklist.CountInGuild() or 0
+    return inactive + blacklisted
+end
+
+local function FormatOfflineDays(days)
+    days = days or 0
+    if days >= 365 then
+        local years = math.floor(days / 365)
+        return years .. (years == 1 and " año" or " años")
+    elseif days >= 60 then
+        return math.floor(days / 30) .. " meses"
+    end
+    return days .. " días"
+end
+
+local function BuildWarningView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+    local settings = function() return GuildControlDB.settings end
+    local Refresh
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
+    title:SetText("Warnings")
+
+    local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    subtitle:SetPoint("LEFT", title, "RIGHT", 14, 0)
+    subtitle:SetText("Miembros que llevan mucho tiempo sin conectarse y miembros que están en la lista negra.")
+
+    -- Controles: antigüedad, alters, recuento y exportar
+    local daysLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    daysLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -46)
+    daysLabel:SetText("Sin conectarse desde hace al menos:")
+
+    local dropDays = CreateFrame("DropdownButton", "GC_WarningDays", view, "WowStyle1DropdownTemplate")
+    dropDays:SetPoint("LEFT", daysLabel, "RIGHT", 10, 0)
+    dropDays:SetWidth(110)
+    dropDays:SetupMenu(function(_, root)
+        for _, days in ipairs(INACTIVE_OPTIONS) do
+            root:CreateRadio(FormatOfflineDays(days), function() return (settings().inactiveDays or 30) == days end,
+                function()
+                    settings().inactiveDays = days
+                    Refresh()
+                    if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+                end)
+        end
+    end)
+
+    local chkAlts = CreateFrame("CheckButton", "GC_WarningIncludeAlts", view, "UICheckButtonTemplate")
+    chkAlts:SetSize(24, 24)
+    chkAlts:SetPoint("LEFT", dropDays, "RIGHT", 16, 0)
+    _G[chkAlts:GetName() .. "Text"]:SetText("Incluir alters")
+    chkAlts:SetScript("OnClick", function(self)
+        settings().inactiveIncludeAlts = self:GetChecked() and true or false
+        Refresh()
+        if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+    end)
+
+    local btnExport = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnExport:SetSize(120, 22)
+    btnExport:SetPoint("TOPRIGHT", view, "TOPRIGHT", -12, -42)
+    btnExport:SetText("Exportar CSV")
+
+    local countText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("RIGHT", btnExport, "LEFT", -12, 0)
+
+    -- Tabla de inactivos
+    local COLS = {
+        { title = "Personaje",       x = 8,   w = 170 },
+        { title = "Nivel",           x = 182, w = 40 },
+        { title = "Rango",           x = 226, w = 100 },
+        { title = "Tipo",            x = 330, w = 50 },
+        { title = "Sin conectarse",  x = 384, w = 100 },
+        { title = "Nota pública",    x = 488, w = 356 },
+    }
+
+    local listBox = CreateBackdropBox(view, 880, 340, "TOPLEFT", view, "TOPLEFT", 10, -70)
+    local headerRow = CreateFrame("Frame", nil, listBox)
+    headerRow:SetSize(850, 18)
+    headerRow:SetPoint("TOPLEFT", listBox, "TOPLEFT", 6, -8)
+    for _, col in ipairs(COLS) do
+        local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
+        fs:SetText(col.title)
+    end
+
+    local scroll = CreateFrame("ScrollFrame", "GC_WarningScroll", listBox, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
+    scroll:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -28, 8)
+    local child = CreateFrame("Frame")
+    child:SetSize(846, 1)
+    scroll:SetScrollChild(child)
+
+    local emptyText = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", listBox, "CENTER", 0, 0)
+    emptyText:SetText("Nadie lleva tanto tiempo sin conectarse.")
+
+    local rows = {}
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, child)
+        row:SetSize(846, WARNING_ROW_HEIGHT - 2)
+        row:RegisterForClicks("RightButtonUp")
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+        row.cells = {}
+        for i, col in ipairs(COLS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
+            fs:SetWidth(col.w - 4)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            row.cells[i] = fs
+        end
+        -- Clic derecho: expulsar (con confirmación en un submenú)
+        row:SetScript("OnClick", function(self)
+            local name = self.fullName
+            if not name then return end
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle(name)
+                if CanGuildRemove and not CanGuildRemove() then
+                    root:CreateButton("|cFF808080Tu rango no puede expulsar|r", function() end)
+                    return
+                end
+                local kick = root:CreateButton("|cFFFF3333Expulsar de la hermandad...|r")
+                kick:CreateButton("Sí, expulsar a " .. name, function()
+                    if C_GuildInfo and C_GuildInfo.RemoveFromGuild then
+                        C_GuildInfo.RemoveFromGuild(name)
+                    elseif GuildUninvite then
+                        GuildUninvite(name)
+                    end
+                    PrintGC("Expulsando a |cFFFFD100" .. name .. "|r de la hermandad.")
+                end)
+            end)
+        end)
+        rows[index] = row
+        return row
+    end
+
+    -- Miembros que figuran en la lista negra
+    local blackBox = CreateBackdropBox(view, 880, 92, "TOPLEFT", listBox, "BOTTOMLEFT", 0, -6)
+    local blackTitle = blackBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    blackTitle:SetPoint("TOPLEFT", blackBox, "TOPLEFT", 12, -10)
+    local blackText = blackBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    blackText:SetPoint("TOPLEFT", blackTitle, "BOTTOMLEFT", 0, -6)
+    blackText:SetPoint("RIGHT", blackBox, "RIGHT", -12, 0)
+    blackText:SetJustifyH("LEFT")
+    blackText:SetJustifyV("TOP")
+    blackText:SetMaxLines(3)
+
+    local currentList = {}
+    btnExport:SetScript("OnClick", function()
+        local lines = { "Personaje,Nivel,Rango,Tipo,DiasSinConectarse,NotaPublica" }
+        for _, entry in ipairs(currentList) do
+            local m = entry.data
+            local charType = m.declared and m.declared.charType or ""
+            table.insert(lines, string.format("%s,%s,%s,%s,%d,%s", entry.name, tostring(m.level or ""), m.rank or "",
+                charType, m.offlineDays or 0, string.gsub(m.publicNote or "", ",", " ")))
+        end
+        if addonTable.CSV and addonTable.CSV.ShowText then addonTable.CSV.ShowText(table.concat(lines, "\n")) end
+    end)
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        local days = settings().inactiveDays or 30
+        dropDays:SetText(FormatOfflineDays(days))
+        chkAlts:SetChecked(settings().inactiveIncludeAlts ~= false)
+
+        for _, row in ipairs(rows) do row:Hide() end
+        currentList = GetInactiveMembers(days, settings().inactiveIncludeAlts ~= false)
+        for i, entry in ipairs(currentList) do
+            local m = entry.data
+            local row = AcquireRow(i)
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * WARNING_ROW_HEIGHT)
+            row.bg:SetShown(i % 2 == 0)
+            row.fullName = entry.name
+            local offline = m.offlineDays or 0
+            local color = offline >= 180 and "FF3333" or (offline >= 60 and "FF7F00" or "FFD100")
+            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r")
+            row.cells[2]:SetText(tostring(m.level or ""))
+            row.cells[3]:SetText(m.rank or "")
+            row.cells[4]:SetText(m.declared and (m.declared.charType == "alt" and "Alter" or (m.declared.charType == "main" and "Main" or "")) or "")
+            row.cells[5]:SetText("|cFF" .. color .. FormatOfflineDays(offline) .. "|r")
+            row.cells[6]:SetText(m.publicNote or "")
+            row:Show()
+        end
+        child:SetHeight(math.max(1, #currentList * WARNING_ROW_HEIGHT))
+        emptyText:SetShown(#currentList == 0)
+        countText:SetText("|cFFFFD100" .. #currentList .. "|r miembros inactivos   ·   Clic derecho: expulsar")
+
+        -- Lista negra dentro de la hermandad
+        local names = {}
+        for fullName in pairs(GuildControlDB.members or {}) do
+            local entry = addonTable.Blacklist and addonTable.Blacklist.Get(fullName)
+            if entry then
+                table.insert(names, "|cFFFF3333" .. fullName .. "|r |cFF808080(" .. addonTable.Blacklist.GetReasonLabel(entry.reason) .. ")|r")
+            end
+        end
+        table.sort(names)
+        blackTitle:SetText("En la lista negra y dentro de la hermandad (" .. #names .. ")")
+        blackText:SetText(#names > 0 and table.concat(names, "   ·   ") or "|cFF808080Nadie de la lista negra está en la hermandad.|r")
+    end
+
+    view:SetScript("OnShow", Refresh)
+    uiModule.RefreshWarnings = Refresh
+    containers.views["Warning"] = view
+end
+
+-- =========================================================================
+-- 8h. VISTA PROFESIONES (QUIÉN TIENE CADA PROFESIÓN Y CON QUÉ HABILIDAD)
+-- =========================================================================
+local PROF_ROW_HEIGHT = 22
+
+-- "Alquimia 800" -> "Alquimia", 800 ; "Alquimia" -> "Alquimia", nil ; "Ninguna" -> nil
+local function ParseProfession(text)
+    if not text or text == "" or text == "Ninguna" then return nil end
+    local name, skill = string.match(text, "^(.-)%s+(%d+)$")
+    if name then return name, tonumber(skill) end
+    return text, nil
+end
+
+-- { [profesión] = { {name, data, skill, other}, ... } } a partir de prof1/prof2 de cada miembro
+local function CollectProfessions()
+    local byProf = {}
+    for fullName, m in pairs(GuildControlDB.members or {}) do
+        local p1, s1 = ParseProfession(m.prof1)
+        local p2, s2 = ParseProfession(m.prof2)
+        if p1 then
+            byProf[p1] = byProf[p1] or {}
+            table.insert(byProf[p1], { name = fullName, data = m, skill = s1, other = m.prof2 })
+        end
+        if p2 and p2 ~= p1 then
+            byProf[p2] = byProf[p2] or {}
+            table.insert(byProf[p2], { name = fullName, data = m, skill = s2, other = m.prof1 })
+        end
+    end
+    return byProf
+end
+
+local function BuildProfessionsView(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local selectedProf = nil
+    local searchQuery = ""
+    local sortKey, sortAsc = "skill", false
+    local Refresh
+
+    -- Izquierda: profesiones con su recuento
+    local listBox = CreateBackdropBox(view, 200, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
+    local listTitle = listBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    listTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", 12, -10)
+    listTitle:SetText("Profesiones")
+
+    local profButtons = {}
+    local function AcquireProfButton(index)
+        local btn = profButtons[index]
+        if btn then return btn end
+        btn = CreateFrame("Button", nil, listBox)
+        btn:SetSize(184, 22)
+        btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+        btn.bg:SetAllPoints()
+        btn.bg:SetColorTexture(0.2, 0.4, 0.8, 0.35)
+        btn.highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+        btn.highlight:SetAllPoints()
+        btn.highlight:SetColorTexture(1, 1, 1, 0.08)
+        btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        btn.text:SetPoint("LEFT", btn, "LEFT", 8, 0)
+        btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+        btn.count:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+        btn:SetScript("OnClick", function(self)
+            selectedProf = self.prof
+            Refresh()
+        end)
+        profButtons[index] = btn
+        return btn
+    end
+
+    -- Derecha: buscador, filtros y tabla
+    local right = CreateBackdropBox(view, 674, 500, "TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+
+    local searchBox = CreateFrame("EditBox", nil, right, "InputBoxTemplate")
+    searchBox:SetSize(220, 20)
+    searchBox:SetPoint("TOPLEFT", right, "TOPLEFT", 16, -12)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
+    searchPlaceholder:SetText("Buscar miembro...")
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = string.lower(strtrim(self:GetText() or ""))
+        searchPlaceholder:SetShown((self:GetText() or "") == "")
+        Refresh()
+    end)
+
+    local chkOnline = CreateFrame("CheckButton", "GC_ProfsOnlyOnline", right, "UICheckButtonTemplate")
+    chkOnline:SetSize(24, 24)
+    chkOnline:SetPoint("LEFT", searchBox, "RIGHT", 14, 0)
+    _G[chkOnline:GetName() .. "Text"]:SetText("Solo conectados")
+    chkOnline:SetScript("OnClick", function() Refresh() end)
+
+    local countText = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("TOPRIGHT", right, "TOPRIGHT", -16, -16)
+
+    local COLS = {
+        { title = "Nombre",          x = 8,   w = 220, key = "name" },
+        { title = "Habilidad",       x = 232, w = 80,  key = "skill" },
+        { title = "Otra profesión",  x = 316, w = 170, key = "other" },
+        { title = "Conexión",        x = 490, w = 140, key = "online" },
+    }
+
+    local headerRow = CreateFrame("Frame", nil, right)
+    headerRow:SetSize(640, 20)
+    headerRow:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -44)
+    local headerButtons = {}
+    for _, col in ipairs(COLS) do
+        local hb = CreateFrame("Button", nil, headerRow)
+        hb:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
+        hb:SetSize(col.w, 20)
+        hb.text = hb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        hb.text:SetPoint("LEFT", hb, "LEFT", 0, 0)
+        hb.key, hb.title = col.key, col.title
+        hb:SetScript("OnClick", function(self)
+            if sortKey == self.key then sortAsc = not sortAsc else sortKey, sortAsc = self.key, self.key ~= "skill" end
+            Refresh()
+        end)
+        table.insert(headerButtons, hb)
+    end
+
+    local scroll = CreateFrame("ScrollFrame", "GC_ProfsScroll", right, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
+    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 10)
+    local child = CreateFrame("Frame")
+    child:SetSize(636, 1)
+    scroll:SetScrollChild(child)
+
+    local emptyText = right:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", right, "CENTER", 0, 0)
+    emptyText:SetWidth(560)
+    emptyText:SetText("Todavía no hay profesiones registradas. Se rellenan al escanear la hermandad.")
+
+    local rows = {}
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, child)
+        row:SetSize(636, PROF_ROW_HEIGHT - 2)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.cells = {}
+        for i, col in ipairs(COLS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
+            fs:SetWidth(col.w - 4)
+            fs:SetJustifyH(col.key == "skill" and "RIGHT" or "LEFT")
+            fs:SetWordWrap(false)
+            row.cells[i] = fs
+        end
+        rows[index] = row
+        return row
+    end
+
+    local function SortValue(entry, key)
+        if key == "skill" then return entry.skill or -1 end
+        if key == "online" then return entry.data.isOnline and -1 or (entry.data.offlineDays or 0) end
+        if key == "other" then return string.lower(entry.other or "~") end
+        return string.lower(entry.name)
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        local byProf = CollectProfessions()
+        local profNames = {}
+        for prof in pairs(byProf) do table.insert(profNames, prof) end
+        table.sort(profNames)
+        if not selectedProf or not byProf[selectedProf] then selectedProf = profNames[1] end
+
+        for _, btn in ipairs(profButtons) do btn:Hide() end
+        for i, prof in ipairs(profNames) do
+            local btn = AcquireProfButton(i)
+            btn:SetPoint("TOPLEFT", listBox, "TOPLEFT", 8, -32 - (i - 1) * 24)
+            btn.prof = prof
+            btn.text:SetText(prof)
+            btn.count:SetText(#byProf[prof])
+            btn.bg:SetShown(prof == selectedProf)
+            btn:Show()
+        end
+
+        for _, hb in ipairs(headerButtons) do
+            local arrow = (hb.key == sortKey) and (sortAsc and " ^" or " v") or ""
+            hb.text:SetText((hb.key == sortKey and "|cFFFFFFFF" or "") .. hb.title .. arrow .. (hb.key == sortKey and "|r" or ""))
+        end
+
+        for _, row in ipairs(rows) do row:Hide() end
+        local list = {}
+        for _, entry in ipairs(selectedProf and byProf[selectedProf] or {}) do
+            local pass = (not chkOnline:GetChecked() or entry.data.isOnline)
+                and (searchQuery == "" or string.find(string.lower(entry.name), searchQuery, 1, true))
+            if pass then table.insert(list, entry) end
+        end
+        table.sort(list, function(a, b)
+            local va, vb = SortValue(a, sortKey), SortValue(b, sortKey)
+            if va ~= vb then
+                if sortAsc then return va < vb end
+                return va > vb
+            end
+            return a.name < b.name
+        end)
+
+        for i, entry in ipairs(list) do
+            local m = entry.data
+            local row = AcquireRow(i)
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * PROF_ROW_HEIGHT)
+            row.bg:SetShown(i % 2 == 0)
+            local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
+            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r" .. dot)
+            row.cells[2]:SetText(entry.skill and tostring(entry.skill) or "|cFF808080-|r")
+            local other = entry.other
+            row.cells[3]:SetText((other and other ~= "Ninguna") and other or "")
+            row.cells[4]:SetText(m.isOnline and "|cFF00FF00En línea|r" or ("|cFF808080" .. (m.lastOnline or "") .. "|r"))
+            row:Show()
+        end
+        child:SetHeight(math.max(1, #list * PROF_ROW_HEIGHT))
+        emptyText:SetShown(#profNames == 0)
+        countText:SetText(selectedProf and ("|cFFFFD100" .. #list .. "|r miembros con " .. selectedProf) or "")
+    end
+
+    view:SetScript("OnShow", Refresh)
+    containers.views["Profesiones"] = view
+end
+
+-- =========================================================================
+-- 8i. VISTA MÍTICAS+ (CONSUME MODULES/MYTHICPLUS.LUA)
+-- =========================================================================
+local MPLUS_ROW_HEIGHT = 22
+
+local function BuildMythicPlusView(parent)
+    local M = addonTable.MythicPlus
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local searchQuery = ""
+    local Refresh
+
+    -- Izquierda: clasificación de la hermandad por puntuación M+
+    local listBox = CreateBackdropBox(view, 566, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
+    local listTitle = listBox:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    listTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", 14, -12)
+    listTitle:SetText("Puntuación Mítica+ de la hermandad")
+
+    local searchBox = CreateFrame("EditBox", nil, listBox, "InputBoxTemplate")
+    searchBox:SetSize(170, 20)
+    searchBox:SetPoint("TOPLEFT", listTitle, "BOTTOMLEFT", 6, -10)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
+    searchPlaceholder:SetText("Buscar miembro...")
+    searchBox:SetScript("OnTextChanged", function(self)
+        searchQuery = string.lower(strtrim(self:GetText() or ""))
+        searchPlaceholder:SetShown((self:GetText() or "") == "")
+        Refresh()
+    end)
+
+    local chkOnline = CreateFrame("CheckButton", "GC_MPlusOnlyOnline", listBox, "UICheckButtonTemplate")
+    chkOnline:SetSize(24, 24)
+    chkOnline:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
+    _G[chkOnline:GetName() .. "Text"]:SetText("Conectados")
+    chkOnline:SetScript("OnClick", function() Refresh() end)
+
+    local chkKeys = CreateFrame("CheckButton", "GC_MPlusOnlyKeys", listBox, "UICheckButtonTemplate")
+    chkKeys:SetSize(24, 24)
+    chkKeys:SetPoint("LEFT", chkOnline, "RIGHT", 90, 0)
+    _G[chkKeys:GetName() .. "Text"]:SetText("Con llave")
+    chkKeys:SetScript("OnClick", function() Refresh() end)
+
+    local COLS = {
+        { title = "#",          x = 6,   w = 26 },
+        { title = "Nombre",     x = 34,  w = 170 },
+        { title = "Rol",        x = 206, w = 70 },
+        { title = "Puntuación", x = 278, w = 80 },
+        { title = "Llave",      x = 362, w = 160 },
+    }
+    local headerRow = CreateFrame("Frame", nil, listBox)
+    headerRow:SetSize(530, 18)
+    headerRow:SetPoint("TOPLEFT", listBox, "TOPLEFT", 8, -70)
+    for _, col in ipairs(COLS) do
+        local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
+        fs:SetText(col.title)
+    end
+
+    local scroll = CreateFrame("ScrollFrame", "GC_MPlusScroll", listBox, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
+    scroll:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -28, 26)
+    local child = CreateFrame("Frame")
+    child:SetSize(526, 1)
+    scroll:SetScrollChild(child)
+
+    local listHint = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    listHint:SetPoint("BOTTOMLEFT", listBox, "BOTTOMLEFT", 12, 8)
+    listHint:SetText("La puntuación sale de la lista de la hermandad del juego; las llaves, de quien usa GuildControl.")
+
+    local rows = {}
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, child)
+        row:SetSize(526, MPLUS_ROW_HEIGHT - 2)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.cells = {}
+        for i, col in ipairs(COLS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
+            fs:SetWidth(col.w - 4)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            row.cells[i] = fs
+        end
+        rows[index] = row
+        return row
+    end
+
+    -- Derecha: afijos, mi llave y mis mejores mazmorras
+    local function SideBox(titleText, height, anchor)
+        local box = CreateBackdropBox(view, 304, height)
+        if anchor then box:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6) else box:SetPoint("TOPLEFT", listBox, "TOPRIGHT", 8, 0) end
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+        box.title:SetText(titleText)
+        box.text = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        box.text:SetPoint("TOPLEFT", box.title, "BOTTOMLEFT", 0, -6)
+        box.text:SetPoint("RIGHT", box, "RIGHT", -12, 0)
+        box.text:SetJustifyH("LEFT")
+        box.text:SetJustifyV("TOP")
+        box.text:SetSpacing(4)
+        return box
+    end
+    local affixBox = SideBox("Afijos de la semana", 116)
+    local keyBox = SideBox("Tu llave y tu puntuación", 76, affixBox)
+    local bestBox = SideBox("Tus mejores mazmorras de la temporada", 296, keyBox)
+
+    local btnRequest = CreateFrame("Button", nil, keyBox, "UIPanelButtonTemplate")
+    btnRequest:SetSize(110, 20)
+    btnRequest:SetPoint("TOPRIGHT", keyBox, "TOPRIGHT", -8, -6)
+    btnRequest:SetText("Pedir llaves")
+    btnRequest:SetScript("OnClick", function()
+        M.BroadcastKeystone(true)
+        M.RequestKeystones()
+        PrintGC("Pidiendo las llaves a los miembros conectados con GuildControl...")
+    end)
+
+    local function KeystoneText(keystone)
+        if not keystone then return "" end
+        local name = M.GetMapName(keystone.mapID) or ("Mazmorra " .. keystone.mapID)
+        return "|cFFA335EE+" .. keystone.level .. "|r " .. name
+    end
+
+    local function RefreshSide()
+        local affixLines = {}
+        for _, affix in ipairs(M.GetAffixes()) do
+            table.insert(affixLines, (affix.icon and ("|T" .. affix.icon .. ":16:16|t ") or "") .. "|cFFFFD100" .. affix.name .. "|r")
+        end
+        affixBox.text:SetText(#affixLines > 0 and table.concat(affixLines, "\n") or "|cFF808080Sin datos de afijos todavía.|r")
+
+        local mapID, level = M.GetMyKeystone()
+        local myScore = M.GetMyScore()
+        keyBox.text:SetText((mapID and ("Llave: " .. KeystoneText({ mapID = mapID, level = level })) or "|cFF808080No tienes llave.|r")
+            .. "\nPuntuación: |cFF" .. M.ScoreColorHex(myScore) .. myScore .. "|r")
+
+        local bestLines = {}
+        for _, run in ipairs(M.GetMyBestRuns()) do
+            if run.level > 0 then
+                local timeColor = run.inTime and "00FF00" or "FF7F00"
+                table.insert(bestLines, "|cFF" .. timeColor .. "+" .. run.level .. "|r  " .. run.name
+                    .. "  |cFF" .. M.ScoreColorHex(run.score * 8) .. math.floor(run.score) .. "|r")
+            else
+                table.insert(bestLines, "|cFF808080-  " .. run.name .. "|r")
+            end
+        end
+        bestBox.text:SetText(#bestLines > 0 and table.concat(bestLines, "\n") or "|cFF808080Sin datos de la temporada todavía.|r")
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        for _, row in ipairs(rows) do row:Hide() end
+        local list = {}
+        for fullName, m in pairs(GuildControlDB.members or {}) do
+            local pass = (not chkOnline:GetChecked() or m.isOnline)
+                and (not chkKeys:GetChecked() or m.keystone ~= nil)
+                and (searchQuery == "" or string.find(string.lower(fullName), searchQuery, 1, true))
+                and ((m.mplusScore or 0) > 0 or m.keystone ~= nil)
+            if pass then table.insert(list, { name = fullName, data = m }) end
+        end
+        table.sort(list, function(a, b)
+            local sa, sb = a.data.mplusScore or 0, b.data.mplusScore or 0
+            if sa ~= sb then return sa > sb end
+            return a.name < b.name
+        end)
+
+        for i, entry in ipairs(list) do
+            local m = entry.data
+            local row = AcquireRow(i)
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * MPLUS_ROW_HEIGHT)
+            row.bg:SetShown(i % 2 == 0)
+            local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
+            local score = m.mplusScore or 0
+            row.cells[1]:SetText("|cFF808080" .. i .. "|r")
+            row.cells[2]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. (string.match(entry.name, "^([^-]+)") or entry.name) .. "|r" .. dot)
+            row.cells[3]:SetText(HasDefinedRole(m) and (RoleIcon(m.role, 12) .. " " .. m.role) or "")
+            row.cells[4]:SetText("|cFF" .. M.ScoreColorHex(score) .. score .. "|r")
+            row.cells[5]:SetText(KeystoneText(m.keystone))
+            row:Show()
+        end
+        child:SetHeight(math.max(1, #list * MPLUS_ROW_HEIGHT))
+        RefreshSide()
+    end
+
+    M.AddListener(function() Refresh() end)
+    view:SetScript("OnShow", function()
+        M.RequestData()
+        M.UpdateScores()
+        Refresh()
+    end)
+    containers.views["Míticas+"] = view
 end
 
 -- =========================================================================
@@ -5358,9 +6082,11 @@ function uiModule.CreateUI()
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
     BuildMyRostersView(mainContent)
+    BuildProfessionsView(mainContent)
+    BuildMythicPlusView(mainContent)
     BuildSummaryView(mainContent)
     BuildRosterView(mainContent)
-    BuildPlaceholderView(mainContent, "Warning")
+    BuildWarningView(mainContent)
     BuildInviteView(mainContent)
     BuildBlacklistView(mainContent)
     BuildConfigView(mainContent)
@@ -5515,8 +6241,8 @@ function uiModule.UpdateMemberCounter()
         end
     end
     containers.header.membersBox.value:SetText(total)
-    -- Warnings: personajes de la lista negra que están en la hermandad
-    containers.header.warningsBox.value:SetText(addonTable.Blacklist and addonTable.Blacklist.CountInGuild() or 0)
+    -- Warnings: inactivos (según la antigüedad elegida en Warning) y miembros en la lista negra
+    containers.header.warningsBox.value:SetText(uiModule.CountWarnings and uiModule.CountWarnings() or 0)
     containers.header.onlineBox.value:SetText(online)
 end
 

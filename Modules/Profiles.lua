@@ -95,10 +95,34 @@ function profilesModule.IsOfficer()
     return rankIndex <= profilesModule.GetOfficerRankIndex()
 end
 
+-- Rangos (rankIndex, 0 = maestro) con permiso de chat de oficiales según la configuración
+-- de rangos del juego. Se cachea unos segundos porque se consulta para cada miembro.
+local officerRanksCache, officerRanksCacheAt = nil, -60
+function profilesModule.GetOfficerPermissionRanks()
+    if officerRanksCache and GetTime() - officerRanksCacheAt < 30 then return officerRanksCache end
+    local set = {}
+    local num = GuildControlGetNumRanks and GuildControlGetNumRanks() or 0
+    if C_GuildInfo and C_GuildInfo.GuildControlGetRankFlags then
+        for rankOrder = 1, num do
+            local ok, flags = pcall(C_GuildInfo.GuildControlGetRankFlags, rankOrder)
+            -- Permisos 3 y 4: escuchar y hablar en el chat de oficiales
+            if ok and type(flags) == "table" and (flags[3] or flags[4]) then set[rankOrder - 1] = true end
+        end
+    end
+    officerRanksCache, officerRanksCacheAt = set, GetTime()
+    return set
+end
+
+-- ¿Este rango es de oficial? Por el rango mínimo configurado o por permiso de chat de oficiales
+function profilesModule.IsOfficerRank(rankIndex)
+    if rankIndex == nil then return false end
+    return rankIndex <= profilesModule.GetOfficerRankIndex() or profilesModule.GetOfficerPermissionRanks()[rankIndex] == true
+end
+
 -- Para otros jugadores solo se puede comprobar el rango (member.rankIndex)
 function profilesModule.IsOfficerName(fullName)
     local m = fullName and GuildControlDB.members[NormalizeName(fullName)]
-    return m and m.rankIndex ~= nil and m.rankIndex <= profilesModule.GetOfficerRankIndex() or false
+    return m ~= nil and profilesModule.IsOfficerRank(m.rankIndex)
 end
 
 function profilesModule.GetProfile()

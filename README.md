@@ -15,16 +15,17 @@
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
 - **`Modules/Blacklist.lua`**: Lista negra: datos, avisos (entrada en la hermandad o en tu grupo, tooltip), bloqueo de invitaciones y compartir con oficiales.
+- **`Modules/MythicPlus.lua`**: Míticas+: puntuación de los miembros, llaves de quien usa GuildControl, afijos y mejores mazmorras propias.
 
 ## 📰 Resumen
 
 La pestaña **Resumen** funciona como un tablón de noticias:
 
-- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa.
+- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa. En los logros, la vista previa tiene un botón **Ver en la interfaz del juego**. **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** de los rosters (los propios si eres oficial, los publicados si eres jugador).
 - **Rosters** con su dificultad, tamaño y titulares.
-- **Oficiales** de la hermandad con su rango (conectados en verde).
+- **Oficiales**: todos los miembros con rango de oficial (el rango mínimo de Mi perfil o el permiso de chat de oficiales del juego), con su rango; conectados en verde.
 
 ## 🏆 Panel de logros
 
@@ -83,6 +84,18 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 - En **Miembros**, la columna Rol muestra el rol de cada uno: icono y nombre, en cian si lo declaró el propio jugador, en blanco si lo fijó un oficial y en naranja con `*` si el oficial puso uno distinto al declarado. Si nadie lo ha definido, queda vacía.
 - **Mis rosters** (solo jugadores): muestra los rosters que publican los oficiales con **Compartir**, en solo lectura y con el jefe seleccionable. Resalta tu nombre e indica tu puesto, las próximas fechas con tu marca de asistencia y tu porcentaje. Al entrar se piden a los oficiales conectados (también con **Actualizar**); si un oficial elimina un roster publicado, desaparece.
 - El perfil solo cambia lo que se ve: los datos de cada cliente son locales y nadie puede modificar los de otro.
+
+## ⚠️ Warning
+
+La pestaña **Warning** (oficiales) muestra los miembros que llevan mucho tiempo sin conectarse: eliges la antigüedad (de 14 días a 1 año) y si incluyes a los alters. Tabla con nivel, rango, tipo, tiempo sin conectarse y nota pública, exportable a CSV, y clic derecho para expulsar (con confirmación). Debajo, los miembros que están en la lista negra. La caja **Warnings** del encabezado suma ambos.
+
+## 🛠️ Profesiones
+
+La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados.
+
+## 🗝️ Míticas+
+
+La pestaña **Míticas+** clasifica a los miembros por puntuación M+ (de la lista de la hermandad del juego) e incluye la llave de quien usa GuildControl. A la derecha, los afijos de la semana, tu llave y tu puntuación, y tus mejores mazmorras de la temporada. **Pedir llaves** las solicita a los conectados.
 
 ## ⛔ Lista negra
 

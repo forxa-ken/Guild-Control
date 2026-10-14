@@ -108,10 +108,13 @@ local function GuildNewsItems()
             local t = info.newsType
 
             if t == NEWS.PLAYER_ACHIEVEMENT or t == NEWS.GUILD_ACHIEVEMENT then
-                local _, name, points, _, _, _, _, _, _, icon = GetAchievementInfo(info.newsID or 0)
+                -- El identificador sale del enlace del logro; si no, de newsID
+                local achievementId = tonumber(string.match(what, "achievement:(%d+)")) or info.newsID or 0
+                local _, name, points, _, _, _, _, _, _, icon = GetAchievementInfo(achievementId)
                 item.kind = (t == NEWS.GUILD_ACHIEVEMENT) and "guildAchievement" or "achievement"
                 item.icon = icon or ICONS.achievement
-                item.achievementId = info.newsID
+                item.achievementId = achievementId
+                item.name = name
                 item.title = (t == NEWS.GUILD_ACHIEVEMENT) and "La hermandad ha conseguido un logro"
                     or (who .. " ha conseguido un logro")
                 item.detail = "|cFFFFD100" .. (name or what) .. "|r" .. ((points and points > 0) and (" |cFF808080(" .. points .. " puntos)|r") or "")
@@ -271,10 +274,12 @@ end
 
 -- Oficiales de la hermandad (rango igual o superior al configurado), por rango y nombre
 function newsModule.GetOfficers()
-    local maxRank = addonTable.Profiles and addonTable.Profiles.GetOfficerRankIndex() or 1
+    local P = addonTable.Profiles
     local list = {}
     for fullName, m in pairs(GuildControlDB.members or {}) do
-        if m.rankIndex and m.rankIndex <= maxRank then
+        -- Rango mínimo configurado o permiso de chat de oficiales del juego
+        local isOfficer = m.rankIndex and (P and P.IsOfficerRank(m.rankIndex) or m.rankIndex <= 1)
+        if isOfficer then
             table.insert(list, { name = fullName, rank = m.rank or "-", rankIndex = m.rankIndex,
                                  class = m.class, online = m.isOnline })
         end

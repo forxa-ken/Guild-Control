@@ -15,4 +15,5 @@ Modules\Roster.lua
 Modules\Profiles.lua
 Modules\News.lua
 Modules\Blacklist.lua
+Modules\MythicPlus.lua
 Modules\UI.lua
