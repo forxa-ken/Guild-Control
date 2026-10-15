@@ -981,14 +981,12 @@ L["|cFFFFD100Cómo funciona Botín (+1)|r\n\n"
     .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
     .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
     .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
-    .. "|cFFFFD100Con DKP:|r se gana por jefe, por banda y cada semana por antigüedad (desde que se rellena Mi perfil), y pierde un % cada semana. Cada objeto se subasta: gana la puja más alta (a igualdad, más antigüedad) y paga lo que pujó.\n"
     .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía."]
     = "|cFFFFD100How Loot (+1) works|r\n\n"
     .. "|cFFB380FFRaid items:|r they appear on their own when a boss dies in your group, or add them with Shift+click on an item. Click one to bring it to Roll.\n"
     .. "|cFF40D959Roll:|r the leader, an assistant or an officer presses Open roll. Everyone in the group with GuildControl gets a window to choose Need (+1), Off-spec or Pass, and the addon does the /roll for them. Award to winner picks Need first, then whoever has the fewest +1 and, on a tie, the highest roll. Right-click a player to award it manually.\n"
     .. "|cFF4080FFGuild +1:|r every item won with Need adds a +1 to the winner and is shared with the guild. Reset +1 (two clicks) sets them back to zero.\n"
     .. "|cFFFFBF33Loot history:|r who got each item. \"Won\" marks anyone who already got something this raid.\n"
-    .. "|cFFFFD100With DKP:|r you earn it per boss, per raid and every week for seniority (since you filled in My profile), and it loses a % every week. Each item is auctioned: the highest bid wins (on a tie, more seniority) and pays what it bid.\n"
     .. "New session starts a new raid with an empty item list."
 
 -- Modo minimalista de banda y buff check
@@ -1098,5 +1096,20 @@ L["|cFFFF3333Para cambiar tu puja tiene que ser más alta.|r"] = "|cFFFF3333To c
 L["|cFFFF3333¿Dar "] = "|cFFFF3333Give "
 L["|r   Puja mínima: |cFFFFD100"] = "|r   Minimum bid: |cFFFFD100"
 L["|r para "] = "|r for "
+
+
+-- Ayuda de Botín con DKP (vista previa). Misma concatenación que TAB_HELP_DKP en UI.lua
+L["|cFFFFD100Cómo funciona Botín (DKP)|r\n\n"
+    .. "|cFF4080FFCómo se gana:|r por cada jefe de banda derrotado (los miembros de la hermandad del grupo), por banda completada (botón DKP de banda de un oficial) y cada semana por antigüedad.\n"
+    .. "|cFF40D959Antigüedad:|r cuenta desde que cada jugador rellena Mi perfil con GuildControl. Da DKP cada semana y desempata las pujas.\n"
+    .. "|cFFFF7F00Decay:|r en cada reinicio semanal los DKP pierden un % para evitar la inflación.\n"
+    .. "|cFFB380FFSubasta:|r al pulsar Subastar, a quien tenga GuildControl en el grupo le sale una ventana para pujar (desde la puja mínima hasta sus DKP) o pasar. Todos ven las pujas y se pueden subir. Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó. Solo un oficial asigna el objeto.\n"
+    .. "|cFFFFBF33DKP de la hermandad:|r saldos y días de antigüedad. Los oficiales suman o restan con clic derecho en un jugador y cambian los valores en Ajustes."]
+    = "|cFFFFD100How Loot (DKP) works|r\n\n"
+    .. "|cFF4080FFHow to earn it:|r for every raid boss killed (the guild members in the group), for every completed raid (an officer's Raid DKP button) and every week for seniority.\n"
+    .. "|cFF40D959Seniority:|r counts from when each player fills in My profile with GuildControl. It gives DKP every week and breaks ties between bids.\n"
+    .. "|cFFFF7F00Decay:|r at each weekly reset DKP loses a % to avoid inflation.\n"
+    .. "|cFFB380FFAuction:|r when Auction is pressed, everyone in the group with GuildControl gets a window to bid (from the minimum bid up to their DKP) or pass. Everyone sees the bids and they can be raised. The highest bid wins (on a tie, more seniority) and pays what it bid. Only an officer awards the item.\n"
+    .. "|cFFFFBF33Guild DKP:|r balances and days of seniority. Officers add or subtract with right-click on a player and change the values in Settings."
 
 addonTable.RegisterLocale("enUS", "English", L)

@@ -28,9 +28,24 @@ local TAB_HELP = {
         .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
         .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
         .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
-        .. "|cFFFFD100Con DKP:|r se gana por jefe, por banda y cada semana por antigüedad (desde que se rellena Mi perfil), y pierde un % cada semana. Cada objeto se subasta: gana la puja más alta (a igualdad, más antigüedad) y paga lo que pujó.\n"
         .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía.",
 }
+-- En Botín con el sistema DKP se muestra esta otra ayuda
+local TAB_HELP_DKP = {
+    ["Botín"] = "|cFFFFD100Cómo funciona Botín (DKP)|r\n\n"
+        .. "|cFF4080FFCómo se gana:|r por cada jefe de banda derrotado (los miembros de la hermandad del grupo), por banda completada (botón DKP de banda de un oficial) y cada semana por antigüedad.\n"
+        .. "|cFF40D959Antigüedad:|r cuenta desde que cada jugador rellena Mi perfil con GuildControl. Da DKP cada semana y desempata las pujas.\n"
+        .. "|cFFFF7F00Decay:|r en cada reinicio semanal los DKP pierden un % para evitar la inflación.\n"
+        .. "|cFFB380FFSubasta:|r al pulsar Subastar, a quien tenga GuildControl en el grupo le sale una ventana para pujar (desde la puja mínima hasta sus DKP) o pasar. Todos ven las pujas y se pueden subir. Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó. Solo un oficial asigna el objeto.\n"
+        .. "|cFFFFBF33DKP de la hermandad:|r saldos y días de antigüedad. Los oficiales suman o restan con clic derecho en un jugador y cambian los valores en Ajustes.",
+}
+
+local function TabHelp(tabName)
+    if TAB_HELP_DKP[tabName] and addonTable.Loot and addonTable.Loot.IsDkp and addonTable.Loot.IsDkp() then
+        return TAB_HELP_DKP[tabName]
+    end
+    return TAB_HELP[tabName]
+end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
 local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
@@ -484,7 +499,7 @@ local function SwitchTab(tabName)
     if tabName ~= "Logros" then
         selectedAchievementId = nil
     end
-    SetPreviewText(L[TAB_HELP[tabName] or PREVIEW_DEFAULT_TEXT])
+    SetPreviewText(L[TabHelp(tabName) or PREVIEW_DEFAULT_TEXT])
 
     if tabName == "Miembros" and uiModule.RefreshList then
         -- Al entrar en Miembros siempre se vuelve al orden por defecto: conectados primero
@@ -7784,6 +7799,10 @@ local function BuildLootView(parent)
         local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
         local dkp = LT.IsDkp()
         local D = addonTable.Dkp
+        if activeTab == "Botín" and view.helpDkp ~= dkp then
+            view.helpDkp = dkp
+            SetPreviewText(L[TabHelp("Botín")])
+        end
         btnNewSession:SetShown(canManage)
         btnReset:SetShown(isOfficer and not dkp)
         btnDkpSettings:SetShown(isOfficer and dkp)
@@ -9723,9 +9742,16 @@ taskLoginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 taskLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadingUi)
     if not (isInitialLogin or isReloadingUi) then return end
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-    -- Se espera a que llegue la hermandad; en combate se deja para después
-    C_Timer.After(12, function()
-        if InCombatLockdown() then return end
-        if GuildControlDB then uiModule.ShowProfileTask() end
-    end)
+    -- Nada más conectarse; si la hermandad aún no ha llegado se vuelve a mirar cada segundo
+    local tries = 0
+    local function Try()
+        tries = tries + 1
+        if not GuildControlDB or InCombatLockdown() then return end
+        if not IsInGuild() and tries < 15 then
+            C_Timer.After(1, Try)
+            return
+        end
+        uiModule.ShowProfileTask()
+    end
+    C_Timer.After(1, Try)
 end)
