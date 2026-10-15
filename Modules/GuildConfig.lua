@@ -40,12 +40,19 @@ local function CleanDiscord(text)
     return string.sub(text, 1, 120)
 end
 
--- Icono válido: "tabard" (emblema del juego), un fileID o una ruta de textura
+-- Icono válido: "tabard" (emblema del juego), un fileID o una ruta de textura.
+-- Acepta también la ruta completa del disco (F:\...\Interface\AddOns\...\logo.tga): el juego
+-- solo carga rutas que empiezan por Interface\ y sin extensión.
 function cfgModule.CleanIcon(value)
     if value == nil then return nil end
     if tonumber(value) then return tonumber(value) end
     value = strtrim(tostring(value))
     if value == "tabard" then return value end
+    value = string.gsub(value, "/", "\\")
+    local start = string.find(string.lower(value), "interface\\", 1, true)
+    if start then value = string.sub(value, start) end
+    value = string.gsub(value, "%.[Tt][Gg][Aa]$", "")
+    value = string.gsub(value, "%.[Bb][Ll][Pp]$", "")
     if value == "" or #value > 120 or not string.match(value, "^[%w_\\/%.%-]+$") then return nil end
     return value
 end

@@ -2,3 +2,7 @@
 versiones/
 *.bak
 *.tmp
+# Imágenes propias de cada hermandad (no se publican con el addon)
+Media/*.tga
+Media/*.blp
+Media/*.png
