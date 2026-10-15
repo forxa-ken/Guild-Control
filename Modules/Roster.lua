@@ -820,6 +820,18 @@ local function Deserialize(text, pos, depth)
     error("tipo desconocido")
 end
 
+-- Para otros módulos (eventos de banda): tabla -> texto y texto -> tabla (o nil)
+function rosterModule.SerializeTable(value)
+    local out = {}
+    Serialize(value, out)
+    return table.concat(out)
+end
+
+function rosterModule.DeserializeTable(text)
+    local ok, result = pcall(Deserialize, text or "", 1, 0)
+    return ok and result or nil
+end
+
 -- Copia limpia de un roster recibido: solo campos conocidos y con tipos válidos
 local VALID_SLOTS = { tank = true, healer = true, dps = true, bench = true }
 local VALID_STATUS = { present = true, late = true, absent = true, excused = true }

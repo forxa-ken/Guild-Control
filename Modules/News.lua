@@ -93,6 +93,29 @@ local function NewsDate(info)
     return string.format("%02d/%02d", day, month), string.format("%04d%02d%02d", year, month, day)
 end
 
+-- Índice nombre -> id de todos los logros (de hermandad y de personaje). Se construye una
+-- sola vez, la primera vez que hace falta.
+local achievementNameIndex = nil
+function newsModule.FindAchievementByName(name)
+    if not name or name == "" then return nil end
+    if not achievementNameIndex then
+        achievementNameIndex = {}
+        local lists = {}
+        if GetGuildCategoryList then table.insert(lists, GetGuildCategoryList()) end
+        if GetCategoryList then table.insert(lists, GetCategoryList()) end
+        for _, categories in ipairs(lists) do
+            for _, categoryId in ipairs(categories or {}) do
+                local num = GetCategoryNumAchievements(categoryId, true) or 0
+                for i = 1, num do
+                    local id, achName = GetAchievementInfo(categoryId, i)
+                    if id and achName and not achievementNameIndex[achName] then achievementNameIndex[achName] = id end
+                end
+            end
+        end
+    end
+    return achievementNameIndex[name]
+end
+
 local function GuildNewsItems()
     local items = {}
     local getInfo = C_GuildInfo and C_GuildInfo.GetGuildNewsInfo
@@ -108,13 +131,22 @@ local function GuildNewsItems()
             local t = info.newsType
 
             if t == NEWS.PLAYER_ACHIEVEMENT or t == NEWS.GUILD_ACHIEVEMENT then
-                -- El identificador sale del enlace del logro; si no, de newsID
+                -- Identificador del logro: del enlace, de newsID y, si el nombre no cuadra,
+                -- buscándolo por nombre en las categorías de logros
                 local achievementId = tonumber(string.match(what, "achievement:(%d+)")) or info.newsID or 0
                 local _, name, points, _, _, _, _, _, _, icon = GetAchievementInfo(achievementId)
+                local whatName = string.match(what, "%[(.-)%]") or what
+                if (not name or (whatName ~= "" and name ~= whatName)) and whatName ~= "" then
+                    local foundId = newsModule.FindAchievementByName(whatName)
+                    if foundId then
+                        achievementId = foundId
+                        _, name, points, _, _, _, _, _, _, icon = GetAchievementInfo(foundId)
+                    end
+                end
                 item.kind = (t == NEWS.GUILD_ACHIEVEMENT) and "guildAchievement" or "achievement"
                 item.icon = icon or ICONS.achievement
-                item.achievementId = achievementId
-                item.name = name
+                item.achievementId = name and achievementId or nil
+                item.name = name or whatName
                 item.title = (t == NEWS.GUILD_ACHIEVEMENT) and "La hermandad ha conseguido un logro"
                     or (who .. " ha conseguido un logro")
                 item.detail = "|cFFFFD100" .. (name or what) .. "|r" .. ((points and points > 0) and (" |cFF808080(" .. points .. " puntos)|r") or "")

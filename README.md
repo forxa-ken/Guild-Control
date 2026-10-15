@@ -16,6 +16,7 @@
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
 - **`Modules/Blacklist.lua`**: Lista negra: datos, avisos (entrada en la hermandad o en tu grupo, tooltip), bloqueo de invitaciones y compartir con oficiales.
 - **`Modules/MythicPlus.lua`**: Míticas+: puntuación de los miembros, llaves de quien usa GuildControl, afijos y mejores mazmorras propias.
+- **`Modules/RaidEvents.lua`**: Bandas programadas al estilo de Raid-Helper: inscripciones con rol y estado, grupos y sincronización entre clientes.
 
 ## 📰 Resumen
 
@@ -70,7 +71,6 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 
 La columna Roster de Miembros muestra en qué rosters está cada uno.
 La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV del roster la incluye.
-- **Jefes**: encima de la composición, el selector **Base / Jefe** permite crear variantes por jefe (**Añadir jefe**, **Eliminar jefe**). Si el roster tiene banda y el nombre está vacío, **Añadir jefe** ofrece la lista de jefes de esa banda. Cada jefe parte de la base y solo guarda sus cambios: quién entra, quién se queda en la banca y quién cambia de rol. La vista previa muestra quién entra y quién sale respecto a la base, y Invitar, Anunciar y Exportar usan la composición del jefe seleccionado. En un jefe, **Restablecer jefe** vuelve a la base.
 - **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la fecha de banda y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
 - **Compartir**: envía el roster completo (base, jefes, fechas y asistencia) a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
 
@@ -103,6 +103,14 @@ Cada lista se puede exportar a CSV y tiene clic derecho para susurrar o invitar 
 ## 🛠️ Profesiones
 
 La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados. Clic en un miembro para susurrarle o invitarlo al grupo.
+
+## ⚔️ Raid
+
+La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster** es la lista de personas con las que se cuenta; en **Raid** se apuntan quienes quieren ir a cada banda.
+
+- **Planning raid**: los oficiales crean la banda con **Nueva** (título, banda del diario de encuentros, dificultad, tamaño, fecha, hora, descripción y roster asociado) y se publica en la hermandad. Cada jugador responde con **Tanque**, **Sanador** o **DPS** (con su especialización actual), o **Tarde**, **Tentativo**, **Banca** o **Ausente**, y una nota. Se ven los apuntados por rol con el color de su clase y los recuentos. Los oficiales pueden editar, eliminar, **invitar a los apuntados**, **recordar al roster** (susurro a quien no ha respondido) y publicar de nuevo.
+- **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
+- Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
 
 ## 🗝️ Míticas+
 

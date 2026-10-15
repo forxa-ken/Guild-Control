@@ -16,4 +16,5 @@ Modules\Profiles.lua
 Modules\News.lua
 Modules\Blacklist.lua
 Modules\MythicPlus.lua
+Modules\RaidEvents.lua
 Modules\UI.lua

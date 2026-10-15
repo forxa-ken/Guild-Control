@@ -21,7 +21,7 @@ local containers = {
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Profesiones", "Míticas+", "Mi perfil", "Mis rosters", "Roster", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Míticas+", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -1360,14 +1360,15 @@ local function BuildAchievementsView(parent)
         UpdateGuildSummary()
 
         for _, r in ipairs(achRows) do r:Hide() end
-        if not currentCategoryId and not filterSeason then
+        local scanAll = filterSeason or searchQuery ~= ""
+        if not currentCategoryId and not scanAll then
             achChild:SetHeight(1)
             return
         end
 
-        -- Con el filtro de temporada se recorren todas las categorías de hermandad
+        -- Con el filtro de temporada o con texto en el buscador se recorren todas las categorías
         local categoriesToScan = {}
-        if filterSeason then
+        if scanAll then
             for _, cat in ipairs(addonTable.Achievements.GetCategories()) do
                 table.insert(categoriesToScan, cat)
             end
@@ -1453,23 +1454,40 @@ local function BuildAchievementsView(parent)
 
     -- Abre un logro concreto: modo, categoría, filtros limpios, desplazamiento y vista previa.
     -- Lo usa el Resumen para llevar a la sección Logros al hacer clic en una noticia.
-    uiModule.FocusAchievement = function(id, mode)
-        if not id or not addonTable.Achievements then return end
-        SetAchievementMode(mode or "guild")
-        filterState, filterSeason = "TODOS", false
-        chkSeason:SetChecked(false)
-        searchBox:SetText("")
-        local categoryId = GetAchievementCategory and GetAchievementCategory(id)
-        if categoryId then currentCategoryId = categoryId end
-        selectedAchievementId = id
-        uiModule.RefreshAchievements()
-        UpdateCategorySelection()
-
+    -- Si el logro no aparece en su categoría (por ejemplo, un paso intermedio de una serie),
+    -- se busca por nombre en todas las categorías y, si hace falta, en el otro modo.
+    local function ScrollToSelected(id)
         for index, row in ipairs(achRows) do
             if row:IsShown() and row.achId == id then
                 local maxScroll = achScroll:GetVerticalScrollRange() or 0
                 achScroll:SetVerticalScroll(math.min(maxScroll, math.max(0, (index - 3) * 26)))
-                break
+                return true
+            end
+        end
+        return false
+    end
+
+    uiModule.FocusAchievement = function(id, mode, name)
+        if not id or not addonTable.Achievements then return end
+        name = name or select(2, GetAchievementInfo(id))
+        local modes = { mode or "guild", (mode == "player") and "guild" or "player" }
+        for _, tryMode in ipairs(modes) do
+            SetAchievementMode(tryMode)
+            filterState, filterSeason = "TODOS", false
+            chkSeason:SetChecked(false)
+            searchBox:SetText("")
+            local categoryId = GetAchievementCategory and GetAchievementCategory(id)
+            if categoryId then currentCategoryId = categoryId end
+            selectedAchievementId = id
+            uiModule.RefreshAchievements()
+            UpdateCategorySelection()
+            if ScrollToSelected(id) then break end
+
+            if name and name ~= "" then
+                searchBox:SetText(name)   -- con texto se busca en todas las categorías
+                selectedAchievementId = id
+                uiModule.RefreshAchievements()
+                if ScrollToSelected(id) then break end
             end
         end
         uiModule.ShowAchievementPreview(id)
@@ -2450,6 +2468,10 @@ local function BuildRosterView(parent)
     variantDiffText:SetJustifyH("LEFT")
     variantDiffText:SetWordWrap(false)
 
+    -- El roster es solo la lista de personas con las que se cuenta: la composición por jefe
+    -- se gestiona en Raid. Los controles de jefes quedan ocultos.
+    for _, widget in ipairs({ dropVariant, variantInput, btnAddVariant, btnDeleteVariant, variantDiffText }) do widget:Hide() end
+
     -- Cada bloque muestra sus integrantes en una cuadrícula de "cols" columnas
     local blocks = {}
     local function CreateBlock(slot, x, y, width, height, cols)
@@ -2465,16 +2487,16 @@ local function BuildRosterView(parent)
         return block
     end
 
-    CreateBlock("tank", 12, -38, 140, 210, 1)
-    CreateBlock("healer", 160, -38, 150, 210, 1)
-    CreateBlock("dps", 318, -38, 316, 210, 2)
-    CreateBlock("bench", 12, -262, 622, 104, 4)
+    CreateBlock("tank", 12, -10, 140, 236, 1)
+    CreateBlock("healer", 160, -10, 150, 236, 1)
+    CreateBlock("dps", 318, -10, 316, 236, 2)
+    CreateBlock("bench", 12, -256, 622, 108, 4)
 
     local divider = compPanel:CreateTexture(nil, "ARTWORK")
     divider:SetColorTexture(1, 1, 1, 0.12)
     divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -255)
-    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -255)
+    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -250)
+    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -250)
 
     local function AcquireSlotRow(block, index)
         local row = block.rows[index]
@@ -2680,6 +2702,8 @@ local function BuildRosterView(parent)
         if not view:IsShown() then return end
         local roster = R.GetSelected()
         R.Prune(roster)
+        -- Sin variantes por jefe en el roster (se planifica en Raid)
+        if roster.selectedVariant then R.SelectVariant(roster, nil) end
 
         dropRoster:SetText(roster.name)
         if not nameInput:HasFocus() then nameInput:SetText(roster.name) end
@@ -4239,7 +4263,8 @@ local function BuildMyRostersView(parent)
         if not view:IsShown() then return end
         local item = SelectedItem()
         local hasItem = item ~= nil
-        for _, widget in ipairs({ comp, side, dropVariant }) do widget:SetShown(hasItem) end
+        for _, widget in ipairs({ comp, side }) do widget:SetShown(hasItem) end
+        dropVariant:Hide()   -- sin jefes: el roster es la lista de personas
         if not hasItem then
             dropRoster:SetText("Sin rosters")
             infoText:SetText("")
@@ -4445,15 +4470,23 @@ local function BuildSummaryView(parent)
     end
 
     local function ShowNewsPreview(item)
-        if item.achievementId then
-            -- Detalle del logro y botón que lleva a ese logro dentro de la sección Logros
-            SetPreviewText(BuildAchievementPreviewText(item.achievementId)
-                .. "\n\n|cFF808080Pulsa el botón para ir al detalle del logro en la sección Logros.|r")
-            local id, mode = item.achievementId, (item.kind == "guildAchievement") and "guild" or "player"
-            SetPreviewAction("Ir al logro en Logros", function()
-                SwitchTab("Logros")
-                if uiModule.FocusAchievement then uiModule.FocusAchievement(id, mode) end
-            end)
+        if item.kind == "achievement" or item.kind == "guildAchievement" then
+            -- Quién y cuándo, y debajo el detalle completo del logro (descripción, puntos,
+            -- recompensa y criterios)
+            local header = "|cFF00FFFF" .. (item.kind == "guildAchievement" and "Logro de la hermandad"
+                or ("Logro de " .. (item.who or "?"))) .. "|r  |cFF808080" .. (item.dateText or "") .. "|r\n\n"
+            local details = item.achievementId and addonTable.Achievements and addonTable.Achievements.GetDetails(item.achievementId)
+            if details then
+                SetPreviewText(header .. BuildAchievementPreviewText(item.achievementId))
+                local id, name = item.achievementId, item.name
+                local mode = (item.kind == "guildAchievement") and "guild" or "player"
+                SetPreviewAction("Ir al logro en Logros", function()
+                    SwitchTab("Logros")
+                    if uiModule.FocusAchievement then uiModule.FocusAchievement(id, mode, name) end
+                end)
+            else
+                SetPreviewText(header .. "|cFFFFD100" .. (item.name or "") .. "|r\n\n|cFF808080El juego no da el detalle de este logro.|r")
+            end
         elseif item.link then
             ShowLootPreview(item)
         else
@@ -5982,6 +6015,766 @@ local function BuildMythicPlusView(parent)
 end
 
 -- =========================================================================
+-- 8j. VISTA RAID: PLANNING (INSCRIPCIONES) Y VISTA DE GRUPOS (CONSUME RAIDEVENTS.LUA)
+-- =========================================================================
+local RAID_WEEKDAYS = { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" }
+local RAID_DIFFICULTY_LABELS = { normal = "Normal", heroic = "Heroica", mythic = "Mítica" }
+
+local function RaidEventDateText(event, long)
+    local y, mo, d = string.match(event.date or "", "^(%d+)-(%d+)-(%d+)$")
+    if not y then return event.date or "" end
+    local t = time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
+    local weekday = RAID_WEEKDAYS[tonumber(date("%w", t)) + 1]
+    if long then return weekday .. " " .. d .. "/" .. mo .. "/" .. y .. " a las " .. event.time end
+    return string.sub(weekday, 1, 3) .. " " .. d .. "/" .. mo .. " " .. event.time
+end
+
+local function SignupName(name, signup)
+    local m = GuildControlDB.members[name] or {}
+    local short = string.match(name, "^([^-]+)") or name
+    local text = "|cFF" .. addonTable.GetClassColorHex(m.class) .. short .. "|r"
+    if signup and signup.spec and signup.spec ~= "" then text = text .. " |cFF808080" .. signup.spec .. "|r" end
+    if signup and signup.status == "late" then text = text .. " |cFFFFD100(tarde)|r" end
+    return text
+end
+
+-- Mi especialización actual (para inscribirme)
+local function CurrentSpecName()
+    if GetSpecialization and GetSpecializationInfo then
+        local index = GetSpecialization()
+        if index then
+            local _, name = GetSpecializationInfo(index)
+            if name then return name end
+        end
+    end
+    return addonTable.Profiles and addonTable.Profiles.GetMyProfile().spec or ""
+end
+
+local function BuildRaidView(parent)
+    local E = addonTable.RaidEvents
+    local R = addonTable.Roster
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+
+    local selectedEventId = nil
+    local mode = "planning"           -- "planning" o "groups"
+    local editing = nil               -- nil, "new" o el evento que se edita
+    local Refresh
+
+    local function SelectedEvent() return E.Get(selectedEventId) end
+    local function IsOfficerProfile() return not addonTable.Profiles or addonTable.Profiles.IsOfficer() end
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
+    title:SetText("Raid")
+
+    local btnGroups = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnGroups:SetSize(130, 22)
+    btnGroups:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnGroups:SetText("Vista de grupos")
+    local btnPlanning = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnPlanning:SetSize(130, 22)
+    btnPlanning:SetPoint("RIGHT", btnGroups, "LEFT", -6, 0)
+    btnPlanning:SetText("Planning raid")
+    btnPlanning:SetScript("OnClick", function() mode = "planning"; Refresh() end)
+    btnGroups:SetScript("OnClick", function() mode = "groups"; editing = nil; Refresh() end)
+
+    -- ---------------------------------------------------------------------
+    -- Lista de bandas (izquierda, común a los dos modos)
+    -- ---------------------------------------------------------------------
+    local listBox = CreateBackdropBox(view, 230, 470, "TOPLEFT", view, "TOPLEFT", 10, -40)
+    local listTitle = listBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    listTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", 12, -10)
+    listTitle:SetText("Próximas bandas")
+
+    local btnNew = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnNew:SetSize(70, 20)
+    btnNew:SetPoint("TOPRIGHT", listBox, "TOPRIGHT", -8, -6)
+    btnNew:SetText("Nueva")
+    btnNew:SetScript("OnClick", function() editing = "new"; mode = "planning"; Refresh() end)
+
+    local eventButtons = {}
+    local function AcquireEventButton(index)
+        local btn = eventButtons[index]
+        if btn then return btn end
+        btn = CreateFrame("Button", nil, listBox)
+        btn:SetSize(214, 44)
+        btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+        btn.bg:SetAllPoints()
+        btn.highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+        btn.highlight:SetAllPoints()
+        btn.highlight:SetColorTexture(1, 1, 1, 0.08)
+        btn.titleFs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        btn.titleFs:SetPoint("TOPLEFT", btn, "TOPLEFT", 8, -6)
+        btn.titleFs:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+        btn.titleFs:SetJustifyH("LEFT")
+        btn.titleFs:SetWordWrap(false)
+        btn.infoFs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.infoFs:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 8, 6)
+        btn.infoFs:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+        btn.infoFs:SetJustifyH("LEFT")
+        btn:SetScript("OnClick", function(self)
+            selectedEventId = self.eventId
+            editing = nil
+            Refresh()
+        end)
+        eventButtons[index] = btn
+        return btn
+    end
+
+    local listEmpty = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    listEmpty:SetPoint("TOPLEFT", listBox, "TOPLEFT", 12, -40)
+    listEmpty:SetWidth(206)
+    listEmpty:SetJustifyH("LEFT")
+
+    -- ---------------------------------------------------------------------
+    -- Planning: detalle de la banda e inscripciones
+    -- ---------------------------------------------------------------------
+    local detail = CreateBackdropBox(view, 644, 470, "TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+
+    local evTitle = detail:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    evTitle:SetPoint("TOPLEFT", detail, "TOPLEFT", 14, -12)
+    evTitle:SetPoint("RIGHT", detail, "RIGHT", -200, 0)
+    evTitle:SetJustifyH("LEFT")
+    evTitle:SetWordWrap(false)
+    local evInfo = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    evInfo:SetPoint("TOPLEFT", evTitle, "BOTTOMLEFT", 0, -6)
+    evInfo:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
+    evInfo:SetJustifyH("LEFT")
+    local evDesc = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    evDesc:SetPoint("TOPLEFT", evInfo, "BOTTOMLEFT", 0, -4)
+    evDesc:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
+    evDesc:SetJustifyH("LEFT")
+    evDesc:SetMaxLines(2)
+
+    -- Acciones de oficial: editar, eliminar, invitar y recordar
+    local officerBar = CreateFrame("Frame", nil, detail)
+    officerBar:SetSize(190, 22)
+    officerBar:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -10, -10)
+    local btnEdit = CreateFrame("Button", nil, officerBar, "UIPanelButtonTemplate")
+    btnEdit:SetSize(80, 22)
+    btnEdit:SetPoint("LEFT", officerBar, "LEFT", 0, 0)
+    btnEdit:SetText("Editar")
+    btnEdit:SetScript("OnClick", function() editing = SelectedEvent(); Refresh() end)
+    local deleteArmedUntil = 0
+    local btnDelete = CreateFrame("Button", nil, officerBar, "UIPanelButtonTemplate")
+    btnDelete:SetSize(100, 22)
+    btnDelete:SetPoint("LEFT", btnEdit, "RIGHT", 6, 0)
+    btnDelete:SetText("Eliminar")
+    btnDelete:SetScript("OnClick", function(self)
+        if GetTime() < deleteArmedUntil then
+            deleteArmedUntil = 0
+            self:SetText("Eliminar")
+            E.Delete(SelectedEvent())
+            selectedEventId = nil
+            Refresh()
+        else
+            deleteArmedUntil = GetTime() + 4
+            self:SetText("|cFFFF3333¿Seguro?|r")
+            C_Timer.After(4, function() if GetTime() >= deleteArmedUntil then self:SetText("Eliminar") end end)
+        end
+    end)
+
+    -- Barra de inscripción (todos)
+    local signBar = CreateFrame("Frame", nil, detail)
+    signBar:SetSize(620, 52)
+    signBar:SetPoint("TOPLEFT", detail, "TOPLEFT", 12, -84)
+    local signLabel = signBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    signLabel:SetPoint("TOPLEFT", signBar, "TOPLEFT", 2, 0)
+    signLabel:SetText("Tu respuesta:")
+    local mySignupText = signBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    mySignupText:SetPoint("LEFT", signLabel, "RIGHT", 10, 0)
+
+    local noteInput = CreateFrame("EditBox", nil, signBar, "InputBoxTemplate")
+    noteInput:SetSize(150, 20)
+    noteInput:SetPoint("TOPRIGHT", signBar, "TOPRIGHT", -4, 2)
+    noteInput:SetAutoFocus(false)
+    noteInput:SetMaxLetters(60)
+    noteInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    noteInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local notePlaceholder = noteInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    notePlaceholder:SetPoint("LEFT", noteInput, "LEFT", 2, 0)
+    notePlaceholder:SetText("Nota (opcional)")
+    noteInput:SetScript("OnTextChanged", function(self) notePlaceholder:SetShown((self:GetText() or "") == "") end)
+
+    local signButtons = {}
+    local SIGN_OPTIONS = {
+        { label = RoleIcon("tank", 14) .. " Tanque", status = "signed", role = "tank", width = 92 },
+        { label = RoleIcon("healer", 14) .. " Sanador", status = "signed", role = "healer", width = 96 },
+        { label = RoleIcon("dps", 14) .. " DPS", status = "signed", role = "dps", width = 74 },
+        { label = "Tarde", status = "late", width = 64 },
+        { label = "Tentativo", status = "tentative", width = 78 },
+        { label = "Banca", status = "bench", width = 64 },
+        { label = "Ausente", status = "absent", width = 70 },
+    }
+    local previousSign = nil
+    for _, option in ipairs(SIGN_OPTIONS) do
+        local btn = CreateFrame("Button", nil, signBar, "UIPanelButtonTemplate")
+        btn:SetSize(option.width, 22)
+        if previousSign then btn:SetPoint("LEFT", previousSign, "RIGHT", 4, 0) else btn:SetPoint("BOTTOMLEFT", signBar, "BOTTOMLEFT", 0, 2) end
+        btn:SetText(option.label)
+        btn:SetScript("OnClick", function()
+            local event = SelectedEvent()
+            if not event then return end
+            -- "Tarde" conserva el rol elegido antes; si no hay, el de Mi perfil
+            local current = E.GetMySignup(event)
+            local role = option.role or (current and current.role)
+            if not role and addonTable.Roster then role = addonTable.Roster.GetDefinedSlot(addonTable.Profiles.GetMyFullName()) end
+            E.SignUp(event, option.status, role, CurrentSpecName(), noteInput:GetText())
+        end)
+        table.insert(signButtons, btn)
+        previousSign = btn
+    end
+
+    local countsText = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    countsText:SetPoint("TOPLEFT", signBar, "BOTTOMLEFT", 2, -10)
+
+    -- Columnas de apuntados por rol y fila de otros estados
+    local function Column(x, width)
+        local fs = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", detail, "TOPLEFT", x, -170)
+        fs:SetWidth(width)
+        fs:SetJustifyH("LEFT")
+        fs:SetJustifyV("TOP")
+        fs:SetSpacing(3)
+        return fs
+    end
+    local tankCol = Column(16, 190)
+    local healerCol = Column(216, 200)
+    local dpsCol = Column(424, 210)
+    local otherText = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    otherText:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 44)
+    otherText:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
+    otherText:SetJustifyH("LEFT")
+    otherText:SetSpacing(3)
+
+    -- Acciones de oficial al pie: invitar a los apuntados y recordar al roster
+    local footer = CreateFrame("Frame", nil, detail)
+    footer:SetSize(620, 24)
+    footer:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 12, 10)
+
+    local function InviteSigned(event)
+        local me = UnitName("player")
+        local names = {}
+        for name, s in pairs(event.signups) do
+            local m = GuildControlDB.members[name]
+            if (s.status == "signed" or s.status == "late") and m and m.isOnline and (string.match(name, "^([^-]+)") ~= me) then
+                table.insert(names, name)
+            end
+        end
+        if #names == 0 then
+            PrintGC("No hay apuntados conectados a los que invitar.")
+            return
+        end
+        -- Se reutiliza la invitación del roster (convierte en banda al pasar de 5)
+        local temp = { members = {} }
+        for _, name in ipairs(names) do temp.members[name] = "dps" end
+        R.InviteRoster(temp)
+        PrintGC("Invitando a |cFFFFD100" .. #names .. "|r apuntados.")
+    end
+
+    local btnInvite = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    btnInvite:SetSize(170, 22)
+    btnInvite:SetPoint("LEFT", footer, "LEFT", 0, 0)
+    btnInvite:SetText("Invitar a los apuntados")
+    btnInvite:SetScript("OnClick", function() local ev = SelectedEvent(); if ev then InviteSigned(ev) end end)
+
+    local btnRemind = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    btnRemind:SetSize(200, 22)
+    btnRemind:SetPoint("LEFT", btnInvite, "RIGHT", 6, 0)
+    btnRemind:SetText("Recordar al roster")
+    btnRemind:SetScript("OnClick", function()
+        local event = SelectedEvent()
+        if not event or not event.rosterName then
+            PrintGC("Esta banda no tiene un roster asociado (se elige al editarla).")
+            return
+        end
+        local roster
+        for _, r in ipairs(R.GetAll()) do if r.name == event.rosterName then roster = r end end
+        if not roster then
+            PrintGC("No se encuentra el roster |cFFFFD100" .. event.rosterName .. "|r.")
+            return
+        end
+        local me, sent = UnitName("player"), 0
+        for name in pairs(roster.members) do
+            local m = GuildControlDB.members[name]
+            if not event.signups[name] and m and m.isOnline and string.match(name, "^([^-]+)") ~= me then
+                SendWhisper(name, "¡Hola! Hay banda (" .. event.title .. ") el " .. RaidEventDateText(event, true)
+                    .. ". Apúntate en GuildControl > Raid, por favor.")
+                sent = sent + 1
+            end
+        end
+        PrintGC("Recordatorios enviados a |cFFFFD100" .. sent .. "|r miembros del roster sin responder.")
+    end)
+
+    local btnRepublish = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    btnRepublish:SetSize(120, 22)
+    btnRepublish:SetPoint("LEFT", btnRemind, "RIGHT", 6, 0)
+    btnRepublish:SetText("Publicar de nuevo")
+    btnRepublish:SetScript("OnClick", function()
+        local ev = SelectedEvent()
+        if ev then E.Publish(ev); PrintGC("Banda enviada de nuevo a la hermandad.") end
+    end)
+
+    local btnRefreshEvents = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    btnRefreshEvents:SetSize(100, 22)
+    btnRefreshEvents:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
+    btnRefreshEvents:SetText("Actualizar")
+    btnRefreshEvents:SetScript("OnClick", function() E.RequestEvents() end)
+
+    local emptyDetail = detail:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyDetail:SetPoint("CENTER", detail, "CENTER", 0, 0)
+    emptyDetail:SetWidth(560)
+
+    -- ---------------------------------------------------------------------
+    -- Formulario de crear o editar banda (oficiales)
+    -- ---------------------------------------------------------------------
+    local form = CreateFrame("Frame", nil, detail)
+    form:SetAllPoints()
+    form:Hide()
+    local formTitle = form:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    formTitle:SetPoint("TOPLEFT", form, "TOPLEFT", 14, -14)
+
+    local formFields = { raidId = nil, raidName = nil, difficulty = "heroic", rosterName = nil }
+    local function FormLabel(text, x, y)
+        local fs = form:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", form, "TOPLEFT", x, y)
+        fs:SetText(text)
+        return fs
+    end
+    local function FormInput(anchor, width, maxLetters)
+        local input = CreateFrame("EditBox", nil, form, "InputBoxTemplate")
+        input:SetSize(width, 20)
+        input:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 6, -4)
+        input:SetAutoFocus(false)
+        input:SetMaxLetters(maxLetters or 40)
+        input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        return input
+    end
+
+    local titleInput = FormInput(FormLabel("Título", 16, -50), 260, 40)
+    local raidLabel = FormLabel("Banda (diario de encuentros)", 316, -50)
+    local btnRaid = CreateFrame("Button", nil, form, "UIPanelButtonTemplate")
+    btnRaid:SetSize(260, 22)
+    btnRaid:SetPoint("TOPLEFT", raidLabel, "BOTTOMLEFT", 0, -2)
+    btnRaid:SetScript("OnClick", function(self)
+        local tiers = R.GetRaidTiers(3)
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateButton("Sin banda concreta", function() formFields.raidId, formFields.raidName = nil, nil; self:SetText("Sin banda concreta") end)
+            for i, tier in ipairs(tiers) do
+                local menu = (i == 1) and root or root:CreateButton(tier.name)
+                if i == 1 then root:CreateTitle(tier.name) end
+                for _, raid in ipairs(tier.raids) do
+                    menu:CreateButton(raid.name, function()
+                        formFields.raidId, formFields.raidName = raid.id, raid.name
+                        self:SetText(raid.name)
+                        if strtrim(titleInput:GetText() or "") == "" then titleInput:SetText(raid.name) end
+                    end)
+                end
+            end
+        end)
+    end)
+
+    local diffLabel = FormLabel("Dificultad", 16, -100)
+    local dropDiff = CreateFrame("DropdownButton", "GC_RaidFormDifficulty", form, "WowStyle1DropdownTemplate")
+    dropDiff:SetPoint("TOPLEFT", diffLabel, "BOTTOMLEFT", 0, -2)
+    dropDiff:SetWidth(130)
+    dropDiff:SetupMenu(function(_, root)
+        for _, key in ipairs({ "normal", "heroic", "mythic" }) do
+            root:CreateRadio(RAID_DIFFICULTY_LABELS[key], function() return formFields.difficulty == key end,
+                function() formFields.difficulty = key; dropDiff:SetText(RAID_DIFFICULTY_LABELS[key]) end)
+        end
+    end)
+    local sizeInput = FormInput(FormLabel("Tamaño", 170, -100), 40, 2)
+    sizeInput:SetNumeric(true)
+    local dateInput = FormInput(FormLabel("Fecha (DD/MM/AAAA)", 240, -100), 100, 10)
+    local timeInput = FormInput(FormLabel("Hora", 370, -100), 50, 5)
+
+    local rosterLabel = FormLabel("Roster asociado (para recordatorios)", 440, -100)
+    local dropRosterLink = CreateFrame("DropdownButton", "GC_RaidFormRoster", form, "WowStyle1DropdownTemplate")
+    dropRosterLink:SetPoint("TOPLEFT", rosterLabel, "BOTTOMLEFT", 0, -2)
+    dropRosterLink:SetWidth(170)
+    dropRosterLink:SetupMenu(function(_, root)
+        root:CreateRadio("Ninguno", function() return formFields.rosterName == nil end,
+            function() formFields.rosterName = nil; dropRosterLink:SetText("Ninguno") end)
+        for _, roster in ipairs(R.GetAll()) do
+            local name = roster.name
+            root:CreateRadio(name, function() return formFields.rosterName == name end,
+                function() formFields.rosterName = name; dropRosterLink:SetText(name) end)
+        end
+    end)
+
+    local descInput = FormInput(FormLabel("Descripción (estrategia, requisitos, consumibles...)", 16, -150), 600, 160)
+
+    local formError = form:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    formError:SetPoint("TOPLEFT", descInput, "BOTTOMLEFT", -6, -14)
+    formError:SetTextColor(1, 0.3, 0.3)
+
+    local formHint = form:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    formHint:SetPoint("TOPLEFT", formError, "BOTTOMLEFT", 0, -8)
+    formHint:SetWidth(600)
+    formHint:SetJustifyH("LEFT")
+    formHint:SetText("Al guardar, la banda se publica en la hermandad y los miembros con GuildControl pueden apuntarse desde Raid > Planning raid.")
+
+    local btnSave = CreateFrame("Button", nil, form, "UIPanelButtonTemplate")
+    btnSave:SetSize(170, 24)
+    btnSave:SetPoint("BOTTOMLEFT", form, "BOTTOMLEFT", 14, 12)
+    btnSave:SetText("Guardar y publicar")
+    btnSave:SetScript("OnClick", function()
+        local fields = {
+            title = titleInput:GetText(), raidId = formFields.raidId, raidName = formFields.raidName,
+            difficulty = formFields.difficulty, size = sizeInput:GetText(),
+            dateText = dateInput:GetText(), timeText = timeInput:GetText(),
+            description = descInput:GetText(), rosterName = formFields.rosterName,
+        }
+        local event, err
+        if editing == "new" then event, err = E.Create(fields) else event, err = E.Update(editing, fields) end
+        if not event then
+            formError:SetText(err or "No se pudo guardar.")
+            return
+        end
+        selectedEventId = event.id
+        editing = nil
+        Refresh()
+    end)
+    local btnCancel = CreateFrame("Button", nil, form, "UIPanelButtonTemplate")
+    btnCancel:SetSize(100, 24)
+    btnCancel:SetPoint("LEFT", btnSave, "RIGHT", 8, 0)
+    btnCancel:SetText("Cancelar")
+    btnCancel:SetScript("OnClick", function() editing = nil; Refresh() end)
+
+    local function LoadForm()
+        formError:SetText("")
+        if editing == "new" then
+            formTitle:SetText("Nueva banda")
+            titleInput:SetText("")
+            formFields.raidId, formFields.raidName, formFields.difficulty, formFields.rosterName = nil, nil, "heroic", nil
+            sizeInput:SetText("20")
+            dateInput:SetText(date("%d/%m/%Y"))
+            timeInput:SetText("21:00")
+            descInput:SetText("")
+        else
+            local ev = editing
+            formTitle:SetText("Editar banda")
+            titleInput:SetText(ev.title or "")
+            formFields.raidId, formFields.raidName, formFields.difficulty, formFields.rosterName = ev.raidId, ev.raidName, ev.difficulty, ev.rosterName
+            sizeInput:SetText(tostring(ev.size or 20))
+            local y, mo, d = string.match(ev.date or "", "^(%d+)-(%d+)-(%d+)$")
+            dateInput:SetText(y and (d .. "/" .. mo .. "/" .. y) or "")
+            timeInput:SetText(ev.time or "")
+            descInput:SetText(ev.description or "")
+        end
+        btnRaid:SetText(formFields.raidName or "Sin banda concreta")
+        dropDiff:SetText(RAID_DIFFICULTY_LABELS[formFields.difficulty])
+        dropRosterLink:SetText(formFields.rosterName or "Ninguno")
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Vista de grupos
+    -- ---------------------------------------------------------------------
+    local groupsPanel = CreateFrame("Frame", nil, view)
+    groupsPanel:SetPoint("TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+    groupsPanel:SetSize(644, 470)
+    groupsPanel:Hide()
+
+    local selectedPlayer = nil   -- jugador elegido para colocarlo en un grupo
+
+    local unassignedBox = CreateBackdropBox(groupsPanel, 170, 430, "TOPLEFT", groupsPanel, "TOPLEFT", 0, 0)
+    local unassignedTitle = unassignedBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    unassignedTitle:SetPoint("TOPLEFT", unassignedBox, "TOPLEFT", 10, -10)
+
+    local unassignedButtons = {}
+    local function AcquireUnassigned(index)
+        local btn = unassignedButtons[index]
+        if btn then return btn end
+        btn = CreateFrame("Button", nil, unassignedBox)
+        btn:SetSize(154, 20)
+        btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+        btn.bg:SetAllPoints()
+        btn.bg:SetColorTexture(1, 0.82, 0, 0.3)
+        btn.highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+        btn.highlight:SetAllPoints()
+        btn.highlight:SetColorTexture(1, 1, 1, 0.08)
+        btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.text:SetPoint("LEFT", btn, "LEFT", 4, 0)
+        btn.text:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+        btn.text:SetJustifyH("LEFT")
+        btn.text:SetWordWrap(false)
+        btn:SetScript("OnClick", function(self)
+            if not IsOfficerProfile() then return end
+            selectedPlayer = (selectedPlayer == self.playerName) and nil or self.playerName
+            Refresh()
+        end)
+        unassignedButtons[index] = btn
+        return btn
+    end
+
+    -- 8 grupos en 4 columnas y 2 filas, 5 huecos cada uno
+    local groupBoxes = {}
+    for g = 1, 8 do
+        local col, row = (g - 1) % 4, math.floor((g - 1) / 4)
+        local box = CreateBackdropBox(groupsPanel, 114, 150, "TOPLEFT", unassignedBox, "TOPRIGHT", 6 + col * 116, -row * 156)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -8)
+        box.slots = {}
+        for s = 1, 5 do
+            local slot = CreateFrame("Button", nil, box)
+            slot:SetSize(100, 20)
+            slot:SetPoint("TOPLEFT", box, "TOPLEFT", 7, -28 - (s - 1) * 23)
+            slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            slot.bg = slot:CreateTexture(nil, "BACKGROUND")
+            slot.bg:SetAllPoints()
+            slot.bg:SetColorTexture(1, 1, 1, 0.06)
+            slot.highlight = slot:CreateTexture(nil, "HIGHLIGHT")
+            slot.highlight:SetAllPoints()
+            slot.highlight:SetColorTexture(1, 1, 1, 0.1)
+            slot.text = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            slot.text:SetPoint("LEFT", slot, "LEFT", 3, 0)
+            slot.text:SetPoint("RIGHT", slot, "RIGHT", -3, 0)
+            slot.text:SetJustifyH("LEFT")
+            slot.text:SetWordWrap(false)
+            slot.group = g
+            -- Clic: coloca aquí al jugador elegido (o elige al que ocupa el hueco).
+            -- Clic derecho: lo saca del grupo.
+            slot:SetScript("OnClick", function(self, button)
+                local event = SelectedEvent()
+                if not event or not IsOfficerProfile() then return end
+                if button == "RightButton" then
+                    if self.playerName then E.SetGroup(event, self.playerName, nil) end
+                elseif selectedPlayer then
+                    if self.playerName then E.SetGroup(event, self.playerName, nil) end
+                    E.SetGroup(event, selectedPlayer, self.group)
+                    selectedPlayer = nil
+                elseif self.playerName then
+                    selectedPlayer = self.playerName
+                end
+                Refresh()
+            end)
+            box.slots[s] = slot
+        end
+        groupBoxes[g] = box
+    end
+
+    local groupsHint = groupsPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    groupsHint:SetPoint("TOPLEFT", groupBoxes[5], "BOTTOMLEFT", 0, -8)
+    groupsHint:SetWidth(466)
+    groupsHint:SetJustifyH("LEFT")
+
+    local groupsFooter = CreateFrame("Frame", nil, groupsPanel)
+    groupsFooter:SetSize(644, 24)
+    groupsFooter:SetPoint("BOTTOMLEFT", groupsPanel, "BOTTOMLEFT", 0, 4)
+    local function FooterButton(text, width, anchor, onClick)
+        local btn = CreateFrame("Button", nil, groupsFooter, "UIPanelButtonTemplate")
+        btn:SetSize(width, 22)
+        if anchor then btn:SetPoint("LEFT", anchor, "RIGHT", 6, 0) else btn:SetPoint("LEFT", groupsFooter, "LEFT", 0, 0) end
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+    local btnAuto = FooterButton("Repartir automáticamente", 180, nil, function() E.AutoGroups(SelectedEvent()); Refresh() end)
+    local btnClearGroups = FooterButton("Vaciar grupos", 110, btnAuto, function() E.ClearGroups(SelectedEvent()); Refresh() end)
+    local btnPublishGroups = FooterButton("Publicar grupos", 120, btnClearGroups, function()
+        local ev = SelectedEvent()
+        if ev then E.Publish(ev); PrintGC("Grupos publicados en la hermandad.") end
+    end)
+    -- Aplica los grupos en la banda actual (hay que ser líder o ayudante)
+    local btnApply = FooterButton("Aplicar en la banda", 140, btnPublishGroups, function()
+        local event = SelectedEvent()
+        if not event or not IsInRaid() then
+            PrintGC("Tienes que estar en una banda para aplicar los grupos.")
+            return
+        end
+        if not (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")) then
+            PrintGC("Necesitas ser líder o ayudante de la banda.")
+            return
+        end
+        local moved = 0
+        for i = 1, GetNumGroupMembers() do
+            local name, _, subgroup = GetRaidRosterInfo(i)
+            local full = name and addonTable.Profiles.NormalizeName(name)
+            local target = full and event.groups[full]
+            if target and target ~= subgroup then
+                SetRaidSubgroup(i, target)
+                moved = moved + 1
+            end
+        end
+        PrintGC("Moviendo a |cFFFFD100" .. moved .. "|r jugadores. Si algún grupo estaba lleno, pulsa de nuevo cuando se libere.")
+    end)
+    local officerGroupButtons = { btnAuto, btnClearGroups, btnPublishGroups, btnApply }
+
+    local function RefreshGroups(event)
+        selectedPlayer = (event and selectedPlayer and event.signups[selectedPlayer]) and selectedPlayer or nil
+        local isOfficer = IsOfficerProfile()
+        for _, btn in ipairs(officerGroupButtons) do btn:SetShown(isOfficer) end
+        groupsHint:SetText(isOfficer and "Clic en un jugador de la izquierda y luego en un hueco para colocarlo. Clic en un hueco ocupado para moverlo; clic derecho para sacarlo."
+            or "Grupos publicados por los oficiales para esta banda.")
+
+        local members = {}
+        for g = 1, 8 do members[g] = {} end
+        local unassigned = {}
+        if event then
+            for name, s in pairs(event.signups) do
+                if s.status == "signed" or s.status == "late" then
+                    local g = event.groups and event.groups[name]
+                    if g and #members[g] < 5 then table.insert(members[g], name) else table.insert(unassigned, name) end
+                end
+            end
+        end
+        table.sort(unassigned)
+
+        for _, btn in ipairs(unassignedButtons) do btn:Hide() end
+        unassignedTitle:SetText("Sin grupo (" .. #unassigned .. ")")
+        for i, name in ipairs(unassigned) do
+            if i > 19 then break end
+            local btn = AcquireUnassigned(i)
+            btn:SetPoint("TOPLEFT", unassignedBox, "TOPLEFT", 8, -32 - (i - 1) * 21)
+            btn.playerName = name
+            local s = event.signups[name]
+            btn.text:SetText(RoleIcon(s.role, 12) .. " " .. SignupName(name))
+            btn.bg:SetShown(selectedPlayer == name)
+            btn:Show()
+        end
+
+        local numGroups = event and math.max(1, math.ceil((event.size or 20) / 5)) or 4
+        for g = 1, 8 do
+            local box = groupBoxes[g]
+            box:SetAlpha(g <= numGroups and 1 or 0.45)
+            box.title:SetText("Grupo " .. g .. " |cFF808080(" .. #members[g] .. "/5)|r")
+            table.sort(members[g])
+            for s = 1, 5 do
+                local slot = box.slots[s]
+                local name = members[g][s]
+                slot.playerName = name
+                if name then
+                    local signup = event.signups[name]
+                    slot.text:SetText(RoleIcon(signup and signup.role, 12) .. " " .. SignupName(name))
+                    if selectedPlayer == name then slot.bg:SetColorTexture(1, 0.82, 0, 0.3) else slot.bg:SetColorTexture(1, 1, 1, 0.06) end
+                else
+                    slot.text:SetText("|cFF555555vacío|r")
+                    slot.bg:SetColorTexture(1, 1, 1, 0.03)
+                end
+            end
+        end
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Refresco general
+    -- ---------------------------------------------------------------------
+    local function RefreshPlanning(event)
+        local isOfficer = IsOfficerProfile()
+        officerBar:SetShown(isOfficer and event ~= nil)
+        footer:SetShown(event ~= nil)
+        for _, btn in ipairs({ btnInvite, btnRemind, btnRepublish }) do btn:SetShown(isOfficer) end
+
+        local hasEvent = event ~= nil
+        for _, widget in ipairs({ evTitle, evInfo, evDesc, signBar, countsText, tankCol, healerCol, dpsCol, otherText }) do widget:SetShown(hasEvent) end
+        emptyDetail:SetShown(not hasEvent)
+        emptyDetail:SetText(isOfficer and "No hay bandas programadas. Crea una con el botón Nueva."
+            or "No hay bandas programadas. Cuando un oficial publique una, aparecerá aquí para que te apuntes.")
+        if not hasEvent then return end
+
+        evTitle:SetText(event.title)
+        evInfo:SetText("|cFFFFD100" .. RaidEventDateText(event, true) .. "|r   ·   "
+            .. (event.raidName and (event.raidName .. " ") or "") .. (RAID_DIFFICULTY_LABELS[event.difficulty] or "") .. " " .. event.size
+            .. "   ·   |cFF808080por " .. (event.createdBy or "?") .. "|r")
+        evDesc:SetText(event.description ~= "" and event.description or "|cFF808080Sin descripción.|r")
+
+        local mine = E.GetMySignup(event)
+        if mine then
+            mySignupText:SetText("|cFF" .. E.STATUS_COLORS[mine.status] .. E.STATUS_LABELS[mine.status] .. "|r"
+                .. (mine.role and (" como " .. RoleIcon(mine.role, 12)) or "") .. ((mine.spec and mine.spec ~= "") and (" " .. mine.spec) or ""))
+        else
+            mySignupText:SetText("|cFFFF7F00Aún no has respondido|r")
+        end
+
+        local counts = E.CountSignups(event)
+        countsText:SetText("Apuntados: |cFF00FF00" .. counts.total .. "|r/" .. event.size
+            .. "   " .. RoleIcon("tank", 14) .. " " .. counts.tank .. "   " .. RoleIcon("healer", 14) .. " " .. counts.healer
+            .. "   " .. RoleIcon("dps", 14) .. " " .. counts.dps
+            .. "   ·   Tentativos " .. counts.tentative .. "   ·   Banca " .. counts.bench .. "   ·   Ausentes " .. counts.absent)
+
+        local byRole = E.GetSignupsByRole(event)
+        local function ColumnText(label, role, list)
+            local lines = { RoleIcon(role, 16) .. " |cFFFFD100" .. label .. " (" .. #list .. ")|r" }
+            -- Caben unas 13 líneas por columna; el resto se resume
+            for i, entry in ipairs(list) do
+                if i > 13 then
+                    table.insert(lines, "|cFF808080y " .. (#list - 13) .. " más (ver Vista de grupos)|r")
+                    break
+                end
+                table.insert(lines, SignupName(entry.name, entry.signup))
+            end
+            return table.concat(lines, "\n")
+        end
+        tankCol:SetText(ColumnText("Tanques", "tank", byRole.tank))
+        healerCol:SetText(ColumnText("Sanadores", "healer", byRole.healer))
+        dpsCol:SetText(ColumnText("DPS", "dps", byRole.dps))
+
+        local otherLines = {}
+        for _, status in ipairs({ "tentative", "bench", "absent" }) do
+            local list = byRole.other[status] or {}
+            if #list > 0 then
+                local names = {}
+                for _, entry in ipairs(list) do table.insert(names, SignupName(entry.name, entry.signup)) end
+                table.insert(otherLines, "|cFF" .. E.STATUS_COLORS[status] .. E.STATUS_LABELS[status] .. " (" .. #list .. "):|r " .. table.concat(names, ", "))
+            end
+        end
+        otherText:SetText(table.concat(otherLines, "\n"))
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        local isOfficer = IsOfficerProfile()
+        btnNew:SetShown(isOfficer)
+        btnPlanning:SetEnabled(mode ~= "planning")
+        btnGroups:SetEnabled(mode ~= "groups")
+
+        -- Lista de bandas
+        local events = E.GetUpcoming()
+        if selectedEventId and not E.Get(selectedEventId) then selectedEventId = nil end
+        if not selectedEventId and events[1] then selectedEventId = events[1].id end
+        for _, btn in ipairs(eventButtons) do btn:Hide() end
+        for i, ev in ipairs(events) do
+            if i > 9 then break end
+            local btn = AcquireEventButton(i)
+            btn:SetPoint("TOPLEFT", listBox, "TOPLEFT", 8, -34 - (i - 1) * 48)
+            btn.eventId = ev.id
+            btn.bg:SetColorTexture(1, 0.82, 0, ev.id == selectedEventId and 0.22 or 0.05)
+            btn.titleFs:SetText(ev.title)
+            local counts = E.CountSignups(ev)
+            local mine = E.GetMySignup(ev)
+            local mark = mine and (" |cFF" .. E.STATUS_COLORS[mine.status] .. "•|r") or ""
+            btn.infoFs:SetText("|cFFBFBFBF" .. RaidEventDateText(ev) .. "|r   |cFF00FF00" .. counts.total .. "|r/" .. ev.size .. mark)
+            btn:Show()
+        end
+        listEmpty:SetShown(#events == 0)
+        listEmpty:SetText(isOfficer and "Sin bandas. Pulsa Nueva para crear una." or "Sin bandas publicadas todavía.")
+
+        local event = SelectedEvent()
+        local showForm = mode == "planning" and editing ~= nil and isOfficer
+        detail:SetShown(mode == "planning")
+        groupsPanel:SetShown(mode == "groups")
+        form:SetShown(showForm)
+        if showForm then
+            for _, widget in ipairs({ evTitle, evInfo, evDesc, signBar, countsText, tankCol, healerCol, dpsCol, otherText, officerBar, footer, emptyDetail }) do widget:Hide() end
+            if not form.loadedFor or form.loadedFor ~= editing then
+                form.loadedFor = editing
+                LoadForm()
+            end
+            return
+        end
+        form.loadedFor = nil
+        if mode == "planning" then RefreshPlanning(event) else RefreshGroups(event) end
+    end
+
+    E.AddListener(function() Refresh() end)
+    view:SetScript("OnShow", Refresh)
+    containers.views["Raid"] = view
+end
+
+-- =========================================================================
 -- 9. VISTA DE CONFIGURACIÓN (NOMBRE E ICONO DE LA HERMANDAD)
 -- =========================================================================
 local DEFAULT_GUILD_ICON = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
@@ -6535,6 +7328,7 @@ function uiModule.CreateUI()
     BuildMyRostersView(mainContent)
     BuildProfessionsView(mainContent)
     BuildMythicPlusView(mainContent)
+    BuildRaidView(mainContent)
     BuildSummaryView(mainContent)
     BuildRosterView(mainContent)
     BuildWarningView(mainContent)
