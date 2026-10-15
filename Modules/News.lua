@@ -34,8 +34,8 @@ local ICONS = {
 
 -- Filtros de la pestaña: qué clases de noticia entran en cada uno
 newsModule.FILTERS = {
-    { key = "guildAchievement", label = "Logros hermandad", width = 120 },
-    { key = "achievement", label = "Logros personajes", width = 120 },
+    { key = "guildAchievement", label = "Logros hermandad" },
+    { key = "achievement", label = "Logros personajes" },
     { key = "boss", label = "Jefes" },
     { key = "loot", label = "Botín" },
     { key = "join", label = "Altas" },
@@ -230,9 +230,10 @@ local function HistoryItems()
     return items
 end
 
--- Claves de los filtros que tienen alguna noticia. Altas y Bajas se muestran siempre.
+-- Claves de los filtros que tienen alguna noticia. Altas se ve si hay alguna alta guardada
+-- (muestra las últimas aunque sean antiguas); los demás, solo si tienen noticias.
 function newsModule.GetActiveFilters()
-    local active = { join = true, leave = true }
+    local active = { join = #newsModule.GetLatestJoins(1) > 0 }
     for _, item in ipairs(newsModule.GetFeed("all")) do
         for key, kinds in pairs(FILTER_KINDS) do
             if kinds[item.kind] then active[key] = true end
@@ -325,6 +326,7 @@ local function OnEncounterEnd(encounterID, encounterName, difficultyID, _, succe
     if success ~= 1 and success ~= true then return end
     if not IsInGuild() or not encounterID then return end
     local instanceName, instanceType = GetInstanceInfo()
+    if not difficultyID then difficultyID = select(3, GetInstanceInfo()) end
     if instanceType ~= "party" and instanceType ~= "raid" then return end
     local members = GuildMembersInGroup()
     if members < 2 then return end
@@ -531,6 +533,7 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("GUILD_NEWS_UPDATE")
 frame:RegisterEvent("GUILD_MOTD")
 frame:RegisterEvent("ENCOUNTER_END")
+frame:RegisterEvent("BOSS_KILL")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
@@ -539,6 +542,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         Notify()
     elseif event == "ENCOUNTER_END" then
         OnEncounterEnd(...)
+    elseif event == "BOSS_KILL" then
+        -- Segundo aviso del mismo jefe (si ENCOUNTER_END llegó sin datos): se une al registro
+        local encounterID, encounterName = ...
+        OnEncounterEnd(encounterID, encounterName, nil, nil, true)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, msg, channel, sender = ...
         if prefix ~= BOSS_PREFIX or channel ~= "GUILD" then return end

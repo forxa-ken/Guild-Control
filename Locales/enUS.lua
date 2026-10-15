@@ -339,7 +339,7 @@ L["Abrir en el chat"] = "Open in chat"
 L["{nombre} = nombre del jugador, {hermandad} = nombre de la hermandad. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio)."] = "{name} = player name, {guild} = guild name. \"Open in chat\" puts the message in your chat box so you can post it in any channel (for example /2 for Trade)."
 
 -- Invite: mass invite
-L["1. Jugadores a invitar"] = "1. Players to invite"
+L["1. Buscar jugadores sin hermandad (/who)"] = "1. Search for unguilded players (/who)"
 L["Nivel mínimo:"] = "Min level:"
 L["Nivel máximo:"] = "Max level:"
 L["Filtro extra:"] = "Extra filter:"
@@ -799,7 +799,7 @@ L["Titulares de un roster con asistencia por debajo del umbral (con al menos 3 b
 L["|cFF00FF00Ya completaste este logro.|r"] = "|cFF00FF00You have already completed this achievement.|r"
 L["|cFFFF7F00Aún no has completado este logro.|r"] = "|cFFFF7F00You haven't completed this achievement yet.|r"
 L["Logros hermandad"] = "Guild achievements"
-L["Logros personajes"] = "Character achievements"
+L["Logros personajes"] = "Char. achievements"
 L["¡Bienvenidos a la hermandad!"] = "Welcome to the guild!"
 L["Las 5 últimas incorporaciones"] = "The 5 latest members to join"
 
@@ -821,9 +821,7 @@ L["Añadir miembro de la hermandad:"] = "Add a guild member:"
 L["|cFFFF3333No está en la hermandad: |r"] = "|cFFFF3333Not in the guild: |r"
 L[" (ya no está en la hermandad)"] = " (no longer in the guild)"
 L["Todavía no tienes favoritos. Añádelos aquí abajo o con clic derecho en Miembros; te avisa cuando se conectan."] = "You have no favorites yet. Add them below or by right-clicking in Members; you get an alert when they log in."
-L["Amigos de Battle.net (Real ID)"] = "Battle.net friends (Real ID)"
 L["Amigos BattleTag"] = "BattleTag friends"
-L["No tienes amigos con Real ID."] = "You have no Real ID friends."
 L["No tienes amigos por BattleTag."] = "You have no BattleTag friends."
 L[" |cFFFFD100(ausente)|r"] = " |cFFFFD100(away)|r"
 L[" |cFFFF3333(ocupado)|r"] = " |cFFFF3333(busy)|r"
@@ -945,7 +943,6 @@ L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o 
 L["Lo que escribas aquí se le envía por susurro."] = "Whatever you type here is whispered to them."
 
 -- Recruitment channels, favorite sound and new member welcome
-L["Busca jugadores sin hermandad (/who):"] = "Search for unguilded players (/who):"
 L["4. Publicar en:"] = "4. Post to:"
 L["Gritar"] = "Yell"
 L["Canal General"] = "General channel"

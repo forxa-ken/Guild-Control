@@ -6,8 +6,9 @@
 - Invitar: el mensaje de reclutamiento se puede **gritar** o publicar en el canal **General**, **Comercio** o **Mundo** (nombres configurables). La invitación masiva ya solo busca con /who.
 - **Bienvenida a nuevos miembros**: mensaje automático en el chat de hermandad para quien se une (sin el saludo automático habitual).
 - Sonido configurable al conectarse un favorito.
-- Configuración con desplazamiento para las secciones nuevas.
-- Mi perfil usa solo azul, amarillo y rojo.
+- Configuración con desplazamiento y cada sección en un panel con franja de título; los canales de reclutamiento van separados por líneas.
+- La invitación masiva se organiza en contenedores: búsqueda /who, cola, susurro e invitar.
+- Favoritos ya no muestra los amigos con Real ID, solo los amigos BattleTag.
 
 ### Chat
 - El chat se guarda: el historial (500 mensajes) sobrevive a `/reload` y a cerrar el juego, y se puede limpiar.
@@ -21,7 +22,7 @@
 - El nombre de la hermandad ya no se personaliza: siempre es el del juego.
 - Icono: emblema de la hermandad del juego, selector con todos los iconos del juego, más iconos rápidos o una imagen propia.
 - Botón **Donar** junto al autor.
-- **Mi perfil** reorganizado en paneles de colores.
+- **Mi perfil** reorganizado en paneles, todos en azul.
 
 ### Miembros
 - Nueva columna **Zona** (también se puede buscar por zona).
@@ -32,6 +33,8 @@
 - Nueva fila de cajas arriba: **Para ti** (tu próxima banda y respuesta, rol sin declarar, asistencia, llave y Míticas+ de la semana), **Ahora en la hermandad** (conectados, favoritos conectados y quién está en mazmorra o banda), **Esta semana** (jefes, logros, altas, bajas y la mejor llave de la hermandad) y, para oficiales, **Pendiente** (Warning por categoría y bandas a las que les faltan roles). Cada línea lleva a su pestaña.
 - Se quita la caja Rosters del Resumen (están en Roster y en Mis rosters).
 - Cada cliente comparte su mejor Mítica+ de la semana para calcular la mejor llave de la hermandad.
+- Los filtros de noticias sin noticias ya no se muestran (tampoco Bajas). Los jefes se registran también con el aviso BOSS_KILL del juego.
+- Los botones de filtro se ajustan al texto (en inglés "Char. achievements" se salía del botón).
 
 ## 5.0.0-beta2
 

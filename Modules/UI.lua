@@ -2876,40 +2876,40 @@ local function BuildMassInvitePanel(panel)
     local queue = {}            -- { {name, status}, ... }
     local batchTicker = nil
 
-    -- 1. Lista de jugadores --------------------------------------------------
-    local step1 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step1:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
-    step1:SetText(L["1. Jugadores a invitar"])
+    -- Cuatro contenedores: búsqueda /who, cola, susurro e invitar
+    local whoBox = CreateColoredPanel(panel, L["1. Buscar jugadores sin hermandad (/who)"], PANEL_COLORS.blue, 300, 190)
+    whoBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -50)
+    local queuePanel = CreateColoredPanel(panel, "", PANEL_COLORS.blue, 564, 190)
+    queuePanel:SetPoint("TOPLEFT", whoBox, "TOPRIGHT", 8, 0)
+    local messageBox = CreateColoredPanel(panel, "", PANEL_COLORS.blue, 872, 126)
+    messageBox:SetPoint("TOPLEFT", whoBox, "BOTTOMLEFT", 0, -8)
+    local sendBox = CreateColoredPanel(panel, L["3. Invitar"], PANEL_COLORS.blue, 872, 128)
+    sendBox:SetPoint("TOPLEFT", messageBox, "BOTTOMLEFT", 0, -8)
 
     -- 1a. Búsqueda /who de jugadores sin hermandad
-    local whoTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    whoTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -10)
-    whoTitle:SetText(L["Busca jugadores sin hermandad (/who):"])
-
-    local minLabel, minInput = CreateLabeledInput(panel, L["Nivel mínimo:"], 40)
-    minLabel:SetPoint("TOPLEFT", whoTitle, "BOTTOMLEFT", 0, -14)
+    local minLabel, minInput = CreateLabeledInput(whoBox, L["Nivel mínimo:"], 40)
+    minLabel:SetPoint("TOPLEFT", whoBox, "TOPLEFT", 14, -40)
     minInput:SetNumeric(true)
     minInput:SetMaxLetters(3)
 
-    local maxLabel, maxInput = CreateLabeledInput(panel, L["Nivel máximo:"], 40)
+    local maxLabel, maxInput = CreateLabeledInput(whoBox, L["Nivel máximo:"], 40)
     maxLabel:SetPoint("TOPLEFT", minLabel, "BOTTOMLEFT", 0, -16)
     maxInput:SetNumeric(true)
     maxInput:SetMaxLetters(3)
 
-    local extraWhoLabel, extraWhoInput = CreateLabeledInput(panel, L["Filtro extra:"], 120, L["Clase, zona..."])
+    local extraWhoLabel, extraWhoInput = CreateLabeledInput(whoBox, L["Filtro extra:"], 120, L["Clase, zona..."])
     extraWhoLabel:SetPoint("TOPLEFT", maxLabel, "BOTTOMLEFT", 0, -16)
     extraWhoInput:SetScript("OnTextChanged", SetPlaceholderVisibility)
 
-    local btnWho = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnWho = CreateFrame("Button", nil, whoBox, "UIPanelButtonTemplate")
     btnWho:SetSize(130, 22)
-    btnWho:SetPoint("TOPLEFT", extraWhoLabel, "BOTTOMLEFT", 0, -12)
+    btnWho:SetPoint("TOPLEFT", extraWhoLabel, "BOTTOMLEFT", 0, -16)
     btnWho:SetText(L["Buscar y añadir"])
 
-    -- 1b. Cola
-    local queueTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    queueTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 300, -10)
+    -- 1b. Cola (el título del contenedor dice cuántos hay)
+    local queueTitle = queuePanel.title
 
-    local queueBox = CreateBackdropBox(panel, 320, 112, "TOPLEFT", queueTitle, "BOTTOMLEFT", 0, -4)
+    local queueBox = CreateBackdropBox(queuePanel, 540, 124, "TOPLEFT", queuePanel, "TOPLEFT", 12, -30)
     local queueScroll = CreateFrame("ScrollFrame", nil, queueBox, "UIPanelScrollFrameTemplate")
     queueScroll:SetPoint("TOPLEFT", queueBox, "TOPLEFT", 6, -6)
     queueScroll:SetPoint("BOTTOMRIGHT", queueBox, "BOTTOMRIGHT", -26, 6)
@@ -2917,12 +2917,12 @@ local function BuildMassInvitePanel(panel)
     queueChild:SetSize(286, 1)
     queueScroll:SetScrollChild(queueChild)
 
-    local btnClear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnClear = CreateFrame("Button", nil, queuePanel, "UIPanelButtonTemplate")
     btnClear:SetSize(100, 22)
     btnClear:SetPoint("TOPLEFT", queueBox, "BOTTOMLEFT", 0, -4)
     btnClear:SetText(L["Vaciar cola"])
 
-    local btnClearDone = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnClearDone = CreateFrame("Button", nil, queuePanel, "UIPanelButtonTemplate")
     btnClearDone:SetSize(130, 22)
     btnClearDone:SetPoint("LEFT", btnClear, "RIGHT", 6, 0)
     btnClearDone:SetText(L["Quitar procesados"])
@@ -3037,44 +3037,42 @@ local function BuildMassInvitePanel(panel)
     end)
 
     -- 2. Susurro editable ----------------------------------------------------
-    local editor = CreateMessageEditor(panel, btnWho, L["2. Susurro que recibe cada jugador al invitarlo"], 50,
-        function(text) recruit().massMessage = text end)
+    local editor = CreateMessageEditor(messageBox, btnWho, L["2. Susurro que recibe cada jugador al invitarlo"], 50,
+        function(text) recruit().massMessage = text end, 848)
     editor.label:ClearAllPoints()
-    editor.label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -186)
+    editor.label:SetPoint("LEFT", messageBox.header, "LEFT", 8, 0)
+    editor.box:ClearAllPoints()
+    editor.box:SetPoint("TOPLEFT", messageBox, "TOPLEFT", 12, -48)
 
     -- 3. Envío ---------------------------------------------------------------
-    local step3 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step3:SetPoint("TOPLEFT", editor.box, "BOTTOMLEFT", 0, -26)
-    step3:SetText(L["3. Invitar"])
-
-    local chkWhisper = CreateFrame("CheckButton", "GC_MassInviteWhisper", panel, "UICheckButtonTemplate")
+    local chkWhisper = CreateFrame("CheckButton", "GC_MassInviteWhisper", sendBox, "UICheckButtonTemplate")
     chkWhisper:SetSize(24, 24)
-    chkWhisper:SetPoint("LEFT", step3, "RIGHT", 20, 0)
+    chkWhisper:SetPoint("TOPLEFT", sendBox, "TOPLEFT", 10, -28)
     _G[chkWhisper:GetName() .. "Text"]:SetText(L["Enviar el susurro con cada invitación"])
     chkWhisper:SetScript("OnClick", function(self) recruit().massWhisper = self:GetChecked() and true or false end)
 
-    local btnNext = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnNext = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnNext:SetSize(150, 22)
-    btnNext:SetPoint("TOPLEFT", step3, "BOTTOMLEFT", 0, -10)
+    btnNext:SetPoint("TOPLEFT", sendBox, "TOPLEFT", 14, -58)
     btnNext:SetText(L["Invitar siguiente"])
 
-    local btnBatch = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnBatch = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnBatch:SetSize(190, 22)
     btnBatch:SetPoint("LEFT", btnNext, "RIGHT", 8, 0)
     btnBatch:SetText(L["Invitar lote ("] .. MASS_BATCH_SIZE .. ")")
 
-    local btnStop = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnStop = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnStop:SetSize(100, 22)
     btnStop:SetPoint("LEFT", btnBatch, "RIGHT", 8, 0)
     btnStop:SetText(L["Detener"])
     btnStop:Disable()
 
-    statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    statusText = sendBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     statusText:SetPoint("LEFT", btnStop, "RIGHT", 20, 0)
 
-    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local hint = sendBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", btnNext, "BOTTOMLEFT", 0, -10)
-    hint:SetWidth(850)
+    hint:SetWidth(840)
     hint:SetJustifyH("LEFT")
     hint:SetText(L["Se omiten los miembros de la hermandad y a quien ya se invitó en los últimos "] .. REINVITE_DAYS .. L[" días. El lote envía una invitación cada "] .. MASS_BATCH_INTERVAL .. L[" s. Muchos susurros a desconocidos pueden acabar en denuncias por spam: úsalo con moderación."])
 
@@ -3559,11 +3557,11 @@ local function BuildMyProfileView(parent)
     local LEFT_X, RIGHT_X, TOP_Y, GAP = 8, 580, -40, 6
     local roleBox = CreateColoredPanel(view, L["Roles"], PANEL_COLORS.blue, 564, 112)
     roleBox:SetPoint("TOPLEFT", view, "TOPLEFT", LEFT_X, TOP_Y)
-    local charBox = CreateColoredPanel(view, L["Personaje"], PANEL_COLORS.gold, 564, 112)
+    local charBox = CreateColoredPanel(view, L["Personaje"], PANEL_COLORS.blue, 564, 112)
     charBox:SetPoint("TOPLEFT", roleBox, "BOTTOMLEFT", 0, -GAP)
     local specBox = CreateColoredPanel(view, L["Especialización"], PANEL_COLORS.blue, 564, 76)
     specBox:SetPoint("TOPLEFT", charBox, "BOTTOMLEFT", 0, -GAP)
-    local noteBox = CreateColoredPanel(view, L["Nota y envío"], PANEL_COLORS.gold, 564, 470 - 112 - 112 - 76 - GAP * 3)
+    local noteBox = CreateColoredPanel(view, L["Nota y envío"], PANEL_COLORS.blue, 564, 470 - 112 - 112 - 76 - GAP * 3)
     noteBox:SetPoint("TOPLEFT", specBox, "BOTTOMLEFT", 0, -GAP)
 
     -- Grupo de casillas que se comportan como botones de opción, dentro de un panel
@@ -3743,7 +3741,7 @@ local function BuildMyProfileView(parent)
     sideText:SetJustifyH("LEFT")
     sideText:SetSpacing(2)
 
-    local officerBox = CreateColoredPanel(view, L["Oficiales"], PANEL_COLORS.red, 310, 470 - 150 - GAP)
+    local officerBox = CreateColoredPanel(view, L["Oficiales"], PANEL_COLORS.blue, 310, 470 - 150 - GAP)
     officerBox:SetPoint("TOPLEFT", side, "BOTTOMLEFT", 0, -GAP)
 
     local officerText = officerBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -4101,8 +4099,10 @@ local function BuildSummaryView(parent)
     local filterButtons = {}
     for _, filter in ipairs(N.FILTERS) do
         local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
-        btn:SetSize(filter.width or 70, 20)
         btn:SetText(L[filter.label])
+        -- El ancho sale del texto (en otros idiomas es más largo), con un mínimo
+        local textWidth = btn:GetFontString() and btn:GetFontString():GetStringWidth() or 0
+        btn:SetSize(math.max(56, math.ceil(textWidth + 22)), 20)
         btn:SetScript("OnClick", function()
             currentFilter = filter.key
             Refresh()
@@ -7140,10 +7140,9 @@ local function BuildFavoritesView(parent)
     }
 
     -- ---------------------------------------------------------------------
-    -- Derecha: amigos de Battle.net (Real ID) y amigos BattleTag, por separado
+    -- Derecha: amigos BattleTag (los de Real ID no se muestran)
     -- ---------------------------------------------------------------------
-    local realIdBox = ListBox(434, 246, "TOPLEFT", favBox, "TOPRIGHT", 6, 0, L["Amigos de Battle.net (Real ID)"])
-    local tagBox = ListBox(434, 248, "TOPLEFT", realIdBox, "BOTTOMLEFT", 0, -6, L["Amigos BattleTag"])
+    local tagBox = ListBox(434, 500, "TOPLEFT", favBox, "TOPRIGHT", 6, 0, L["Amigos BattleTag"])
     local BNET_BUTTONS = {
         { key = "whisper", text = L["Susurrar"], width = 66 },
         { key = "invite", text = L["Invitar"], width = 58 },
@@ -7250,23 +7249,19 @@ local function BuildFavoritesView(parent)
         favBox.empty:SetShown(#favorites == 0)
         favBox.empty:SetText(L["Todavía no tienes favoritos. Añádelos aquí abajo o con clic derecho en Miembros; te avisa cuando se conectan."])
 
-        -- Amigos de Battle.net: conectados primero, separados en Real ID y BattleTag
-        local realId, tags = {}, {}
+        -- Amigos BattleTag, conectados primero
+        local tags = {}
         for _, friend in ipairs(GetBattleNetFriends()) do
-            table.insert(friend.isBattleTagFriend and tags or realId, friend)
+            if friend.isBattleTagFriend then table.insert(tags, friend) end
         end
         local function ByOnline(a, b)
             if a.online ~= b.online then return a.online end
             if (a.inWoW or false) ~= (b.inWoW or false) then return a.inWoW or false end
             return tostring(a.battleTag or "") < tostring(b.battleTag or "")
         end
-        table.sort(realId, ByOnline)
         table.sort(tags, ByOnline)
-        local onlineReal = FillFriends(realIdBox, realId)
         local onlineTags = FillFriends(tagBox, tags)
-        realIdBox.title:SetText(L["Amigos de Battle.net (Real ID)"] .. " |cFF808080(" .. onlineReal .. "/" .. #realId .. ")|r")
         tagBox.title:SetText(L["Amigos BattleTag"] .. " |cFF808080(" .. onlineTags .. "/" .. #tags .. ")|r")
-        realIdBox.empty:SetText(L["No tienes amigos con Real ID."])
         tagBox.empty:SetText(L["No tienes amigos por BattleTag."])
     end
 
@@ -7904,12 +7899,10 @@ local function BuildConfigView(parent)
     content:SetSize(870, 760)
     scroll:SetScrollChild(content)
 
-    -- Cada sección es una caja con su título (y como si empezara bajo el título de la vista)
+    -- Cada sección es un panel con franja de título (y como si empezara bajo el título de la vista)
     local function Section(titleText, x, y, width, height)
-        local box = CreateBackdropBox(content, width, height, "TOPLEFT", content, "TOPLEFT", x, y + 30)
-        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
-        box.title:SetText(titleText)
+        local box = CreateColoredPanel(content, titleText, PANEL_COLORS.blue, width, height)
+        box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y + 30)
         return box
     end
 
@@ -8272,6 +8265,14 @@ local function BuildConfigView(parent)
         end)
         input:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().recruitChannels[key] or "") end)
         channelInputs[key] = input
+        -- Línea fina entre canales
+        if i < #CHANNEL_FIELDS then
+            local line = channelsBox:CreateTexture(nil, "ARTWORK")
+            line:SetColorTexture(1, 1, 1, 0.08)
+            line:SetHeight(1)
+            line:SetPoint("TOPLEFT", channelsBox, "TOPLEFT", 12, -50 - (i - 1) * 26)
+            line:SetPoint("TOPRIGHT", channelsBox, "TOPRIGHT", -12, -50 - (i - 1) * 26)
+        end
     end
     local channelsHint = channelsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     channelsHint:SetPoint("TOPLEFT", channelsBox, "TOPLEFT", 14, -108)
