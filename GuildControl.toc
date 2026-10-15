@@ -5,6 +5,7 @@
 ## Version: @project-version@
 ## IconTexture: Interface\Icons\Achievement_GuildPerk_MobileBanking
 ## SavedVariables: GuildControlDB
+## X-Curse-Project-ID: 1745650
 
 Core.lua
 Modules\Professions.lua
