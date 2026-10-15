@@ -20,6 +20,16 @@ local containers = {
 }
 
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
+-- Ayuda que se muestra en la vista previa al entrar en algunas pestañas (texto en español,
+-- se traduce al dibujar)
+local TAB_HELP = {
+    ["Botín"] = "|cFFFFD100Cómo funciona Botín (+1)|r\n\n"
+        .. "|cFFB380FFObjetos de la banda:|r aparecen solos al derrotar a un jefe en grupo, o se añaden con Shift+clic en un objeto. Haz clic en uno para llevarlo a Tirada.\n"
+        .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
+        .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
+        .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
+        .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía.",
+}
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
 local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
@@ -473,7 +483,7 @@ local function SwitchTab(tabName)
     if tabName ~= "Logros" then
         selectedAchievementId = nil
     end
-    SetPreviewText(L[PREVIEW_DEFAULT_TEXT])
+    SetPreviewText(L[TAB_HELP[tabName] or PREVIEW_DEFAULT_TEXT])
 
     if tabName == "Miembros" and uiModule.RefreshList then
         -- Al entrar en Miembros siempre se vuelve al orden por defecto: conectados primero
@@ -2624,18 +2634,24 @@ end
 local function BuildSingleInvitePanel(panel)
     local recruit = function() return GuildControlDB.settings.recruit end
 
-    local step1 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step1:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
-    step1:SetText(L["1. ¿Qué buscáis?"])
+    -- Cuatro contenedores: qué buscáis, mensaje, enviar a un jugador y publicar en un canal
+    local searchBox = CreateColoredPanel(panel, L["1. ¿Qué buscáis?"], PANEL_COLORS.blue, 872, 134)
+    searchBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -50)
+    local messageBox = CreateColoredPanel(panel, "", PANEL_COLORS.blue, 872, 132)
+    messageBox:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -8)
+    local sendBox = CreateColoredPanel(panel, L["3. Enviar a un jugador"], PANEL_COLORS.blue, 872, 88)
+    sendBox:SetPoint("TOPLEFT", messageBox, "BOTTOMLEFT", 0, -8)
+    local publishBox = CreateColoredPanel(panel, L["4. Publicar en:"], PANEL_COLORS.blue, 872, 84)
+    publishBox:SetPoint("TOPLEFT", sendBox, "BOTTOMLEFT", 0, -8)
 
     local function CreateCheckRow(labelText, yOffset, items, tableKey)
-        local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, yOffset)
+        local label = searchBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", searchBox, "TOPLEFT", 14, yOffset)
         label:SetText(labelText)
 
         local checks = {}
         for i, item in ipairs(items) do
-            local chk = CreateFrame("CheckButton", "GC_Recruit_" .. tableKey .. "_" .. item.key, panel, "UICheckButtonTemplate")
+            local chk = CreateFrame("CheckButton", "GC_Recruit_" .. tableKey .. "_" .. item.key, searchBox, "UICheckButtonTemplate")
             chk:SetSize(24, 24)
             chk:SetPoint("LEFT", label, "LEFT", 80 + (i - 1) * 135, 0)
             _G[chk:GetName() .. "Text"]:SetText(L[item.label])
@@ -2647,15 +2663,15 @@ local function BuildSingleInvitePanel(panel)
         return checks
     end
 
-    local roleChecks = CreateCheckRow(L["Roles:"], -14, RECRUIT_ROLES, "roles")
-    local activityChecks = CreateCheckRow(L["Actividades:"], -44, RECRUIT_ACTIVITIES, "activities")
+    local roleChecks = CreateCheckRow(L["Roles:"], -38, RECRUIT_ROLES, "roles")
+    local activityChecks = CreateCheckRow(L["Actividades:"], -62, RECRUIT_ACTIVITIES, "activities")
 
-    local scheduleLabel, scheduleInput = CreateLabeledInput(panel, L["Horario:"], 320, L["Ej.: miércoles y jueves de 21:00 a 00:00"])
-    scheduleLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -78)
+    local scheduleLabel, scheduleInput = CreateLabeledInput(searchBox, L["Horario:"], 320, L["Ej.: miércoles y jueves de 21:00 a 00:00"])
+    scheduleLabel:SetPoint("TOPLEFT", searchBox, "TOPLEFT", 14, -88)
     scheduleInput:SetMaxLetters(80)
 
-    local extraLabel, extraInput = CreateLabeledInput(panel, L["Texto final:"], 520)
-    extraLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -108)
+    local extraLabel, extraInput = CreateLabeledInput(searchBox, L["Texto final:"], 520)
+    extraLabel:SetPoint("TOPLEFT", searchBox, "TOPLEFT", 14, -114)
     extraInput:SetMaxLetters(120)
 
     scheduleInput:SetScript("OnTextChanged", function(self)
@@ -2664,26 +2680,26 @@ local function BuildSingleInvitePanel(panel)
     end)
     extraInput:SetScript("OnTextChanged", function(self) recruit().extra = self:GetText() or "" end)
 
-    local btnGenerate = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnGenerate = CreateFrame("Button", nil, searchBox, "UIPanelButtonTemplate")
     btnGenerate:SetSize(150, 22)
-    btnGenerate:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -136)
+    btnGenerate:SetPoint("BOTTOMRIGHT", searchBox, "BOTTOMRIGHT", -14, 12)
     btnGenerate:SetText(L["Generar mensaje"])
 
-    local editor = CreateMessageEditor(panel, btnGenerate, L["2. Mensaje (puedes retocarlo a mano)"], 62,
-        function(text) recruit().message = text end)
+    local editor = CreateMessageEditor(messageBox, btnGenerate, L["2. Mensaje (puedes retocarlo a mano)"], 62,
+        function(text) recruit().message = text end, 848)
+    editor.label:ClearAllPoints()
+    editor.label:SetPoint("LEFT", messageBox.header, "LEFT", 8, 0)
+    editor.box:ClearAllPoints()
+    editor.box:SetPoint("TOPLEFT", messageBox, "TOPLEFT", 12, -48)
 
     btnGenerate:SetScript("OnClick", function()
         editor.SetText(ComposeRecruitMessage(recruit()))
         editor.edit:ClearFocus()
     end)
 
-    local step3 = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    step3:SetPoint("TOPLEFT", editor.box, "BOTTOMLEFT", 0, -26)
-    step3:SetText(L["3. Enviar a un jugador"])
-
-    local nameInput = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    local nameInput = CreateFrame("EditBox", nil, sendBox, "InputBoxTemplate")
     nameInput:SetSize(200, 20)
-    nameInput:SetPoint("TOPLEFT", step3, "BOTTOMLEFT", 6, -8)
+    nameInput:SetPoint("TOPLEFT", sendBox, "TOPLEFT", 20, -30)
     nameInput:SetAutoFocus(false)
     nameInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -2693,7 +2709,7 @@ local function BuildSingleInvitePanel(panel)
     namePlaceholder:SetText(L["Nombre o Nombre-Reino"])
     nameInput:SetScript("OnTextChanged", function(self) namePlaceholder:SetShown((self:GetText() or "") == "") end)
 
-    local btnTarget = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnTarget = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnTarget:SetSize(120, 22)
     btnTarget:SetPoint("LEFT", nameInput, "RIGHT", 10, 0)
     btnTarget:SetText(L["Usar objetivo"])
@@ -2745,12 +2761,12 @@ local function BuildSingleInvitePanel(panel)
 
     local previous = nil
     for _, action in ipairs(actions) do
-        local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        local btn = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
         btn:SetSize(170, 22)
         if previous then
             btn:SetPoint("LEFT", previous, "RIGHT", 8, 0)
         else
-            btn:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -12)
+            btn:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -8)
         end
         btn:SetText(action[1])
         btn:SetScript("OnClick", function()
@@ -2761,7 +2777,7 @@ local function BuildSingleInvitePanel(panel)
     end
 
     -- Para canales (Comercio, Reclutamiento...): se abre en el chat y el jugador elige dónde enviarlo
-    local btnOpenChat = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnOpenChat = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnOpenChat:SetSize(170, 22)
     btnOpenChat:SetPoint("LEFT", previous, "RIGHT", 8, 0)
     btnOpenChat:SetText(L["Abrir en el chat"])
@@ -2789,12 +2805,8 @@ local function BuildSingleInvitePanel(panel)
         return ""
     end
 
-    local publishLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    publishLabel:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -46)
-    publishLabel:SetText(L["4. Publicar en:"])
-
-    local dropPublish = CreateFrame("DropdownButton", "GC_RecruitPublish", panel, "WowStyle1DropdownTemplate")
-    dropPublish:SetPoint("LEFT", publishLabel, "RIGHT", 10, 0)
+    local dropPublish = CreateFrame("DropdownButton", "GC_RecruitPublish", publishBox, "WowStyle1DropdownTemplate")
+    dropPublish:SetPoint("TOPLEFT", publishBox, "TOPLEFT", 14, -30)
     dropPublish:SetWidth(250)
     dropPublish:SetupMenu(function(_, root)
         for _, option in ipairs(PUBLISH_OPTIONS) do
@@ -2806,7 +2818,7 @@ local function BuildSingleInvitePanel(panel)
         end
     end)
 
-    local btnPublish = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local btnPublish = CreateFrame("Button", nil, publishBox, "UIPanelButtonTemplate")
     btnPublish:SetSize(110, 22)
     btnPublish:SetPoint("LEFT", dropPublish, "RIGHT", 8, 0)
     btnPublish:SetText(L["Publicar"])
@@ -2831,9 +2843,9 @@ local function BuildSingleInvitePanel(panel)
         send(msg, "CHANNEL", nil, channelId)
     end)
 
-    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", publishLabel, "BOTTOMLEFT", 0, -14)
-    hint:SetWidth(850)
+    local hint = publishBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", publishBox, "TOPLEFT", 16, -60)
+    hint:SetWidth(840)
     hint:SetJustifyH("LEFT")
     hint:SetText(L["{nombre} = nombre del jugador, {hermandad} = nombre de la hermandad. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio)."])
 
@@ -7431,14 +7443,14 @@ local function BuildLootView(parent)
         return box
     end
 
-    local itemsBox = ListBox(L["Objetos de la banda"], PANEL_COLORS.purple, 430, 250)
+    local itemsBox = ListBox(L["Objetos de la banda"], PANEL_COLORS.purple, 437, 234)
     itemsBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -40)
     itemsBox.scroll:SetPoint("BOTTOMRIGHT", itemsBox, "BOTTOMRIGHT", -28, 36)
-    local historyBox = ListBox(L["Historial de botín"], PANEL_COLORS.gold, 430, 214)
+    local historyBox = ListBox(L["Historial de botín"], PANEL_COLORS.gold, 437, 234)
     historyBox:SetPoint("TOPLEFT", itemsBox, "BOTTOMLEFT", 0, -6)
-    local rollBox = CreateColoredPanel(view, L["Tirada"], PANEL_COLORS.green, 444, 270)
+    local rollBox = CreateColoredPanel(view, L["Tirada"], PANEL_COLORS.green, 437, 234)
     rollBox:SetPoint("TOPLEFT", itemsBox, "TOPRIGHT", 6, 0)
-    local pointsBox = ListBox(L["+1 de la hermandad"], PANEL_COLORS.blue, 444, 194)
+    local pointsBox = ListBox(L["+1 de la hermandad"], PANEL_COLORS.blue, 437, 234)
     pointsBox:SetPoint("TOPLEFT", rollBox, "BOTTOMLEFT", 0, -6)
 
     -- Añadir un objeto a mano: Shift+clic en un objeto con el cursor en la caja
@@ -7542,10 +7554,11 @@ local function BuildLootView(parent)
         previousChoose = btn
     end
 
+    local MAX_ROLL_ROWS = 4   -- filas de tirada que caben en el panel
     local ROLL_COLS = { name = 0, kind = 130, roll = 230, points = 280, wins = 320 }
     local rollHeader = CreateFrame("Frame", nil, rollBox)
     rollHeader:SetSize(420, 14)
-    rollHeader:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 0, -36)
+    rollHeader:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 0, -32)
     for _, h in ipairs({ { L["Jugador"], ROLL_COLS.name }, { L["Pide"], ROLL_COLS.kind }, { L["Tirada"], ROLL_COLS.roll },
                          { "+1", ROLL_COLS.points }, { L["En esta banda"], ROLL_COLS.wins } }) do
         local fs = rollHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -7710,7 +7723,7 @@ local function BuildLootView(parent)
             end
             local list = LT.GetRollList(item)
             for i, entry in ipairs(list) do
-                if i > 7 then break end
+                if i > MAX_ROLL_ROWS then break end
                 local row = AcquireRollRow(i)
                 row:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -2 - (i - 1) * 16)
                 row.playerName = entry.name
@@ -7724,7 +7737,7 @@ local function BuildLootView(parent)
             end
             local passes = LT.GetPassList(item)
             passText:ClearAllPoints()
-            passText:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -4 - math.min(#list, 7) * 16)
+            passText:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -4 - math.min(#list, MAX_ROLL_ROWS) * 16)
             local passNames = {}
             for _, name in ipairs(passes) do table.insert(passNames, ShortName(name)) end
             passText:SetText(#passNames > 0 and (L["Pasan: "] .. table.concat(passNames, ", ")) or "")
@@ -7896,7 +7909,7 @@ local function BuildConfigView(parent)
     scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -30)
     scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -26, 6)
     local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(870, 760)
+    content:SetSize(870, 772)
     scroll:SetScrollChild(content)
 
     -- Cada sección es un panel con franja de título (y como si empezara bajo el título de la vista)
@@ -8206,7 +8219,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.4 Bienvenida a quien entra nuevo en la hermandad
     -- ---------------------------------------------------------------------
-    local welcomeBox = Section(L["Bienvenida a nuevos miembros"], 10, -512, 880, 100)
+    local welcomeBox = Section(L["Bienvenida a nuevos miembros"], 10, -512, 880, 112)
 
     local chkWelcome = CreateFrame("CheckButton", "GC_CfgWelcomeNew", welcomeBox, "UICheckButtonTemplate")
     chkWelcome:SetPoint("TOPLEFT", welcomeBox, "TOPLEFT", 10, -28)
@@ -8237,7 +8250,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.5 Canales para publicar el mensaje de reclutamiento (Invitar)
     -- ---------------------------------------------------------------------
-    local channelsBox = Section(L["Canales de reclutamiento"], 10, -618, 430, 130)
+    local channelsBox = Section(L["Canales de reclutamiento"], 10, -630, 430, 130)
     local CHANNEL_FIELDS = {
         { key = "general", label = "Canal General:" },
         { key = "trade", label = "Canal de Comercio:" },
@@ -8283,7 +8296,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.6 Sonido al conectarse un favorito
     -- ---------------------------------------------------------------------
-    local soundBox = Section(L["Aviso de favoritos"], 448, -618, 442, 130)
+    local soundBox = Section(L["Aviso de favoritos"], 448, -630, 442, 130)
     local F = addonTable.Favorites
 
     local chkSound = CreateFrame("CheckButton", "GC_CfgFavoriteSound", soundBox, "UICheckButtonTemplate")

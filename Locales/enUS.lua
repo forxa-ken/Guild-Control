@@ -975,4 +975,18 @@ L["Dar la bienvenida en el chat de hermandad a quien se une"] = "Welcome new mem
 L["{nombre} y {hermandad} se sustituyen. A quien entra nuevo no se le aplica el saludo automático. Si varios usan GuildControl, solo responde uno."] = "{name} and {guild} are replaced. New members don't get the auto-greet. If several people use GuildControl, only one replies."
 L["¡Bienvenido/a a <{hermandad}>, {nombre}! Si tienes cualquier duda, pregunta por aquí."] = "Welcome to <{guild}>, {name}! If you have any questions, just ask here."
 
+-- Ayuda de la pestaña Botín (vista previa). La clave es la misma concatenación que TAB_HELP en UI.lua
+L["|cFFFFD100Cómo funciona Botín (+1)|r\n\n"
+    .. "|cFFB380FFObjetos de la banda:|r aparecen solos al derrotar a un jefe en grupo, o se añaden con Shift+clic en un objeto. Haz clic en uno para llevarlo a Tirada.\n"
+    .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
+    .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
+    .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
+    .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía."]
+    = "|cFFFFD100How Loot (+1) works|r\n\n"
+    .. "|cFFB380FFRaid items:|r they appear on their own when a boss dies in your group, or add them with Shift+click on an item. Click one to bring it to Roll.\n"
+    .. "|cFF40D959Roll:|r the leader, an assistant or an officer presses Open roll. Everyone in the group with GuildControl gets a window to choose Need (+1), Off-spec or Pass, and the addon does the /roll for them. Award to winner picks Need first, then whoever has the fewest +1 and, on a tie, the highest roll. Right-click a player to award it manually.\n"
+    .. "|cFF4080FFGuild +1:|r every item won with Need adds a +1 to the winner and is shared with the guild. Reset +1 (two clicks) sets them back to zero.\n"
+    .. "|cFFFFBF33Loot history:|r who got each item. \"Won\" marks anyone who already got something this raid.\n"
+    .. "New session starts a new raid with an empty item list."
+
 addonTable.RegisterLocale("enUS", "English", L)

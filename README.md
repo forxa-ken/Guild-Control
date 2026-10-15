@@ -33,7 +33,7 @@ La pestaña **Resumen** es lo primero que se ve al abrir el addon. Arriba, una f
 
 Debajo, el tablón de noticias:
 
-- **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas; solo se ven los que tienen noticias (Altas y Bajas siempre). **Jefes** incluye, además de las noticias del juego, los jefes de banda y de mazmorra que derrota quien usa GuildControl con al menos otro miembro de la hermandad en el grupo (se comparten entre clientes y se guardan 30 días). Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
+- **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas; solo se ven los que tienen noticias (Altas, si hay alguna alta guardada). **Jefes** incluye, además de las noticias del juego, los jefes de banda y de mazmorra que derrota quien usa GuildControl con al menos otro miembro de la hermandad en el grupo (se comparten entre clientes y se guardan 30 días). Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
 - **Altas**: las 5 últimas incorporaciones a la hermandad bajo la cabecera «¡Bienvenidos a la hermandad!».
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** creadas en la pestaña Raid.
@@ -140,7 +140,7 @@ La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster**
 
 ## 💰 Botín (sistema +1)
 
-La pestaña **Botín** reparte los objetos de banda con el sistema **+1** (el DKP llegará más adelante; el selector de sistema ya está preparado).
+La pestaña **Botín** reparte los objetos de banda con el sistema **+1** (el DKP llegará más adelante; el selector de sistema ya está preparado). Tiene cuatro paneles del mismo tamaño (Objetos de la banda, Tirada, Historial de botín y +1 de la hermandad) y, al entrar, la vista previa explica cómo funciona cada uno.
 
 - **Objetos de la banda**: aparecen solos al derrotar a un jefe en grupo (con quién se lo llevó), o se añaden con Shift+clic en un objeto. Al salir botín se abre una sesión, o se crea una con **Nueva sesión**.
 - **Tirada**: un oficial, el líder o un ayudante pulsa **Tirar**. A todos los del grupo con GuildControl les aparece una ventanita con **Necesidad (+1)**, **Off-spec** o **Pasar**; el addon lanza el `/roll` y apunta la tirada. Quien no tiene el addon puede escribir `/roll` (cuenta como Necesidad).
