@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Professions = {}
 local profModule = addonTable.Professions
@@ -141,7 +142,7 @@ local function ResolveSkillLineName(id)
             if ok and name and name ~= "" then return name end
         end
     end
-    return "Línea " .. tostring(id)
+    return L["Línea "] .. tostring(id)
 end
 
 -- Añade una línea de expansión (ProfessionInfo) al mapa padre -> lista

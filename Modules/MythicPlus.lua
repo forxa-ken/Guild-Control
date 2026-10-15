@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.MythicPlus = {}
 local mplusModule = addonTable.MythicPlus
@@ -137,7 +138,7 @@ function mplusModule.GetMyBestRuns()
     local ok, maps = pcall(C_ChallengeMode.GetMapTable)
     if not ok or type(maps) ~= "table" then return result end
     for _, mapID in ipairs(maps) do
-        local name = mplusModule.GetMapName(mapID) or ("Mazmorra " .. mapID)
+        local name = mplusModule.GetMapName(mapID) or (L["Mazmorra "] .. mapID)
         local level, inTime, score = 0, false, 0
         if C_MythicPlus.GetSeasonBestForMap then
             local okBest, intimeInfo, overtimeInfo = pcall(C_MythicPlus.GetSeasonBestForMap, mapID)

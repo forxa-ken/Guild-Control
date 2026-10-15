@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Announcements = {}
 local annModule = addonTable.Announcements

@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.News = {}
 local newsModule = addonTable.News
@@ -71,7 +72,7 @@ end
 -- NOTICIAS
 -- =========================================================================
 local function ShortName(name)
-    if not name or name == "" then return "Alguien" end
+    if not name or name == "" then return L["Alguien"] end
     return string.match(name, "^([^-]+)") or name
 end
 
@@ -147,28 +148,28 @@ local function GuildNewsItems()
                 item.icon = icon or ICONS.achievement
                 item.achievementId = name and achievementId or nil
                 item.name = name or whatName
-                item.title = (t == NEWS.GUILD_ACHIEVEMENT) and "La hermandad ha conseguido un logro"
-                    or (who .. " ha conseguido un logro")
-                item.detail = "|cFFFFD100" .. (name or what) .. "|r" .. ((points and points > 0) and (" |cFF808080(" .. points .. " puntos)|r") or "")
+                item.title = (t == NEWS.GUILD_ACHIEVEMENT) and L["La hermandad ha conseguido un logro"]
+                    or (who .. L[" ha conseguido un logro"])
+                item.detail = "|cFFFFD100" .. (name or what) .. "|r" .. ((points and points > 0) and (L[" |cFF808080("] .. points .. L[" puntos)|r"]) or "")
             elseif t == NEWS.DUNGEON_ENCOUNTER then
                 item.kind = "boss"
                 item.icon = ICONS.boss
-                item.title = "Victoria contra " .. what
+                item.title = L["Victoria contra "] .. what
                 local present = info.guildMembersPresent
-                item.detail = (present and present > 0) and ("Con " .. present .. " miembros de la hermandad") or ("Con " .. who)
+                item.detail = (present and present > 0) and (L["Con "] .. present .. L[" miembros de la hermandad"]) or (L["Con "] .. who)
             elseif t == NEWS.ITEM_LOOTED or t == NEWS.ITEM_CRAFTED or t == NEWS.ITEM_PURCHASED then
                 item.kind = "loot"
                 item.lootType = (t == NEWS.ITEM_CRAFTED) and "crafted" or ((t == NEWS.ITEM_PURCHASED) and "purchased" or "looted")
                 -- El icono sale del identificador del enlace del objeto
                 item.link = what
                 item.icon = ItemIcon(tonumber(string.match(what, "item:(%d+)"))) or ItemIcon(info.newsID) or ICONS.loot
-                local verb = (t == NEWS.ITEM_CRAFTED) and "ha fabricado" or ((t == NEWS.ITEM_PURCHASED) and "ha comprado" or "ha obtenido")
+                local verb = (t == NEWS.ITEM_CRAFTED) and L["ha fabricado"] or ((t == NEWS.ITEM_PURCHASED) and L["ha comprado"] or L["ha obtenido"])
                 item.title = who .. " " .. verb
                 item.detail = what   -- enlace del objeto con su color de calidad
             else
                 item.kind = "other"
-                item.title = what ~= "" and what or "Novedad en la hermandad"
-                item.detail = who ~= "Alguien" and who or ""
+                item.title = what ~= "" and what or L["Novedad en la hermandad"]
+                item.detail = who ~= L["Alguien"] and who or ""
             end
             item.dateText, item.sortKey = NewsDate(info)
             table.insert(items, item)
@@ -188,8 +189,8 @@ local function HistoryItems()
             table.insert(items, {
                 kind = isJoin and "join" or "leave",
                 icon = isJoin and ICONS.join or ICONS.leave,
-                title = ShortName(log.name) .. (isJoin and " se ha unido a la hermandad" or " ha dejado la hermandad"),
-                detail = isJoin and "|cFF00FF00Nuevo miembro|r" or "|cFFFF3333Baja|r",
+                title = ShortName(log.name) .. (isJoin and L[" se ha unido a la hermandad"] or L[" ha dejado la hermandad"]),
+                detail = isJoin and L["|cFF00FF00Nuevo miembro|r"] or L["|cFFFF3333Baja|r"],
                 dateText = d and (d .. "/" .. mo) or "",
                 sortKey = (y or "0000") .. (mo or "00") .. (d or "00") .. string.sub(log.date or "", 12),
             })
@@ -361,7 +362,7 @@ end
 -- Semana (lunes a domingo) de una clave de fecha "AAAAMMDD...": devuelve clave y texto
 function newsModule.GetWeek(sortKey)
     local y, mo, d = string.match(sortKey or "", "^(%d%d%d%d)(%d%d)(%d%d)")
-    if not y then return "0", "Sin fecha" end
+    if not y then return "0", L["Sin fecha"] end
     local t = time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
     local weekday = tonumber(date("%w", t))           -- 0 = domingo
     local monday = t - ((weekday + 6) % 7) * 86400
@@ -369,11 +370,11 @@ function newsModule.GetWeek(sortKey)
     local thisMonday = time() - ((tonumber(date("%w")) + 6) % 7) * 86400
     local label
     if date("%Y%m%d", monday) == date("%Y%m%d", thisMonday) then
-        label = "Esta semana"
+        label = L["Esta semana"]
     elseif date("%Y%m%d", monday) == date("%Y%m%d", thisMonday - 7 * 86400) then
-        label = "Semana pasada"
+        label = L["Semana pasada"]
     else
-        label = "Semana del " .. date("%d/%m", monday) .. " al " .. date("%d/%m", sunday)
+        label = L["Semana del "] .. date("%d/%m", monday) .. L[" al "] .. date("%d/%m", sunday)
     end
     return date("%Y%m%d", monday), label
 end

@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Blacklist = {}
 local blacklistModule = addonTable.Blacklist
@@ -74,7 +75,7 @@ function blacklistModule.AddListener(fn)
 end
 
 function blacklistModule.GetReasonLabel(key)
-    return REASON_LABELS[key or ""] or REASON_LABELS.other
+    return L[REASON_LABELS[key or ""] or REASON_LABELS.other]
 end
 
 local function Alert(text)
@@ -98,7 +99,7 @@ end
 function blacklistModule.Add(name, reason, note, addedBy, sharedBy, dateText)
     local normalized = Normalize(name)
     if not normalized or not string.find(normalized, "^[^%-]+%-.+$") then
-        return nil, "Escribe el nombre del personaje (Nombre o Nombre-Reino)."
+        return nil, L["Escribe el nombre del personaje (Nombre o Nombre-Reino)."]
     end
     local entry = {
         name = normalized,
@@ -154,7 +155,7 @@ end
 function blacklistModule.CheckJoin(fullName)
     local entry = blacklistModule.Get(fullName)
     if entry then
-        Alert(fullName .. " (lista negra: " .. blacklistModule.GetReasonLabel(entry.reason) .. ") ha entrado en la hermandad.")
+        Alert(fullName .. L[" (lista negra: "] .. blacklistModule.GetReasonLabel(entry.reason) .. L[") ha entrado en la hermandad."])
     end
 end
 
@@ -174,7 +175,7 @@ local function CheckGroup()
             local key = Key(full)
             if entry and key and not alertedThisSession[key] then
                 alertedThisSession[key] = true
-                Alert(full .. " está en tu grupo y figura en la lista negra (" .. blacklistModule.GetReasonLabel(entry.reason) .. ").")
+                Alert(full .. L[" está en tu grupo y figura en la lista negra ("] .. blacklistModule.GetReasonLabel(entry.reason) .. ").")
             end
         end
     end
@@ -191,7 +192,7 @@ local function HookTooltip()
         if not name or IsSecret(name) or IsSecret(realm) then return end
         local entry = blacklistModule.Get((realm and realm ~= "") and (name .. "-" .. realm) or name)
         if entry then
-            tooltip:AddLine("[GuildControl] Lista negra: " .. blacklistModule.GetReasonLabel(entry.reason), 1, 0.2, 0.2)
+            tooltip:AddLine(L["[GuildControl] Lista negra: "] .. blacklistModule.GetReasonLabel(entry.reason), 1, 0.2, 0.2)
             if entry.note and entry.note ~= "" then tooltip:AddLine(entry.note, 1, 0.5, 0.5, true) end
         end
     end)
@@ -256,7 +257,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if blacklistModule.Add(name, reason, note, addedBy, short, dateText) then
         if not receivedFrom[short] then
             receivedFrom[short] = true
-            print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. short .. "|r ha compartido entradas de la lista negra.")
+            print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. short .. L["|r ha compartido entradas de la lista negra."])
         end
     end
 end)

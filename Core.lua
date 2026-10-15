@@ -1,4 +1,7 @@
 local addonName, addonTable = ...
+local L = addonTable.L
+-- Idioma del cliente hasta que ADDON_LOADED cargue el elegido en Configuración
+addonTable.SetLanguage("auto")
 
 -- Versión leída del .toc. El empaquetador de CurseForge sustituye @project-version@ por la
 -- etiqueta de git; si se usa el addon directamente desde el repositorio se muestra "dev".
@@ -38,7 +41,7 @@ function addonTable.InitDB()
 
     if type(GuildControlDB.announcements) ~= "table" then
         GuildControlDB.announcements = {
-            { enabled = false, message = "¡Bienvenidos a la hermandad! Revisa las normas.", interval = 15 },
+            { enabled = false, message = L["¡Bienvenidos a la hermandad! Revisa las normas."], interval = 15 },
             { enabled = false, message = "", interval = 30 },
             { enabled = false, message = "", interval = 45 },
             { enabled = false, message = "", interval = 60 },
@@ -65,6 +68,8 @@ function addonTable.InitDB()
         GuildControlDB.settings.guildIcon = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
     end
 
+    -- Idioma de la interfaz: "auto" (el del cliente) o un código de Locales/ (esES, enUS...)
+    if type(GuildControlDB.settings.language) ~= "string" then GuildControlDB.settings.language = "auto" end
     -- Enlace de Discord de la hermandad (botón junto al nombre; vacío = sin botón)
     if type(GuildControlDB.settings.discordLink) ~= "string" then GuildControlDB.settings.discordLink = "" end
 
@@ -79,7 +84,7 @@ function addonTable.InitDB()
     -- Palabras de saludo separadas por comas; vacío = lista por defecto de GuildChat.lua
     if type(GuildControlDB.settings.greetWords) ~= "string" then GuildControlDB.settings.greetWords = "" end
     if type(GuildControlDB.settings.greetMessage) ~= "string" or GuildControlDB.settings.greetMessage == "" then
-        GuildControlDB.settings.greetMessage = "¡Hola, {nombre}!"
+        GuildControlDB.settings.greetMessage = L["¡Hola, {nombre}!"]
     end
 
     -- Generador del mensaje de invitación para nuevos miembros (vista Invitar)
@@ -88,17 +93,31 @@ function addonTable.InitDB()
     if type(recruit.roles) ~= "table" then recruit.roles = { tank = true, healer = true, dps = true } end
     if type(recruit.activities) ~= "table" then recruit.activities = { raid = true, mplus = true, pvp = false, social = true, leveling = false } end
     if type(recruit.schedule) ~= "string" then recruit.schedule = "" end
-    if type(recruit.extra) ~= "string" then recruit.extra = "¡Susúrrame para más información!" end
+    if type(recruit.extra) ~= "string" then recruit.extra = L["¡Susúrrame para más información!"] end
     if type(recruit.message) ~= "string" then recruit.message = "" end
     if type(recruit.massMessage) ~= "string" or recruit.massMessage == "" then
-        recruit.massMessage = "¡Hola, {nombre}! {rt1} Te he invitado a <{hermandad}>. Si te interesa, acepta la invitación o susúrrame."
+        recruit.massMessage = L["¡Hola, {nombre}! {rt1} Te he invitado a <{hermandad}>. Si te interesa, acepta la invitación o susúrrame."]
     end
     if type(recruit.massWhisper) ~= "boolean" then recruit.massWhisper = true end
     if recruit.mode ~= "single" and recruit.mode ~= "mass" then recruit.mode = "single" end
 
     -- Mensaje para los integrantes de un roster (botón Mensaje de la vista Roster)
     if type(GuildControlDB.settings.rosterMessage) ~= "string" or GuildControlDB.settings.rosterMessage == "" then
-        GuildControlDB.settings.rosterMessage = "{rt1} {roster} ({dificultad}): banda el {fecha} a las {hora}. ¡Confirmad asistencia!"
+        GuildControlDB.settings.rosterMessage = L["{rt1} {roster} ({dificultad}): banda el {fecha} a las {hora}. ¡Confirmad asistencia!"]
+    end
+
+    -- Los mensajes que siguen con el texto por defecto en español pasan al idioma activo
+    local function LocalizeDefault(current, default)
+        if current == default then return L[default] end
+        return current
+    end
+    local s = GuildControlDB.settings
+    s.greetMessage = LocalizeDefault(s.greetMessage, "¡Hola, {nombre}!")
+    recruit.extra = LocalizeDefault(recruit.extra, "¡Susúrrame para más información!")
+    recruit.massMessage = LocalizeDefault(recruit.massMessage, "¡Hola, {nombre}! {rt1} Te he invitado a <{hermandad}>. Si te interesa, acepta la invitación o susúrrame.")
+    s.rosterMessage = LocalizeDefault(s.rosterMessage, "{rt1} {roster} ({dificultad}): banda el {fecha} a las {hora}. ¡Confirmad asistencia!")
+    if GuildControlDB.announcements[1] then
+        GuildControlDB.announcements[1].message = LocalizeDefault(GuildControlDB.announcements[1].message, "¡Bienvenidos a la hermandad! Revisa las normas.")
     end
 
     -- Roles puestos antes de existir roleSource: si no es el "DPS" por defecto, lo fijó un oficial
@@ -115,7 +134,7 @@ function addonTable.GetDisplayGuildName()
     local custom = GuildControlDB.settings and GuildControlDB.settings.guildName
     if custom and custom ~= "" then return custom end
     local guildName = IsInGuild() and GetGuildInfo("player")
-    return guildName or "Sin hermandad"
+    return guildName or L["Sin hermandad"]
 end
 
 -- Acepta un fileID, una ruta completa o solo el nombre del icono ("INV_Misc_QuestionMark")
@@ -192,8 +211,8 @@ function addonTable.CreateMinimapButton()
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("GuildControl", 1, 1, 1)
-        GameTooltip:AddLine("Clic izquierdo: Abrir/Cerrar panel", 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("Arrastrar: Mover alrededor del minimapa", 0.5, 0.5, 0.5)
+        GameTooltip:AddLine(L["Clic izquierdo: Abrir/Cerrar panel"], 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(L["Arrastrar: Mover alrededor del minimapa"], 0.5, 0.5, 0.5)
         GameTooltip:Show()
     end)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -319,10 +338,11 @@ end
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
+        addonTable.SetLanguage(type(GuildControlDB) == "table" and type(GuildControlDB.settings) == "table" and GuildControlDB.settings.language or "auto")
         addonTable.InitDB()
         addonTable.CreateMinimapButton()
         C_GuildInfo.GuildRoster()
-        print("|cFF00FFFF[GuildControl]|r v" .. addonTable.VERSION .. " cargado. Usa /gct para abrir la interfaz.")
+        print("|cFF00FFFF[GuildControl]|r v" .. addonTable.VERSION .. L[" cargado. Usa /gct para abrir la interfaz."])
     elseif event == "PLAYER_ENTERING_WORLD" or event == "GUILD_ROSTER_UPDATE" then
         addonTable.ScanGuildRosterForChanges()
     end
@@ -339,14 +359,14 @@ SlashCmdList["GUILDCONTROL"] = function(msg)
 
     if cmd == "show" or cmd == "" then
         if addonTable.UI.ToggleUI then addonTable.UI.ToggleUI() end
-    elseif cmd == "bajas" then
+    elseif cmd == "bajas" or cmd == "leaves" then
         if addonTable.UI.ShowBajas then addonTable.UI.ShowBajas() end
     elseif cmd == "csv" then
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
     else
-        print("|cFF00FFFF[GuildControl] Comandos disponibles:|r")
-        print(" /gct - Abre/Cierra la interfaz principal.")
-        print(" /gct csv - Panel de exportación CSV para Google Sheets.")
-        print(" /gct bajas - Historial de bajas registradas.")
+        print(L["|cFF00FFFF[GuildControl] Comandos disponibles:|r"])
+        print(L[" /gct - Abre/Cierra la interfaz principal."])
+        print(L[" /gct csv - Panel de exportación CSV para Google Sheets."])
+        print(L[" /gct bajas - Historial de bajas registradas."])
     end
 end

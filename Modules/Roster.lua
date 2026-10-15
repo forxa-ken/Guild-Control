@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Roster = {}
 local rosterModule = addonTable.Roster
@@ -112,7 +113,7 @@ function rosterModule.Create(name)
     d.nextId = id + 1
     local roster = {
         id = id,
-        name = (name and strtrim(name) ~= "") and strtrim(name) or ("Roster " .. id),
+        name = (name and strtrim(name) ~= "") and strtrim(name) or (L["Roster "] .. id),
         difficulty = "heroic",
         size = 20,
         members = {},
@@ -190,7 +191,7 @@ function rosterModule.AddVariant(roster, name)
     local id = roster.nextVariantId
     roster.nextVariantId = id + 1
     name = strtrim(name or "")
-    if name == "" then name = "Jefe " .. (#roster.variantOrder + 1) end
+    if name == "" then name = L["Jefe "] .. (#roster.variantOrder + 1) end
     variants[id] = { id = id, name = name, overrides = {} }
     table.insert(roster.variantOrder, id)
     roster.selectedVariant = id
@@ -248,7 +249,7 @@ rosterModule.DeepCopy = DeepCopy
 
 function rosterModule.Duplicate(roster)
     if not roster then return nil end
-    local copy = rosterModule.Create(roster.name .. " (copia)")
+    local copy = rosterModule.Create(roster.name .. L[" (copia)"])
     copy.difficulty, copy.size, copy.tanks, copy.healers = roster.difficulty, roster.size, roster.tanks, roster.healers
     for name, slot in pairs(roster.members) do copy.members[name] = slot end
     -- Las variantes por jefe se copian; las fechas y la asistencia no
@@ -428,7 +429,7 @@ function rosterModule.GetCoverage(roster)
     for _, utility in ipairs(UTILITIES) do
         local count = 0
         for class in pairs(utility.classes) do count = count + (classCount[class] or 0) end
-        table.insert(result, { label = utility.label, count = count })
+        table.insert(result, { label = L[utility.label], count = count })
     end
     return result
 end
@@ -447,7 +448,7 @@ end
 -- =========================================================================
 local function DifficultyLabel(roster)
     for _, diff in ipairs(rosterModule.DIFFICULTIES) do
-        if diff.key == roster.difficulty then return diff.label end
+        if diff.key == roster.difficulty then return L[diff.label] end
     end
     return roster.difficulty
 end
@@ -465,18 +466,18 @@ end
 
 -- Mensajes de chat (máximo 255 bytes cada uno) con la composición
 function rosterModule.BuildAnnounceLines(roster)
-    local lines = { "Roster " .. rosterModule.GetDisplayName(roster) .. " (" .. DifficultyLabel(roster) .. " " .. roster.size .. ")" }
+    local lines = { L["Roster "] .. rosterModule.GetDisplayName(roster) .. " (" .. DifficultyLabel(roster) .. " " .. roster.size .. ")" }
     local bySlot = rosterModule.GetMembersBySlot(roster)
     for _, slot in ipairs(rosterModule.SLOTS) do
         local names = bySlot[slot]
         if #names > 0 then
-            local line = rosterModule.SLOT_LABELS[slot] .. ": "
+            local line = L[rosterModule.SLOT_LABELS[slot]] .. ": "
             local first = true
             for _, name in ipairs(names) do
                 local piece = (first and "" or ", ") .. ShortName(name)
                 if #line + #piece > 250 then
                     table.insert(lines, line)
-                    line = rosterModule.SLOT_LABELS[slot] .. " (cont.): " .. ShortName(name)
+                    line = L[rosterModule.SLOT_LABELS[slot]] .. L[" (cont.): "] .. ShortName(name)
                 else
                     line = line .. piece
                 end
@@ -489,14 +490,14 @@ function rosterModule.BuildAnnounceLines(roster)
 end
 
 function rosterModule.BuildCSV(roster)
-    local lines = { "Roster,Dificultad,Puesto,Nombre,Clase,Nivel,Rango,Asistencia" }
+    local lines = { L["Roster,Dificultad,Puesto,Nombre,Clase,Nivel,Rango,Asistencia"] }
     local bySlot = rosterModule.GetMembersBySlot(roster)
     for _, slot in ipairs(rosterModule.SLOTS) do
         for _, name in ipairs(bySlot[slot]) do
             local m = GuildControlDB.members[name] or {}
             local stats = rosterModule.GetAttendanceStats(roster, name)
             table.insert(lines, string.format("%s,%s,%s,%s,%s,%s,%s,%s",
-                rosterModule.GetDisplayName(roster), DifficultyLabel(roster), rosterModule.SLOT_LABELS[slot], name,
+                rosterModule.GetDisplayName(roster), DifficultyLabel(roster), L[rosterModule.SLOT_LABELS[slot]], name,
                 rosterModule.GetClassName(m.class), tostring(m.level or ""), m.rank or "",
                 stats.percent and (stats.percent .. "%") or ""))
         end
@@ -567,10 +568,10 @@ function rosterModule.ParseDateTime(dateText, timeText)
         d, mo, y = string.match(strtrim(dateText or ""), "^(%d%d?)/(%d%d?)/(%d%d%d%d)$")
     end
     y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
-    if not y or mo < 1 or mo > 12 or d < 1 or d > 31 then return nil, nil, "Fecha no válida (usa DD/MM/AAAA)." end
+    if not y or mo < 1 or mo > 12 or d < 1 or d > 31 then return nil, nil, L["Fecha no válida (usa DD/MM/AAAA)."] end
     local h, mi = string.match(strtrim(timeText or ""), "^(%d%d?):(%d%d)$")
     h, mi = tonumber(h), tonumber(mi)
-    if not h or h > 23 or mi > 59 then return nil, nil, "Hora no válida (usa HH:MM)." end
+    if not h or h > 23 or mi > 59 then return nil, nil, L["Hora no válida (usa HH:MM)."] end
     return string.format("%04d-%02d-%02d", y, mo, d), string.format("%02d:%02d", h, mi)
 end
 
@@ -585,7 +586,7 @@ function rosterModule.AddEvent(roster, dateText, timeText, note)
     if not date then return nil, err end
     local events = Events(roster)
     for _, event in pairs(events) do
-        if event.date == date and event.time == time then return nil, "Ya existe una fecha con ese día y hora." end
+        if event.date == date and event.time == time then return nil, L["Ya existe una fecha con ese día y hora."] end
     end
     local id = roster.nextEventId
     roster.nextEventId = id + 1
@@ -845,7 +846,7 @@ end
 local function SanitizeRoster(raw)
     if type(raw) ~= "table" then return nil end
     local roster = {
-        name = CleanString(raw.name, 30) or "Roster recibido",
+        name = CleanString(raw.name, 30) or L["Roster recibido"],
         syncId = CleanString(raw.syncId, 80),
         difficulty = VALID_DIFFICULTY[raw.difficulty] and raw.difficulty or "heroic",
         size = math.max(rosterModule.MIN_SIZE, math.min(rosterModule.MAX_SIZE, math.floor(tonumber(raw.size) or 20))),
@@ -868,7 +869,7 @@ local function SanitizeRoster(raw)
             if type(v) == "table" then
                 local id = roster.nextVariantId
                 roster.nextVariantId = id + 1
-                local clean = { id = id, name = CleanString(v.name, 30) or ("Jefe " .. id), overrides = {} }
+                local clean = { id = id, name = CleanString(v.name, 30) or (L["Jefe "] .. id), overrides = {} }
                 if type(v.overrides) == "table" then
                     for name, slot in pairs(v.overrides) do
                         if type(name) == "string" and VALID_SLOTS[slot] then clean.overrides[CleanString(name)] = slot end
@@ -1047,8 +1048,8 @@ local function OnRosterReceived(sender, data)
             if received[i].roster.syncId and received[i].roster.syncId == roster.syncId then table.remove(received, i) end
         end
         table.insert(received, { from = sender, roster = roster, at = date("%H:%M") })
-        print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. "|r ha compartido el roster |cFFFFD100" .. roster.name
-            .. "|r. Revísalo en Roster > Recibidos.")
+        print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. L["|r ha compartido el roster |cFFFFD100"] .. roster.name
+            .. L["|r. Revísalo en Roster > Recibidos."])
     end
     for _, fn in ipairs(receivedListeners) do fn() end
 end
@@ -1221,7 +1222,7 @@ function rosterModule.GetRaidTiers(maxTiers)
             end
             return list
         end) or {}
-        local tierName = EJ_GetTierInfo and select(1, EJ_GetTierInfo(tier)) or ("Expansión " .. tier)
+        local tierName = EJ_GetTierInfo and select(1, EJ_GetTierInfo(tier)) or (L["Expansión "] .. tier)
         if #raids > 0 then table.insert(result, { tier = tier, name = tierName, raids = raids }) end
     end
     return result

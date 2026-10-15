@@ -17,6 +17,7 @@
 - **`Modules/Blacklist.lua`**: Lista negra: datos, avisos (entrada en la hermandad o en tu grupo, tooltip), bloqueo de invitaciones y compartir con oficiales.
 - **`Modules/MythicPlus.lua`**: Míticas+: puntuación de los miembros, llaves de quien usa GuildControl, afijos y mejores mazmorras propias.
 - **`Modules/RaidEvents.lua`**: Bandas programadas al estilo de Raid-Helper: inscripciones con rol y estado, grupos y sincronización entre clientes.
+- **`Locales/`**: Traducciones. `Locale.lua` crea la tabla `L` (el texto en español es la clave) y elige el idioma; `enUS.lua` es el inglés.
 
 ## 📰 Resumen
 
@@ -38,7 +39,7 @@ La pestaña **Resumen** funciona como un tablón de noticias:
 
 ## ⚙️ Configuración
 
-La pestaña **Configuración** está dividida en tres secciones: **Hermandad** (nombre, Discord e icono), **Ventana** y **Saludo automático** (mensaje, tiempos y palabras).
+La pestaña **Configuración** está dividida en tres secciones: **Hermandad** (nombre, Discord e icono), **Ventana** (siempre por encima e idioma) y **Saludo automático** (mensaje, tiempos y palabras).
 
 El encabezado muestra debajo del nombre el reino de la hermandad y la facción. Si configuras un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C.
 
@@ -47,6 +48,7 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 - **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
 - **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) y **acaba de conectarse** (por defecto, en los 5 minutos siguientes) sin que nadie le haya saludado todavía, el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Los segundos de espera, los minutos sin repetir saludo, los minutos tras conectarse y las **palabras de saludo** se configuran en la columna derecha. A quien ya estaba conectado cuando entraste no se le saluda. Si varios miembros usan GuildControl, solo responde uno.
 - **Siempre por encima**: muestra la ventana del addon por encima de las barras de acción y otros botones del juego.
+- **Idioma**: Automático (el del juego), Español o English. El cambio se aplica al recargar la interfaz (botón **Recargar** o `/reload`).
 
 ## 👥 Miembros y chat
 
@@ -143,10 +145,18 @@ Invitar a la hermandad requiere que tu rango tenga ese permiso.
 
 En los dos modos, la fila **Iconos** inserta los iconos de banda (`{rt1}` a `{rt8}`: estrella, círculo, diamante...) en el mensaje y la vista previa los muestra como se verán en el chat. Muchos susurros a desconocidos pueden acabar en denuncias por spam: usa la invitación masiva con moderación.
 
+## 🌐 Idiomas
+
+GuildControl está en **español** e **inglés**. Por defecto usa el idioma del juego: español en clientes esES y esMX, e inglés en el resto. Se puede cambiar en **Configuración > Ventana > Idioma**.
+
+Las variables de los mensajes (`{nombre}`, `{hermandad}`, `{fecha}`, `{hora}`, `{dificultad}`, `{jefe}`, `{nota}`, `{rol}`) también se pueden escribir en inglés: `{name}`, `{guild}`, `{date}`, `{time}`, `{difficulty}`, `{boss}`, `{note}` y `{role}`.
+
+**Añadir otro idioma**: copia `Locales/enUS.lua` con el código del idioma (por ejemplo `frFR.lua`), cambia la llamada `RegisterLocale` del final, traduce los textos de la derecha y añade el archivo a `GuildControl.toc` después de `enUS.lua`. Un texto sin traducir se muestra en español.
+
 ## 🚀 Comandos
 
 - `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.
 - `/gct csv` - Abre directamente el panel de exportación a Google Sheets / CSV.
-- `/gct bajas` - Abre el historial de bajas y salidas de la hermandad.
+- `/gct bajas` (o `/gct leaves`) - Abre el historial de bajas y salidas de la hermandad.
 
 Todos los comandos funcionan también con el alias `/gctc` (por ejemplo, `/gctc csv`).

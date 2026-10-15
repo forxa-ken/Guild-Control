@@ -78,7 +78,7 @@ Gestión completa de la hermandad: miembros, roster, bandas con inscripciones al
 
 ## Descripción
 
-**GuildControl** reúne en una sola ventana (`/gct`) todo lo que necesita una hermandad para organizarse. Interfaz en español.
+**GuildControl** reúne en una sola ventana (`/gct`) todo lo que necesita una hermandad para organizarse. Interfaz en español e inglés (sigue el idioma del juego y se puede cambiar en Configuración).
 
 **Para todos los miembros**
 - **Resumen**: noticias de la hermandad (logros, jefes derrotados, botín con su origen, altas y bajas), mensaje del día, próximas bandas y oficiales.
@@ -108,7 +108,7 @@ Complete guild management: members, roster, Raid-Helper style raid sign-ups, ach
 
 ## Description (English)
 
-**GuildControl** brings everything your guild needs to stay organized into a single window (`/gct`). The in-game interface is in **Spanish**.
+**GuildControl** brings everything your guild needs to stay organized into a single window (`/gct`). The interface is available in **English** and **Spanish**: it follows your game language and can be changed in Settings.
 
 **For every member**
 - **Overview**: guild news (achievements, boss kills, loot with its source, members joining and leaving), message of the day, upcoming raids and officers.

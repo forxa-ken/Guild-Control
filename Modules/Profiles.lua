@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Profiles = {}
 local profilesModule = addonTable.Profiles
@@ -79,7 +80,7 @@ function profilesModule.GetGuildRanks()
     local ranks = {}
     local num = GuildControlGetNumRanks and GuildControlGetNumRanks() or 0
     for i = 1, num do
-        table.insert(ranks, { index = i - 1, name = GuildControlGetRankName(i) or ("Rango " .. i) })
+        table.insert(ranks, { index = i - 1, name = GuildControlGetRankName(i) or (L["Rango "] .. i) })
     end
     return ranks
 end
@@ -295,10 +296,10 @@ end
 function profilesModule.GetDeclaredText(m)
     local d = m and m.declared
     if not d or not d.main then return nil end
-    local text = d.main
-    if d.secondary then text = text .. " (secundario " .. d.secondary .. ")" end
+    local text = L[d.main]
+    if d.secondary then text = text .. L[" (secundario "] .. L[d.secondary] .. ")" end
     if d.spec and d.spec ~= "" then text = text .. " · " .. d.spec end
-    if d.offSpec and d.offSpec ~= "" then text = text .. " · Off: " .. d.offSpec end
+    if d.offSpec and d.offSpec ~= "" then text = text .. L[" · Off: "] .. d.offSpec end
     return text
 end
 
@@ -307,9 +308,9 @@ function profilesModule.GetCharTypeText(m)
     local d = m and m.declared
     if not d or not d.charType then return nil end
     if d.charType == "alt" then
-        return d.mainName and ("Alter de " .. d.mainName) or "Alter"
+        return d.mainName and (L["Alter de "] .. d.mainName) or L["Alter"]
     end
-    return "Personaje principal"
+    return L["Personaje principal"]
 end
 
 -- Un oficial fija el rol a mano: deja de seguir el declarado

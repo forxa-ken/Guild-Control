@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.GuildChat = {}
 local chatModule = addonTable.GuildChat
@@ -207,8 +208,8 @@ local function ScheduleGreet(sender)
         if not IsNewcomerWaitingGreeting(name) then return end
 
         local template = GetSettings().greetMessage
-        if not template or strtrim(template) == "" then template = "¡Hola, {nombre}!" end
-        local reply = string.gsub(template, "{nombre}", function() return name end)
+        if not template or strtrim(template) == "" then template = L["¡Hola, {nombre}!"] end
+        local reply = string.gsub(addonTable.NormalizeVars(template), "{nombre}", function() return name end)
 
         lastGreetByPlayer[name] = GetTime()
         lastGreetTime = GetTime()

@@ -1,11 +1,12 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.CSV = {}
 local csvModule = addonTable.CSV
 local GC_CSVFrame = nil
 
 function csvModule.GenerateCSVTotal()
-    local csvLines = { "Nivel,Clase,Nombre,Rango,NotaPublica,Rol,Enfoque,Profesion1,Profesion2,Roster,Zona,UltimaConexion" }
+    local csvLines = { L["Nivel,Clase,Nombre,Rango,NotaPublica,Rol,Enfoque,Profesion1,Profesion2,Roster,Zona,UltimaConexion"] }
     if IsInGuild() then
         local numMembers = GetNumGuildMembers()
         for i = 1, numMembers do
@@ -40,7 +41,7 @@ function csvModule.GenerateCSVTotal()
 end
 
 function csvModule.GenerateCSVSalidas()
-    local csvLines = { "FechaHora,Personaje,Detalle" }
+    local csvLines = { L["FechaHora,Personaje,Detalle"] }
     for _, log in ipairs(GuildControlDB.history or {}) do
         if log.action == "BAJA" then
             table.insert(csvLines, string.format("%s,%s,%s", log.date or "-", log.name or "-", log.info or ""))
@@ -50,7 +51,7 @@ function csvModule.GenerateCSVSalidas()
 end
 
 function csvModule.GenerateCSVAltasHoy()
-    local csvLines = { "FechaHora,Personaje,Detalle" }
+    local csvLines = { L["FechaHora,Personaje,Detalle"] }
     local todayStr = date("%Y-%m-%d")
     for _, log in ipairs(GuildControlDB.history or {}) do
         if log.action == "ALTA" and log.date and string.sub(log.date, 1, 10) == todayStr then
@@ -70,7 +71,7 @@ function csvModule.CreateCSVFrame(parentUI)
 
     GC_CSVFrame.title = GC_CSVFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     GC_CSVFrame.title:SetPoint("CENTER", GC_CSVFrame.TitleBg, "CENTER", 0, 0)
-    GC_CSVFrame.title:SetText("Exportar Google Sheets (CSV)")
+    GC_CSVFrame.title:SetText(L["Exportar Google Sheets (CSV)"])
 
     local scroll = CreateFrame("ScrollFrame", "GC_CSVScroll", GC_CSVFrame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", GC_CSVFrame, "TOPLEFT", 15, -40)
@@ -121,16 +122,16 @@ function csvModule.CreateCSVFrame(parentUI)
     local hintText = GC_CSVFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hintText:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 18, 14)
     hintText:SetTextColor(0.75, 0.75, 0.75)
-    hintText:SetText("|cFF00FF00Texto seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo y pégalo en Google Sheets.")
+    hintText:SetText(L["|cFF00FF00Texto seleccionado.|r Pulsa |cFFFFD100Ctrl+C|r para copiarlo y pégalo en Google Sheets."])
 
     local btnCSVTotal = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
-    btnCSVTotal:SetSize(120, 22) btnCSVTotal:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 15, 35) btnCSVTotal:SetText("CSV Total")
+    btnCSVTotal:SetSize(120, 22) btnCSVTotal:SetPoint("BOTTOMLEFT", GC_CSVFrame, "BOTTOMLEFT", 15, 35) btnCSVTotal:SetText(L["CSV Total"])
 
     local btnCSVSalidas = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
-    btnCSVSalidas:SetSize(120, 22) btnCSVSalidas:SetPoint("LEFT", btnCSVTotal, "RIGHT", 8, 0) btnCSVSalidas:SetText("CSV Salidas")
+    btnCSVSalidas:SetSize(120, 22) btnCSVSalidas:SetPoint("LEFT", btnCSVTotal, "RIGHT", 8, 0) btnCSVSalidas:SetText(L["CSV Salidas"])
 
     local btnCSVAltas = CreateFrame("Button", nil, GC_CSVFrame, "UIPanelButtonTemplate")
-    btnCSVAltas:SetSize(120, 22) btnCSVAltas:SetPoint("LEFT", btnCSVSalidas, "RIGHT", 8, 0) btnCSVAltas:SetText("CSV Altas Hoy")
+    btnCSVAltas:SetSize(120, 22) btnCSVAltas:SetPoint("LEFT", btnCSVSalidas, "RIGHT", 8, 0) btnCSVAltas:SetText(L["CSV Altas Hoy"])
 
     local function ShowTotal()
         if IsInGuild() then C_GuildInfo.GuildRoster() end

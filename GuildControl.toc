@@ -1,12 +1,16 @@
 ## Interface: 120100
 ## Title: GuildControl
-## Notes: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
+## Notes: Complete guild management: members, roster, Raid-Helper style raid sign-ups, achievements, professions, Mythic+, warnings and blacklist.
+## Notes-esES: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
+## Notes-esMX: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
 ## Author: Forxaken
 ## Version: @project-version@
 ## IconTexture: Interface\Icons\Achievement_GuildPerk_MobileBanking
 ## SavedVariables: GuildControlDB
 ## X-Curse-Project-ID: 1745650
 
+Locales\Locale.lua
+Locales\enUS.lua
 Core.lua
 Modules\Professions.lua
 Modules\Announcements.lua

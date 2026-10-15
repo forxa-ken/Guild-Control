@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.Achievements = {}
 local achModule = addonTable.Achievements
@@ -38,7 +39,7 @@ function achModule.GetCategories()
             local title, parentID = GetCategoryInfo(catId)
             table.insert(result, {
                 id = catId,
-                title = title or ("Cat " .. catId),
+                title = title or (L["Cat "] .. catId),
                 parent = parentID,
                 isChild = (parentID ~= nil and parentID > 0),
             })
@@ -78,7 +79,7 @@ function achModule.GetStats()
         totalPoints = 0,
         completedCount = 0,
         totalCount = 0,
-        latestName = "Ninguno",
+        latestName = L["Ninguno"],
         latestDate = "",
     }
 
@@ -149,7 +150,7 @@ function achModule.GetDetails(id)
 
     local details = {
         id = aId,
-        name = name or "Desconocido",
+        name = name or L["Desconocido"],
         points = points or 0,
         completed = completed and true or false,
         date = completed and achModule.FormatDate(day, month, year) or nil,

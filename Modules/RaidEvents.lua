@@ -1,4 +1,5 @@
 local addonName, addonTable = ...
+local L = addonTable.L
 
 addonTable.RaidEvents = {}
 local eventsModule = addonTable.RaidEvents
@@ -119,7 +120,7 @@ local function ApplyFields(event, fields)
     local dateValue, timeValue, err = R.ParseDateTime(fields.dateText, fields.timeText)
     if not dateValue then return nil, err end
     local title = Clean(fields.title, 40)
-    if title == "" then title = fields.raidName and Clean(fields.raidName, 40) or "Banda" end
+    if title == "" then title = fields.raidName and Clean(fields.raidName, 40) or L["Banda"] end
     event.title = title
     event.raidId = tonumber(fields.raidId)
     event.raidName = fields.raidName and Clean(fields.raidName, 40) or nil
@@ -382,8 +383,8 @@ local function OnChunk(sender, msg)
         local isNew = Store()[event.id] == nil
         MergeEvent(event)
         if isNew then
-            print("|cFF00FFFF[GuildControl]|r Nueva banda: |cFFFFD100" .. event.title .. "|r el "
-                .. string.gsub(event.date, "^(%d+)-(%d+)-(%d+)$", "%3/%2/%1") .. " a las " .. event.time .. ". Apúntate en Raid.")
+            print("|cFF00FFFF[GuildControl]|r " .. L["Nueva banda: "] .. "|cFFFFD100" .. event.title .. L["|r el "]
+                .. string.gsub(event.date, "^(%d+)-(%d+)-(%d+)$", "%3/%2/%1") .. L[" a las "] .. event.time .. L[". Apúntate en Raid."])
         end
         Notify()
     end

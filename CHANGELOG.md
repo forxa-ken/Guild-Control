@@ -1,5 +1,16 @@
 # GuildControl
 
+## Próxima versión
+
+### Idiomas
+- El addon está disponible en inglés y en español. Por defecto usa el idioma del juego (español para clientes esES y esMX, inglés para el resto) y se puede elegir en Configuración > Ventana > Idioma (se aplica al recargar).
+- Sistema de traducciones en `Locales/` preparado para añadir más idiomas copiando `enUS.lua`.
+- Las variables de los mensajes también se pueden escribir en inglés: `{name}`, `{guild}`, `{date}`, `{time}`, `{difficulty}`, `{boss}`, `{note}` y `{role}`.
+- `/gct leaves` funciona igual que `/gct bajas`.
+
+### Correcciones
+- El punto verde o gris de los oficiales del Resumen no se mostraba por una ruta de icono mal escrita.
+
 ## 5.0.0 (beta)
 
 Primera versión pública. Todo el addon está en español.
