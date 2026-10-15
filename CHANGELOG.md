@@ -1,8 +1,8 @@
 # GuildControl
 
-## Próxima versión
+## 5.0.0-beta2
 
-### Novedades de esta tanda
+### Favoritos, rosters y noticias
 - Pestaña **Favoritos**: gestión de favoritos (susurrar, invitar, quitar, añadir por nombre) y contenedores separados con los amigos de Battle.net (Real ID) y los amigos BattleTag.
 - Roster: cada rol (tanques, sanadores, DPS y suplentes) se dibuja como un contenedor de su color. Se quita **Añadirme**.
 - Raid: botón **Ver roster** con los integrantes del roster asociado y su respuesta.
