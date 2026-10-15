@@ -6,3 +6,6 @@ versiones/
 Media/*.tga
 Media/*.blp
 Media/*.png
+
+# Configuración personal de Claude Code
+.claude/settings.local.json
