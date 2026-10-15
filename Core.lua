@@ -8,6 +8,10 @@ addonTable.SetLanguage("auto")
 local tocVersion = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(addonName, "Version"))
     or (GetAddOnMetadata and GetAddOnMetadata(addonName, "Version")) or ""
 addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true)) and "dev" or tocVersion
+
+-- Enlace de donación al autor (botón "Donar" del encabezado). Vacío = el botón avisa de que
+-- aún no hay enlace.
+addonTable.DONATE_URL = ""
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}
@@ -61,12 +65,12 @@ function addonTable.InitDB()
         GuildControlDB.minimap = { angle = 45, hide = false }
     end
 
-    -- Personalización del encabezado: guildName vacío = nombre real de la hermandad
+    -- Icono del encabezado: "tabard" (emblema de la hermandad), un fileID o una ruta. Lo
+    -- definen los oficiales y se comparte (GuildConfig.lua), igual que el Discord.
     if type(GuildControlDB.settings) ~= "table" then GuildControlDB.settings = {} end
-    if type(GuildControlDB.settings.guildName) ~= "string" then GuildControlDB.settings.guildName = "" end
-    if GuildControlDB.settings.guildIcon == nil then
-        GuildControlDB.settings.guildIcon = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
-    end
+    GuildControlDB.settings.guildName = nil   -- el nombre ya no se personaliza: es el del juego
+    if GuildControlDB.settings.guildIcon == nil then GuildControlDB.settings.guildIcon = "tabard" end
+    if type(GuildControlDB.settings.guildConfigAt) ~= "number" then GuildControlDB.settings.guildConfigAt = 0 end
 
     -- Idioma de la interfaz: "auto" (el del cliente) o un código de Locales/ (esES, enUS...)
     if type(GuildControlDB.settings.language) ~= "string" then GuildControlDB.settings.language = "auto" end
@@ -134,10 +138,8 @@ function addonTable.InitDB()
     end
 end
 
--- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico
+-- Nombre de la hermandad que da el juego (o uno genérico sin hermandad)
 function addonTable.GetDisplayGuildName()
-    local custom = GuildControlDB.settings and GuildControlDB.settings.guildName
-    if custom and custom ~= "" then return custom end
     local guildName = IsInGuild() and GetGuildInfo("player")
     return guildName or L["Sin hermandad"]
 end

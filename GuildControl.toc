@@ -24,4 +24,6 @@ Modules\News.lua
 Modules\Blacklist.lua
 Modules\MythicPlus.lua
 Modules\RaidEvents.lua
+Modules\GuildConfig.lua
+Modules\Loot.lua
 Modules\UI.lua

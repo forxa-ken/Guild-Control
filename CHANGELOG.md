@@ -2,6 +2,21 @@
 
 ## Próxima versión
 
+### Botín
+- Nueva pestaña **Botín** con el sistema **+1**: los objetos de la banda aparecen solos, las tiradas se hacen desde el addon (Necesidad, Off-spec o Pasar con su /roll), gana quien tenga menos +1 y luego la tirada más alta, se avisa de quién ya ganó en la banda, y se guardan los +1 y el historial. El DKP queda para más adelante.
+
+### Hermandad y apariencia
+- El Discord y el icono de la hermandad los definen los oficiales y llegan a todos; los jugadores ya no pueden cambiarlos.
+- El nombre de la hermandad ya no se personaliza: siempre es el del juego.
+- Icono: emblema de la hermandad del juego, selector con todos los iconos del juego, más iconos rápidos o una imagen propia.
+- Botón **Donar** junto al autor.
+- **Mi perfil** reorganizado en paneles de colores.
+
+### Miembros
+- Nueva columna **Zona** (también se puede buscar por zona).
+- Las profesiones se muestran sin el nivel (está en la pestaña Profesiones y en la vista previa).
+- Corregido el texto que se montaba en la barra de arriba.
+
 ### Resumen
 - Nueva fila de cajas arriba: **Para ti** (tu próxima banda y respuesta, rol sin declarar, asistencia, llave y Míticas+ de la semana), **Ahora en la hermandad** (conectados, favoritos conectados y quién está en mazmorra o banda), **Esta semana** (jefes, logros, altas, bajas y la mejor llave de la hermandad) y, para oficiales, **Pendiente** (Warning por categoría y bandas a las que les faltan roles). Cada línea lleva a su pestaña.
 - Se quita la caja Rosters del Resumen (están en Roster y en Mis rosters).

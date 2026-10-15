@@ -22,7 +22,7 @@ local containers = {
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -53,6 +53,57 @@ local function CreateBackdropBox(parent, width, height, point, relativeTo, relat
     })
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
     return frame
+end
+
+-- Panel con borde, fondo suave y franja de cabecera de un color (Mi perfil y otras vistas)
+local PANEL_COLORS = {
+    blue = { 0.25, 0.5, 1 }, green = { 0.25, 0.85, 0.35 }, red = { 0.95, 0.3, 0.3 }, gold = { 1, 0.75, 0.2 },
+    purple = { 0.7, 0.4, 1 }, cyan = { 0.2, 0.85, 0.9 }, grey = { 0.6, 0.6, 0.6 },
+}
+local function CreateColoredPanel(parent, titleText, color, width, height)
+    local panel = CreateBackdropBox(parent, width, height)
+    panel:SetBackdropBorderColor(color[1], color[2], color[3], 0.9)
+    panel.tint = panel:CreateTexture(nil, "BACKGROUND", nil, 1)
+    panel.tint:SetPoint("TOPLEFT", panel, "TOPLEFT", 3, -3)
+    panel.tint:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -3, 3)
+    panel.tint:SetColorTexture(color[1], color[2], color[3], 0.06)
+    panel.header = panel:CreateTexture(nil, "ARTWORK")
+    panel.header:SetPoint("TOPLEFT", panel, "TOPLEFT", 3, -3)
+    panel.header:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -3, -3)
+    panel.header:SetHeight(21)
+    panel.header:SetColorTexture(color[1], color[2], color[3], 0.25)
+    panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    panel.title:SetPoint("LEFT", panel.header, "LEFT", 8, 0)
+    panel.title:SetText(titleText)
+    return panel
+end
+
+-- Icono de la hermandad: una textura o el emblema (tabardo) que la hermandad tiene en el
+-- juego, que son tres capas. holder:SetGuildIcon(value) con value = "tabard", fileID o ruta.
+local function CreateGuildIconHolder(parent, size)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(size, size)
+    holder.icon = holder:CreateTexture(nil, "ARTWORK")
+    holder.icon:SetAllPoints()
+    holder.tabardBg = holder:CreateTexture(nil, "ARTWORK", nil, 1)
+    holder.tabardBg:SetAllPoints()
+    holder.tabardEmblem = holder:CreateTexture(nil, "ARTWORK", nil, 2)
+    holder.tabardEmblem:SetPoint("CENTER")
+    holder.tabardEmblem:SetSize(size * 0.75, size * 0.75)
+    holder.tabardBorder = holder:CreateTexture(nil, "ARTWORK", nil, 3)
+    holder.tabardBorder:SetAllPoints()
+    function holder:SetGuildIcon(value)
+        local useTabard = false
+        if value == "tabard" and IsInGuild() and SetLargeGuildTabardTextures then
+            useTabard = pcall(SetLargeGuildTabardTextures, "player", self.tabardEmblem, self.tabardBg, self.tabardBorder)
+        end
+        for _, tex in ipairs({ self.tabardBg, self.tabardEmblem, self.tabardBorder }) do tex:SetShown(useTabard) end
+        self.icon:SetShown(not useTabard)
+        if not useTabard then
+            self.icon:SetTexture(addonTable.ResolveIconTexture(value == "tabard" and "Achievement_GuildPerk_MobileBanking" or value))
+        end
+    end
+    return holder
 end
 
 function uiModule.GetMainFrame()
@@ -105,8 +156,7 @@ end
 local function BuildHeader(parent)
     local header = CreateBackdropBox(parent, 1280, HEADER_HEIGHT, "TOPLEFT", parent, "TOPLEFT", 10, -25)
 
-    local logo = header:CreateTexture(nil, "OVERLAY")
-    logo:SetSize(44, 44)
+    local logo = CreateGuildIconHolder(header, 44)
     logo:SetPoint("LEFT", header, "LEFT", 12, 0)
     header.logo = logo
 
@@ -174,17 +224,32 @@ local function BuildHeader(parent)
     authorText:SetPoint("RIGHT", verText, "LEFT", -12, 0)
     authorText:SetText(L["|cFF808080Autor:|r Forxaken"])
 
+    -- Donación al autor del addon
+    local btnDonate = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+    btnDonate:SetSize(78, 18)
+    btnDonate:SetPoint("RIGHT", authorText, "LEFT", -10, 0)
+    btnDonate:SetText("|TInterface\\Icons\\INV_Misc_Coin_01:12:12|t " .. L["Donar"])
+    btnDonate:GetFontString():SetFontObject("GameFontHighlightSmall")
+    btnDonate:SetScript("OnClick", function() uiModule.ShowDonate() end)
+    btnDonate:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Apoya GuildControl"], 1, 1, 1)
+        GameTooltip:AddLine(L["Si el addon te ayuda con tu hermandad, puedes invitar al autor a un café."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnDonate:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     containers.header = header
     uiModule.UpdateHeader()
 end
 
--- Aplica el nombre y el icono configurados (GuildControlDB.settings)
+-- Aplica el icono que definieron los oficiales y el nombre de la hermandad del juego
 function uiModule.UpdateHeader()
     local header = containers.header
     if not header then return end
     local settings = GuildControlDB.settings or {}
 
-    header.logo:SetTexture(addonTable.ResolveIconTexture(settings.guildIcon))
+    header.logo:SetGuildIcon(settings.guildIcon)
     header.titleText:SetText("|cFFFFD100" .. addonTable.GetDisplayGuildName() .. "|r")
 
     -- Reino de la hermandad (GetGuildInfo lo da si es distinto del del personaje) y facción
@@ -198,11 +263,10 @@ function uiModule.UpdateHeader()
     header.btnDiscord:SetShown((settings.discordLink or "") ~= "")
 end
 
--- Ventanita con el enlace de Discord seleccionado para copiarlo con Ctrl+C
+-- Ventanita con un enlace seleccionado para copiarlo con Ctrl+C (Discord, donación...)
 local GC_DiscordFrame = nil
-function uiModule.ShowDiscordCopy()
-    local link = GuildControlDB.settings.discordLink or ""
-    if link == "" or not GC_UI then return end
+function uiModule.ShowCopyLink(titleText, link)
+    if not link or link == "" or not GC_UI then return end
     if not GC_DiscordFrame then
         local frame = CreateFrame("Frame", "GuildControlDiscordFrame", GC_UI, "BasicFrameTemplateWithInset")
         frame:SetSize(420, 110)
@@ -210,7 +274,6 @@ function uiModule.ShowDiscordCopy()
         frame:SetFrameStrata("DIALOG")
         frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
-        frame.title:SetText(L["Discord de la hermandad"])
 
         local edit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
         edit:SetSize(380, 22)
@@ -232,10 +295,23 @@ function uiModule.ShowDiscordCopy()
         GC_DiscordFrame = frame
     end
     GC_DiscordFrame.link = link
+    GC_DiscordFrame.title:SetText(titleText)
     GC_DiscordFrame:Show()
     GC_DiscordFrame.edit:SetText(link)
     GC_DiscordFrame.edit:SetFocus()
     GC_DiscordFrame.edit:HighlightText()
+end
+
+function uiModule.ShowDiscordCopy()
+    uiModule.ShowCopyLink(L["Discord de la hermandad"], GuildControlDB.settings.discordLink)
+end
+
+function uiModule.ShowDonate()
+    if (addonTable.DONATE_URL or "") == "" then
+        print("|cFF00FFFF[GuildControl]|r " .. L["Gracias por querer apoyar GuildControl. El enlace de donación aún no está disponible."])
+        return
+    end
+    uiModule.ShowCopyLink(L["Apoya GuildControl"], addonTable.DONATE_URL)
 end
 
 -- =========================================================================
@@ -695,17 +771,18 @@ local MEMBER_ROW_HEIGHT = 24
 -- Columnas de la tabla de miembros. "key" es el criterio de orden (nil = no ordenable)
 local MEMBER_COLUMNS = {
     { title = "Nº",       x = 5,   w = 25 },
-    { title = "Nivel",    x = 30,  w = 48,  key = "level" },
-    { title = "Clase",    x = 78,  w = 62,  key = "class" },
-    { title = "Nombre",   x = 140, w = 130, key = "name" },
-    { title = "Rango",    x = 270, w = 72,  key = "rank" },
-    { title = "Tipo",     x = 342, w = 48,  key = "charType" },
-    { title = "Rol",      x = 390, w = 70,  key = "role" },
-    { title = "Enfoque",  x = 460, w = 66,  key = "focus" },
-    { title = "Prof. 1",  x = 526, w = 88,  key = "prof1" },
-    { title = "Prof. 2",  x = 614, w = 88,  key = "prof2" },
-    { title = "Roster",   x = 702, w = 60,  key = "roster" },
-    { title = "Conexión", x = 762, w = 88,  key = "lastOnline" },
+    { title = "Nivel",    x = 30,  w = 40,  key = "level" },
+    { title = "Clase",    x = 70,  w = 62,  key = "class" },
+    { title = "Nombre",   x = 132, w = 120, key = "name" },
+    { title = "Rango",    x = 252, w = 72,  key = "rank" },
+    { title = "Tipo",     x = 324, w = 44,  key = "charType" },
+    { title = "Rol",      x = 368, w = 66,  key = "role" },
+    { title = "Enfoque",  x = 434, w = 56,  key = "focus" },
+    { title = "Prof. 1",  x = 490, w = 76,  key = "prof1" },
+    { title = "Prof. 2",  x = 566, w = 76,  key = "prof2" },
+    { title = "Zona",     x = 642, w = 96,  key = "zone" },
+    { title = "Roster",   x = 738, w = 52,  key = "roster" },
+    { title = "Conexión", x = 790, w = 60,  key = "lastOnline" },
 }
 
 -- Orden por defecto: conectados primero y después por días desde la última conexión
@@ -740,7 +817,13 @@ end
 
 -- Valores que se muestran vacíos cuando no hay dato (profesiones, roster, enfoque y tipo)
 local function ProfessionCell(value)
-    return (value and value ~= "Ninguna") and value or ""
+    if not value or value == "Ninguna" then return "" end
+    return string.match(value, "^(.-)%s+%d+$") or value
+end
+
+-- Zona conocida del miembro (la última si está desconectado)
+local function ZoneCell(value)
+    return (value and value ~= "Desconocida") and value or ""
 end
 
 local function RosterCell(value)
@@ -771,6 +854,7 @@ local function MemberSortValue(entry, key)
     elseif key == "roster" then value = RosterCell(data.roster)
     elseif key == "focus" then value = FocusCell(data)
     elseif key == "charType" then value = CharTypeCell(data)
+    elseif key == "zone" then value = ZoneCell(data.zone)
     else value = tostring(data[key] or "") end
     if value == "" then return "\255" end
     return string.lower(value)
@@ -790,7 +874,7 @@ local function BuildMembersView(parent)
     searchLabel:SetText(L["Buscar miembros"])
 
     local searchBox = CreateFrame("EditBox", "GC_NewSearchBox", view, "InputBoxTemplate")
-    searchBox:SetSize(260, 20)
+    searchBox:SetSize(200, 20)
     searchBox:SetPoint("TOPLEFT", searchLabel, "BOTTOMLEFT", 5, -4)
     searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -799,20 +883,20 @@ local function BuildMembersView(parent)
     -- Texto de ayuda dentro de la caja mientras está vacía
     local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     searchPlaceholder:SetPoint("LEFT", searchBox, "LEFT", 2, 0)
-    searchPlaceholder:SetText(L["Nombre, clase, rango, profesión, roster..."])
+    searchPlaceholder:SetText(L["Nombre, clase, zona, profesión..."])
 
     local btnShowAll = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnShowAll:SetSize(90, 22)
+    btnShowAll:SetSize(80, 22)
     btnShowAll:SetPoint("LEFT", searchBox, "RIGHT", 15, 0)
     btnShowAll:SetText(L["Todos"])
 
     local btnShowOnline = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnShowOnline:SetSize(90, 22)
+    btnShowOnline:SetSize(80, 22)
     btnShowOnline:SetPoint("LEFT", btnShowAll, "RIGHT", 8, 0)
     btnShowOnline:SetText(L["En línea"])
 
     local btnShowFav = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnShowFav:SetSize(90, 22)
+    btnShowFav:SetSize(80, 22)
     btnShowFav:SetPoint("LEFT", btnShowOnline, "RIGHT", 8, 0)
     btnShowFav:SetText(L["Favoritos"])
 
@@ -938,7 +1022,7 @@ local function BuildMembersView(parent)
 
     local function MatchesSearch(fullName, data)
         if searchQuery == "" then return true end
-        local fields = { fullName, data.class, data.rank, data.role, L[data.role or ""], data.focus, data.prof1, data.prof2, data.roster }
+        local fields = { fullName, data.class, data.rank, data.role, L[data.role or ""], data.focus, data.prof1, data.prof2, data.roster, data.zone }
         for _, value in ipairs(fields) do
             if value and string.find(string.lower(tostring(value)), searchQuery, 1, true) then
                 return true
@@ -1096,6 +1180,7 @@ local function BuildMembersView(parent)
                 { FocusCell(data), isOnline and "FFFFFF" or dim },
                 { ProfessionCell(data.prof1), isOnline and "FFFFFF" or dim },
                 { ProfessionCell(data.prof2), isOnline and "FFFFFF" or dim },
+                { ZoneCell(data.zone), isOnline and "FFFFFF" or dim },
                 { RosterCell(data.roster), isOnline and "00FFFF" or dim },
                 { addonTable.FormatLastOnline(data.lastOnline or "Online"), isOnline and "00FF00" or dim },
             }
@@ -3425,16 +3510,29 @@ local function BuildMyProfileView(parent)
     view:Hide()
 
     local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", view, "TOPLEFT", 20, -20)
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText(L["Mi perfil"])
 
     local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtitle:SetPoint("LEFT", title, "RIGHT", 16, 0)
 
-    -- Grupo de casillas que se comportan como botones de opción
-    local function CreateRoleChoice(labelText, anchor, yOffset, options, onChange)
-        local label = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, yOffset)
+    -- Paneles de colores: a la izquierda lo que declaras, a la derecha tu ficha y lo de oficiales
+    local LEFT_X, RIGHT_X, TOP_Y, GAP = 8, 580, -40, 6
+    local roleBox = CreateColoredPanel(view, L["Roles"], PANEL_COLORS.blue, 564, 112)
+    roleBox:SetPoint("TOPLEFT", view, "TOPLEFT", LEFT_X, TOP_Y)
+    local charBox = CreateColoredPanel(view, L["Personaje"], PANEL_COLORS.gold, 564, 112)
+    charBox:SetPoint("TOPLEFT", roleBox, "BOTTOMLEFT", 0, -GAP)
+    local specBox = CreateColoredPanel(view, L["Especialización"], PANEL_COLORS.green, 564, 76)
+    specBox:SetPoint("TOPLEFT", charBox, "BOTTOMLEFT", 0, -GAP)
+    local noteBox = CreateColoredPanel(view, L["Nota y envío"], PANEL_COLORS.purple, 564, 470 - 112 - 112 - 76 - GAP * 3)
+    noteBox:SetPoint("TOPLEFT", specBox, "BOTTOMLEFT", 0, -GAP)
+
+    -- Grupo de casillas que se comportan como botones de opción, dentro de un panel
+    local function CreateRoleChoice(box, labelText, y, options, onChange)
+        local label = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("TOPLEFT", box, "TOPLEFT", 12, y)
+        label:SetWidth(120)
+        label:SetJustifyH("LEFT")
         label:SetText(labelText)
         local checks, selected = {}, nil
         local group = {}
@@ -3444,12 +3542,13 @@ local function BuildMyProfileView(parent)
         end
         function group.Get() return selected end
         for i, option in ipairs(options) do
-            local chk = CreateFrame("CheckButton", nil, view, "UICheckButtonTemplate")
+            local chk = CreateFrame("CheckButton", nil, box, "UICheckButtonTemplate")
             chk:SetSize(24, 24)
-            chk:SetPoint("TOPLEFT", label, "BOTTOMLEFT", (i - 1) * 130, -4)
+            chk:SetPoint("LEFT", label, "RIGHT", 6 + (i - 1) * 104, 0)
             chk.text = chk:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             chk.text:SetPoint("LEFT", chk, "RIGHT", 2, 0)
-            chk.text:SetText(L[option])
+            local icon = (option == "Tanque" or option == "Sanador" or option == "DPS") and (RoleIcon(option, 14) .. " ") or ""
+            chk.text:SetText(icon .. L[option])
             chk:SetScript("OnClick", function()
                 group.Set(option ~= "Ninguno" and option or nil)
                 if onChange then onChange() end
@@ -3460,18 +3559,19 @@ local function BuildMyProfileView(parent)
         return group
     end
 
-    local mainChoice = CreateRoleChoice(L["Rol principal"], subtitle, -22, P.ROLES)
-    local secondaryChoice = CreateRoleChoice(L["Rol secundario (opcional)"], mainChoice.label, -50,
+    -- Roles
+    local mainChoice = CreateRoleChoice(roleBox, L["Rol principal"], -38, P.ROLES)
+    local secondaryChoice = CreateRoleChoice(roleBox, L["Rol secundario (opcional)"], -74,
         { "Ninguno", "Tanque", "Sanador", "DPS" })
 
-    -- ¿Personaje principal o alter? Si es alter, de quién
+    -- Personaje: principal o alter (y de quién) y enfoque
     local mainNameInput, charChoice   -- declarados antes para que el callback los vea
-    charChoice = CreateRoleChoice(L["Este personaje es"], secondaryChoice.label, -50, { "Principal", "Alter" },
+    charChoice = CreateRoleChoice(charBox, L["Este personaje es"], -38, { "Principal", "Alter" },
         function() mainNameInput:SetShown(charChoice.Get() == "Alter") end)
 
-    mainNameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+    mainNameInput = CreateFrame("EditBox", nil, charBox, "InputBoxTemplate")
     mainNameInput:SetSize(170, 20)
-    mainNameInput:SetPoint("TOPLEFT", charChoice.label, "BOTTOMLEFT", 240, -6)
+    mainNameInput:SetPoint("LEFT", charChoice.label, "RIGHT", 236, 0)
     mainNameInput:SetAutoFocus(false)
     mainNameInput:SetMaxLetters(40)
     mainNameInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
@@ -3483,18 +3583,18 @@ local function BuildMyProfileView(parent)
     mainNameInput:Hide()
 
     -- Enfoque principal del jugador (columna Enfoque de Miembros)
-    local focusChoice = CreateRoleChoice(L["Enfoque"], charChoice.label, -50, P.FOCUS)
+    local focusChoice = CreateRoleChoice(charBox, L["Enfoque"], -74, P.FOCUS)
 
-    local specLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    specLabel:SetPoint("TOPLEFT", focusChoice.label, "BOTTOMLEFT", 0, -50)
+    -- Especialización y especialización off, de la clase del personaje
+    local SPEC_ROLE_TO_ROLE = { TANK = "Tanque", HEALER = "Sanador", DAMAGER = "DPS" }
+    local specLabel = specBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    specLabel:SetPoint("TOPLEFT", specBox, "TOPLEFT", 12, -32)
     specLabel:SetText(L["Especialización"])
 
-    -- Especialización: se elige entre las de la clase del personaje (con su icono y rol)
-    local SPEC_ROLE_TO_ROLE = { TANK = "Tanque", HEALER = "Sanador", DAMAGER = "DPS" }
     local specValue = ""
-    local specDropdown = CreateFrame("DropdownButton", "GC_ProfileSpec", view, "WowStyle1DropdownTemplate")
-    specDropdown:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 0, -6)
-    specDropdown:SetWidth(240)
+    local specDropdown = CreateFrame("DropdownButton", "GC_ProfileSpec", specBox, "WowStyle1DropdownTemplate")
+    specDropdown:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 0, -4)
+    specDropdown:SetWidth(250)
 
     local function GetMySpecs()
         local specs = {}
@@ -3526,13 +3626,13 @@ local function BuildMyProfileView(parent)
 
     -- Especialización off: otra de la clase que también puede jugar (solo con equipo para ella)
     local offSpecValue = ""
-    local offSpecLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    offSpecLabel:SetPoint("LEFT", specLabel, "LEFT", 260, 0)
+    local offSpecLabel = specBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    offSpecLabel:SetPoint("TOPLEFT", specBox, "TOPLEFT", 290, -32)
     offSpecLabel:SetText(L["Especialización off |cFFFF7F00(solo si tienes equipo)|r"])
 
-    local offSpecDropdown = CreateFrame("DropdownButton", "GC_ProfileOffSpec", view, "WowStyle1DropdownTemplate")
-    offSpecDropdown:SetPoint("TOPLEFT", offSpecLabel, "BOTTOMLEFT", 0, -6)
-    offSpecDropdown:SetWidth(240)
+    local offSpecDropdown = CreateFrame("DropdownButton", "GC_ProfileOffSpec", specBox, "WowStyle1DropdownTemplate")
+    offSpecDropdown:SetPoint("TOPLEFT", offSpecLabel, "BOTTOMLEFT", 0, -4)
+    offSpecDropdown:SetWidth(250)
 
     local function SetOffSpec(name)
         offSpecValue = name or ""
@@ -3551,36 +3651,34 @@ local function BuildMyProfileView(parent)
         end
     end)
 
-    local noteLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    noteLabel:SetPoint("TOPLEFT", specDropdown, "BOTTOMLEFT", 0, -16)
+    -- Nota para los oficiales y envío
+    local noteLabel = noteBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    noteLabel:SetPoint("TOPLEFT", noteBox, "TOPLEFT", 12, -32)
     noteLabel:SetText(L["Nota para los oficiales"])
 
-    local noteInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    noteInput:SetSize(460, 20)
-    noteInput:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 6, -6)
+    local noteInput = CreateFrame("EditBox", nil, noteBox, "InputBoxTemplate")
+    noteInput:SetSize(530, 20)
+    noteInput:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 6, -4)
     noteInput:SetAutoFocus(false)
     noteInput:SetMaxLetters(80)
     local notePlaceholder = noteInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     notePlaceholder:SetPoint("LEFT", noteInput, "LEFT", 2, 0)
     notePlaceholder:SetText(L["Disponibilidad, otras especializaciones, alters..."])
     noteInput:SetScript("OnTextChanged", function(self) notePlaceholder:SetShown((self:GetText() or "") == "") end)
+    noteInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    noteInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    for _, box in ipairs({ noteInput }) do
-        box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    end
-
-    local btnSave = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    local btnSave = CreateFrame("Button", nil, noteBox, "UIPanelButtonTemplate")
     btnSave:SetSize(160, 24)
-    btnSave:SetPoint("TOPLEFT", noteInput, "BOTTOMLEFT", -6, -16)
+    btnSave:SetPoint("TOPLEFT", noteInput, "BOTTOMLEFT", -6, -10)
     btnSave:SetText(L["Guardar y enviar"])
 
-    local saveStatus = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local saveStatus = noteBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     saveStatus:SetPoint("LEFT", btnSave, "RIGHT", 12, 0)
 
-    local explanation = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    explanation:SetPoint("TOPLEFT", btnSave, "BOTTOMLEFT", 0, -12)
-    explanation:SetWidth(520)
+    local explanation = noteBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    explanation:SetPoint("TOPLEFT", btnSave, "BOTTOMLEFT", 0, -8)
+    explanation:SetWidth(536)
     explanation:SetJustifyH("LEFT")
     explanation:SetText(L["Tu rol se envía a los miembros de la hermandad que usan GuildControl. Los oficiales lo ven en Miembros y al montar el roster. Si un oficial te asigna otro rol a mano, prevalece el suyo."])
 
@@ -3596,29 +3694,26 @@ local function BuildMyProfileView(parent)
         saveStatus:SetText(L["|cFF00FF00Guardado y enviado a las "] .. date("%H:%M") .. ".|r")
     end)
 
-    -- Columna derecha: lo que tiene la ficha y, para oficiales, la gestión de perfiles
-    local side = CreateBackdropBox(view, 300, 400, "TOPRIGHT", view, "TOPRIGHT", -12, -60)
-
-    local sideTitle = side:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sideTitle:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -12)
-    sideTitle:SetText(L["Tu ficha en la hermandad"])
+    -- Derecha: tu ficha y, para oficiales, la gestión de perfiles
+    local side = CreateColoredPanel(view, L["Tu ficha en la hermandad"], PANEL_COLORS.cyan, 310, 150)
+    side:SetPoint("TOPLEFT", view, "TOPLEFT", RIGHT_X, TOP_Y)
 
     local sideText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sideText:SetPoint("TOPLEFT", sideTitle, "BOTTOMLEFT", 0, -8)
-    sideText:SetWidth(276)
+    sideText:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -32)
+    sideText:SetWidth(286)
     sideText:SetJustifyH("LEFT")
+    sideText:SetSpacing(2)
 
-    local officerTitle = side:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    officerTitle:SetPoint("TOPLEFT", side, "TOPLEFT", 12, -150)
-    officerTitle:SetText(L["Oficiales"])
+    local officerBox = CreateColoredPanel(view, L["Oficiales"], PANEL_COLORS.red, 310, 470 - 150 - GAP)
+    officerBox:SetPoint("TOPLEFT", side, "BOTTOMLEFT", 0, -GAP)
 
-    local officerText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    officerText:SetPoint("TOPLEFT", officerTitle, "BOTTOMLEFT", 0, -8)
-    officerText:SetWidth(276)
+    local officerText = officerBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    officerText:SetPoint("TOPLEFT", officerBox, "TOPLEFT", 12, -32)
+    officerText:SetWidth(286)
     officerText:SetJustifyH("LEFT")
 
-    local btnRequest = CreateFrame("Button", nil, side, "UIPanelButtonTemplate")
-    btnRequest:SetSize(200, 22)
+    local btnRequest = CreateFrame("Button", nil, officerBox, "UIPanelButtonTemplate")
+    btnRequest:SetSize(220, 22)
     btnRequest:SetPoint("TOPLEFT", officerText, "BOTTOMLEFT", 0, -10)
     btnRequest:SetText(L["Pedir roles a la hermandad"])
     btnRequest:SetScript("OnClick", function()
@@ -3626,13 +3721,13 @@ local function BuildMyProfileView(parent)
         PrintGC(L["Petición de roles enviada. Responden los miembros conectados que usan GuildControl."])
     end)
 
-    local rankLabel = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local rankLabel = officerBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     rankLabel:SetPoint("TOPLEFT", btnRequest, "BOTTOMLEFT", 0, -16)
     rankLabel:SetText(L["Perfil de oficial hasta el rango:"])
 
-    local dropRank = CreateFrame("DropdownButton", "GC_OfficerRankSelect", side, "WowStyle1DropdownTemplate")
+    local dropRank = CreateFrame("DropdownButton", "GC_OfficerRankSelect", officerBox, "WowStyle1DropdownTemplate")
     dropRank:SetPoint("TOPLEFT", rankLabel, "BOTTOMLEFT", 0, -6)
-    dropRank:SetWidth(200)
+    dropRank:SetWidth(220)
     dropRank:SetupMenu(function(_, root)
         for _, rank in ipairs(P.GetGuildRanks()) do
             local index = rank.index
@@ -3646,13 +3741,11 @@ local function BuildMyProfileView(parent)
         end
     end)
 
-    local rankHint = side:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local rankHint = officerBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     rankHint:SetPoint("TOPLEFT", dropRank, "BOTTOMLEFT", 0, -6)
-    rankHint:SetWidth(276)
+    rankHint:SetWidth(286)
     rankHint:SetJustifyH("LEFT")
     rankHint:SetText(L["Ese rango y los superiores ven todas las pestañas. Quien tenga el permiso de chat de oficiales del juego también es oficial. Es un ajuste de tu cliente: cada oficial lo configura en el suyo."])
-
-    local officerWidgets = { officerTitle, officerText, btnRequest, rankLabel, dropRank, rankHint }
 
     view:SetScript("OnShow", function()
         local profile = P.GetMyProfile()
@@ -3686,7 +3779,7 @@ local function BuildMyProfileView(parent)
             .. L["Profesiones: "] .. (m.prof1 or L["Ninguna"]) .. ", " .. (m.prof2 or L["Ninguna"]) .. "\n\n"
             .. L["|cFF808080Esto es lo que guarda tu cliente. Cada oficial tiene su propia copia.|r"])
 
-        for _, widget in ipairs(officerWidgets) do widget:SetShown(isOfficer) end
+        officerBox:SetShown(isOfficer)
         if isOfficer then
             local declared, total = P.CountDeclared()
             officerText:SetText(L["Roles declarados: |cFFFFD100"] .. declared .. L["|r de "] .. total .. L[" miembros.\n"]
@@ -7159,16 +7252,600 @@ local function BuildFavoritesView(parent)
 end
 
 -- =========================================================================
--- 9. VISTA DE CONFIGURACIÓN (NOMBRE E ICONO DE LA HERMANDAD)
+-- 8l. VISTA BOTÍN (SISTEMA +1, CONSUME MODULES/LOOT.LUA)
 -- =========================================================================
-local DEFAULT_GUILD_ICON = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking"
+local function ItemIconFromLink(link)
+    local itemID = tonumber(string.match(link or "", "item:(%d+)"))
+    if itemID and C_Item and C_Item.GetItemIconByID then
+        local ok, icon = pcall(C_Item.GetItemIconByID, itemID)
+        if ok and icon then return icon end
+    end
+    return "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+local function ShowLinkTooltip(owner, link)
+    if not link then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    pcall(GameTooltip.SetHyperlink, GameTooltip, string.match(link, "|H(item:[^|]+)|h") or link)
+    GameTooltip:Show()
+end
+
+local function ShortName(fullName)
+    return fullName and (string.match(fullName, "^([^-]+)") or fullName) or "?"
+end
+
+-- Ventanita de tirada: aparece a todos los del grupo cuando se abre una tirada
+local GC_LootRollFrame = nil
+function uiModule.ShowLootRollPopup(key)
+    local LT = addonTable.Loot
+    local item = LT.GetItem(key)
+    if not item then return end
+    if not GC_LootRollFrame then
+        local frame = CreateFrame("Frame", "GuildControlLootRollFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:SetSize(340, 150)
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -140)
+        frame:SetFrameStrata("DIALOG")
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["Tirada de botín"])
+
+        frame.itemButton = CreateFrame("Button", nil, frame)
+        frame.itemButton:SetSize(300, 32)
+        frame.itemButton:SetPoint("TOP", frame, "TOP", 0, -30)
+        frame.itemButton.icon = frame.itemButton:CreateTexture(nil, "ARTWORK")
+        frame.itemButton.icon:SetSize(30, 30)
+        frame.itemButton.icon:SetPoint("LEFT", frame.itemButton, "LEFT", 0, 0)
+        frame.itemButton.text = frame.itemButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        frame.itemButton.text:SetPoint("LEFT", frame.itemButton.icon, "RIGHT", 8, 0)
+        frame.itemButton.text:SetPoint("RIGHT", frame.itemButton, "RIGHT", 0, 0)
+        frame.itemButton.text:SetJustifyH("LEFT")
+        frame.itemButton:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+        frame.itemButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        frame.info = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        frame.info:SetPoint("TOP", frame.itemButton, "BOTTOM", 0, -6)
+        frame.info:SetWidth(310)
+
+        frame.buttons = {}
+        local previous
+        for _, kind in ipairs({ "need", "offspec", "pass" }) do
+            local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+            btn:SetSize(104, 24)
+            if previous then btn:SetPoint("LEFT", previous, "RIGHT", 4, 0) else btn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 10) end
+            btn:SetText(L[LT.KINDS[kind]])
+            btn:SetScript("OnClick", function()
+                LT.Choose(frame.key, kind)
+                frame:Hide()
+            end)
+            frame.buttons[kind] = btn
+            previous = btn
+        end
+        GC_LootRollFrame = frame
+        -- Se cierra sola cuando la tirada termina
+        LT.AddListener(function()
+            local current = frame.key and LT.GetItem(frame.key)
+            if frame:IsShown() and (not current or current.state ~= "rolling" or LT.GetMyChoice(frame.key)) then frame:Hide() end
+        end)
+    end
+    local frame = GC_LootRollFrame
+    local me = addonTable.Profiles.GetMyFullName()
+    local link = LT.DisplayLink(item.link)
+    frame.key = key
+    frame.itemButton.link = link
+    frame.itemButton.icon:SetTexture(ItemIconFromLink(link))
+    frame.itemButton.text:SetText(link)
+    local wins = LT.GetSessionWins(me)
+    frame.info:SetText(L["Tus +1: |cFFFFD100"] .. LT.GetPoints(me) .. "|r"
+        .. (wins > 0 and (L["   |cFFFF7F00Ya ganaste "] .. wins .. L[" objeto(s) en esta banda|r"]) or ""))
+    frame:Show()
+end
+
+local function BuildLootView(parent)
+    local LT = addonTable.Loot
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+    local selectedKey = nil
+    local Refresh
+
+    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
+    title:SetText(L["Botín"])
+
+    local systemLabel = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    systemLabel:SetPoint("LEFT", title, "RIGHT", 24, 0)
+    systemLabel:SetText(L["Sistema:"])
+    local dropSystem = CreateFrame("DropdownButton", "GC_LootSystem", view, "WowStyle1DropdownTemplate")
+    dropSystem:SetPoint("LEFT", systemLabel, "RIGHT", 8, 0)
+    dropSystem:SetWidth(170)
+    dropSystem:SetupMenu(function(_, root)
+        for _, system in ipairs(LT.SYSTEMS) do
+            local button = root:CreateRadio(L[system.label], function() return system.key == "plusone" end, function() end)
+            if system.disabled and button and button.SetEnabled then button:SetEnabled(false) end
+        end
+    end)
+    dropSystem:SetText("+1")
+
+    local sessionText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sessionText:SetPoint("LEFT", dropSystem, "RIGHT", 16, 0)
+
+    local btnNewSession = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnNewSession:SetSize(120, 22)
+    btnNewSession:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnNewSession:SetText(L["Nueva sesión"])
+    btnNewSession:SetScript("OnClick", function() selectedKey = nil; LT.NewSession() end)
+
+    -- Caja con título y lista con scroll
+    local function ListBox(titleText, color, width, height)
+        local box = CreateColoredPanel(view, titleText, color, width, height)
+        box.scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+        box.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -28)
+        box.scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -28, 8)
+        box.child = CreateFrame("Frame")
+        box.child:SetSize(width - 40, 1)
+        box.scroll:SetScrollChild(box.child)
+        box.empty = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        box.empty:SetPoint("TOPLEFT", box, "TOPLEFT", 14, -34)
+        box.empty:SetWidth(width - 30)
+        box.empty:SetJustifyH("LEFT")
+        box.rows = {}
+        return box
+    end
+
+    local itemsBox = ListBox(L["Objetos de la banda"], PANEL_COLORS.purple, 430, 250)
+    itemsBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -40)
+    itemsBox.scroll:SetPoint("BOTTOMRIGHT", itemsBox, "BOTTOMRIGHT", -28, 36)
+    local historyBox = ListBox(L["Historial de botín"], PANEL_COLORS.gold, 430, 214)
+    historyBox:SetPoint("TOPLEFT", itemsBox, "BOTTOMLEFT", 0, -6)
+    local rollBox = CreateColoredPanel(view, L["Tirada"], PANEL_COLORS.green, 444, 270)
+    rollBox:SetPoint("TOPLEFT", itemsBox, "TOPRIGHT", 6, 0)
+    local pointsBox = ListBox(L["+1 de la hermandad"], PANEL_COLORS.blue, 444, 194)
+    pointsBox:SetPoint("TOPLEFT", rollBox, "BOTTOMLEFT", 0, -6)
+
+    -- Añadir un objeto a mano: Shift+clic en un objeto con el cursor en la caja
+    local addInput = CreateFrame("EditBox", nil, itemsBox, "InputBoxTemplate")
+    addInput:SetSize(290, 20)
+    addInput:SetPoint("BOTTOMLEFT", itemsBox, "BOTTOMLEFT", 16, 10)
+    addInput:SetAutoFocus(false)
+    addInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local addPlaceholder = addInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    addPlaceholder:SetPoint("LEFT", addInput, "LEFT", 2, 0)
+    addPlaceholder:SetText(L["Shift+clic en un objeto para añadirlo"])
+    addInput:SetScript("OnTextChanged", function(self) addPlaceholder:SetShown((self:GetText() or "") == "") end)
+    local btnAddItem = CreateFrame("Button", nil, itemsBox, "UIPanelButtonTemplate")
+    btnAddItem:SetSize(90, 22)
+    btnAddItem:SetPoint("LEFT", addInput, "RIGHT", 8, 0)
+    btnAddItem:SetText(L["Añadir"])
+    local function AddTyped()
+        local item = LT.AddManual(addInput:GetText())
+        if not item then
+            PrintGC(L["|cFFFF3333Pega el enlace del objeto con Shift+clic.|r"])
+            return
+        end
+        selectedKey = item.key
+        addInput:SetText("")
+        addInput:ClearFocus()
+    end
+    btnAddItem:SetScript("OnClick", AddTyped)
+    addInput:SetScript("OnEnterPressed", AddTyped)
+    if ChatEdit_InsertLink then
+        hooksecurefunc("ChatEdit_InsertLink", function(link)
+            if addInput:IsVisible() and addInput:HasFocus() and link then addInput:Insert(link) end
+        end)
+    end
+
+    -- Filas de objetos
+    local STATE_TEXT = {
+        pending = L["|cFFBFBFBFPendiente|r"], rolling = L["|cFF00FF00Tirando...|r"],
+    }
+    local function AcquireItemRow(index)
+        local row = itemsBox.rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, itemsBox.child)
+        row:SetSize(390, 34)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.06)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(28, 28)
+        row.icon:SetPoint("LEFT", row, "LEFT", 3, 0)
+        row.action = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.action:SetSize(70, 20)
+        row.action:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -1)
+        row.name:SetPoint("RIGHT", row.action, "LEFT", -4, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.info:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 1)
+        row.info:SetPoint("RIGHT", row.action, "LEFT", -4, 0)
+        row.info:SetJustifyH("LEFT")
+        row.info:SetWordWrap(false)
+        row:SetScript("OnClick", function(self) selectedKey = self.key; Refresh() end)
+        row:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        itemsBox.rows[index] = row
+        return row
+    end
+
+    -- Panel de la tirada seleccionada
+    local rollItem = CreateFrame("Button", nil, rollBox)
+    rollItem:SetSize(420, 30)
+    rollItem:SetPoint("TOPLEFT", rollBox, "TOPLEFT", 10, -28)
+    rollItem.icon = rollItem:CreateTexture(nil, "ARTWORK")
+    rollItem.icon:SetSize(28, 28)
+    rollItem.icon:SetPoint("LEFT", rollItem, "LEFT", 0, 0)
+    rollItem.text = rollItem:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    rollItem.text:SetPoint("LEFT", rollItem.icon, "RIGHT", 8, 0)
+    rollItem.text:SetPoint("RIGHT", rollItem, "RIGHT", 0, 0)
+    rollItem.text:SetJustifyH("LEFT")
+    rollItem.text:SetWordWrap(false)
+    rollItem:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+    rollItem:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local rollState = rollBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    rollState:SetPoint("TOPLEFT", rollItem, "BOTTOMLEFT", 0, -4)
+    rollState:SetWidth(420)
+    rollState:SetJustifyH("LEFT")
+
+    local chooseButtons = {}
+    local previousChoose
+    for _, kind in ipairs({ "need", "offspec", "pass" }) do
+        local btn = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+        btn:SetSize(110, 22)
+        if previousChoose then btn:SetPoint("LEFT", previousChoose, "RIGHT", 4, 0) else btn:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 0, -6) end
+        btn:SetText(L[LT.KINDS[kind]])
+        btn:SetScript("OnClick", function() if selectedKey then LT.Choose(selectedKey, kind) end end)
+        chooseButtons[kind] = btn
+        previousChoose = btn
+    end
+
+    local ROLL_COLS = { name = 0, kind = 130, roll = 230, points = 280, wins = 320 }
+    local rollHeader = CreateFrame("Frame", nil, rollBox)
+    rollHeader:SetSize(420, 14)
+    rollHeader:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 0, -36)
+    for _, h in ipairs({ { L["Jugador"], ROLL_COLS.name }, { L["Pide"], ROLL_COLS.kind }, { L["Tirada"], ROLL_COLS.roll },
+                         { "+1", ROLL_COLS.points }, { L["En esta banda"], ROLL_COLS.wins } }) do
+        local fs = rollHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("LEFT", rollHeader, "LEFT", h[2], 0)
+        fs:SetText(h[1])
+    end
+    local rollRows = {}
+    local function AcquireRollRow(index)
+        local row = rollRows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, rollBox)
+        row:SetSize(420, 16)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+        row.cells = {}
+        for key, x in pairs(ROLL_COLS) do
+            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("LEFT", row, "LEFT", x, 0)
+            row.cells[key] = fs
+        end
+        -- Clic derecho (quien gestiona la tirada): asignar a este jugador
+        row:SetScript("OnClick", function(self, button)
+            if button ~= "RightButton" or not self.playerName or not selectedKey or not LT.CanManage() then return end
+            local name = self.playerName
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle(ShortName(name))
+                root:CreateButton(L["Asignar a este jugador"], function() LT.Award(selectedKey, name) end)
+            end)
+        end)
+        rollRows[index] = row
+        return row
+    end
+
+    local passText = rollBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    passText:SetWidth(420)
+    passText:SetJustifyH("LEFT")
+
+    local btnStartRoll = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnStartRoll:SetSize(130, 22)
+    btnStartRoll:SetPoint("BOTTOMLEFT", rollBox, "BOTTOMLEFT", 10, 10)
+    btnStartRoll:SetText(L["Abrir tirada"])
+    btnStartRoll:SetScript("OnClick", function() if selectedKey then LT.StartRoll(selectedKey) end end)
+    local btnAward = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnAward:SetSize(170, 22)
+    btnAward:SetPoint("LEFT", btnStartRoll, "RIGHT", 6, 0)
+    btnAward:SetText(L["Asignar al ganador"])
+    btnAward:SetScript("OnClick", function()
+        if selectedKey and not LT.Award(selectedKey) then PrintGC(L["|cFFFF3333Nadie ha tirado todavía.|r"]) end
+    end)
+    local btnCancelRoll = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnCancelRoll:SetSize(100, 22)
+    btnCancelRoll:SetPoint("LEFT", btnAward, "RIGHT", 6, 0)
+    btnCancelRoll:SetText(L["Cancelar"])
+    btnCancelRoll:SetScript("OnClick", function() if selectedKey then LT.CancelRoll(selectedKey) end end)
+
+    local rollEmpty = rollBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    rollEmpty:SetPoint("CENTER", rollBox, "CENTER", 0, 0)
+    rollEmpty:SetWidth(400)
+    rollEmpty:SetText(L["Selecciona un objeto de la banda. Los objetos aparecen solos al derrotar a un jefe en grupo, o añádelos con Shift+clic."])
+
+    -- +1 de la hermandad: reinicio con doble clic de confirmación
+    local resetArmedUntil = 0
+    local btnReset = CreateFrame("Button", nil, pointsBox, "UIPanelButtonTemplate")
+    btnReset:SetSize(110, 20)
+    btnReset:SetPoint("TOPRIGHT", pointsBox, "TOPRIGHT", -8, -3)
+    btnReset:SetText(L["Reiniciar +1"])
+    btnReset:SetScript("OnClick", function(self)
+        if GetTime() < resetArmedUntil then
+            resetArmedUntil = 0
+            self:SetText(L["Reiniciar +1"])
+            LT.ResetPoints()
+        else
+            resetArmedUntil = GetTime() + 4
+            self:SetText(L["|cFFFF3333¿Seguro?|r"])
+            C_Timer.After(4, function() if GetTime() >= resetArmedUntil then self:SetText(L["Reiniciar +1"]) end end)
+        end
+    end)
+
+    local function SimpleRow(box, index)
+        local row = box.rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, box.child)
+        row:SetSize(box.child:GetWidth(), 16)
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetAllPoints()
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        row:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        box.rows[index] = row
+        return row
+    end
+
+    local function ClassName(fullName)
+        local m = GuildControlDB.members[fullName]
+        return "|cFF" .. addonTable.GetClassColorHex(m and m.class) .. ShortName(fullName) .. "|r"
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+        local canManage = LT.CanManage()
+        local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
+        btnNewSession:SetShown(canManage)
+        btnReset:SetShown(isOfficer)
+        local session = LT.GetSession()
+        sessionText:SetText(session and (L["Sesión: |cFFFFD100"] .. session.title .. "|r |cFF808080" .. date("%d/%m %H:%M", session.startedAt) .. "|r")
+            or L["|cFF808080Sin sesión: empieza al salir botín en banda.|r"])
+
+        -- Objetos
+        local items = LT.GetItems()
+        local activeKey = LT.GetActiveKey()
+        if not selectedKey and activeKey then selectedKey = activeKey end
+        for _, row in ipairs(itemsBox.rows) do row:Hide() end
+        for i, item in ipairs(items) do
+            local row = AcquireItemRow(i)
+            row:SetPoint("TOPLEFT", itemsBox.child, "TOPLEFT", 0, -(i - 1) * 36)
+            local link = LT.DisplayLink(item.link)
+            row.key, row.link = item.key, link
+            row.bg:SetColorTexture(1, 0.82, 0, item.key == selectedKey and 0.2 or 0.04)
+            row.icon:SetTexture(ItemIconFromLink(link))
+            row.name:SetText(link)
+            local state = item.state == "done"
+                and (L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. (item.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]))
+                or STATE_TEXT[item.state] or ""
+            row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. "   " .. state)
+            row.action:SetShown(canManage and item.state ~= "done")
+            row.action:SetText(item.state == "rolling" and L["Asignar"] or L["Tirar"])
+            row.action:SetScript("OnClick", function()
+                selectedKey = item.key
+                if item.state == "rolling" then LT.Award(item.key) else LT.StartRoll(item.key) end
+            end)
+            row:Show()
+        end
+        itemsBox.child:SetHeight(math.max(1, #items * 36))
+        itemsBox.empty:SetShown(#items == 0)
+        itemsBox.empty:SetText(L["Todavía no ha salido botín en esta sesión."])
+
+        -- Tirada seleccionada
+        local item = selectedKey and LT.GetItem(selectedKey)
+        for _, row in ipairs(rollRows) do row:Hide() end
+        local hasItem = item ~= nil
+        for _, w in ipairs({ rollItem, rollState, rollHeader, passText }) do w:SetShown(hasItem) end
+        rollEmpty:SetShown(not hasItem)
+        for _, btn in pairs(chooseButtons) do btn:SetShown(false) end
+        btnStartRoll:SetShown(false); btnAward:SetShown(false); btnCancelRoll:SetShown(false)
+        if hasItem then
+            local link = LT.DisplayLink(item.link)
+            rollItem.link = link
+            rollItem.icon:SetTexture(ItemIconFromLink(link))
+            rollItem.text:SetText(link)
+            local myChoice = LT.GetMyChoice(item.key)
+            if item.state == "rolling" then
+                rollState:SetText(L["|cFF00FF00Tirada abierta.|r "] .. (myChoice and (L["Has pedido: "] .. L[LT.KINDS[myChoice]]) or L["Elige qué pides:"]))
+                for _, btn in pairs(chooseButtons) do btn:SetShown(not myChoice) end
+            elseif item.state == "done" then
+                rollState:SetText(L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner)
+                    .. (item.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]) .. L["  ·  tirada "] .. tostring(item.roll or "-"))
+            else
+                rollState:SetText(L["|cFFBFBFBFPendiente de tirar.|r"])
+            end
+            local list = LT.GetRollList(item)
+            for i, entry in ipairs(list) do
+                if i > 7 then break end
+                local row = AcquireRollRow(i)
+                row:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -2 - (i - 1) * 16)
+                row.playerName = entry.name
+                local color = LT.KIND_COLORS[entry.kind] or "FFFFFF"
+                row.cells.name:SetText((i == 1 and item.state == "rolling" and "|cFFFFD100>|r " or "") .. ClassName(entry.name))
+                row.cells.kind:SetText("|cFF" .. color .. L[LT.KINDS[entry.kind]] .. "|r")
+                row.cells.roll:SetText(entry.roll and tostring(entry.roll) or "|cFF808080...|r")
+                row.cells.points:SetText(tostring(entry.points))
+                row.cells.wins:SetText(entry.wins > 0 and ("|cFFFF7F00" .. L["Ya ganó "] .. entry.wins .. "|r") or "")
+                row:Show()
+            end
+            local passes = LT.GetPassList(item)
+            passText:ClearAllPoints()
+            passText:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -4 - math.min(#list, 7) * 16)
+            local passNames = {}
+            for _, name in ipairs(passes) do table.insert(passNames, ShortName(name)) end
+            passText:SetText(#passNames > 0 and (L["Pasan: "] .. table.concat(passNames, ", ")) or "")
+            btnStartRoll:SetShown(canManage and item.state == "pending")
+            btnAward:SetShown(canManage and item.state == "rolling")
+            btnCancelRoll:SetShown(canManage and item.state == "rolling")
+        end
+
+        -- +1
+        local points = LT.GetPointsList()
+        for _, row in ipairs(pointsBox.rows) do row:Hide() end
+        for i, entry in ipairs(points) do
+            local row = SimpleRow(pointsBox, i)
+            row:SetPoint("TOPLEFT", pointsBox.child, "TOPLEFT", 4, -(i - 1) * 16)
+            row.link = nil
+            row.text:SetText("|cFFFFD100+" .. entry.points .. "|r  " .. ClassName(entry.name))
+            row:Show()
+        end
+        pointsBox.child:SetHeight(math.max(1, #points * 16))
+        pointsBox.empty:SetShown(#points == 0)
+        pointsBox.empty:SetText(L["Nadie tiene +1 todavía."])
+
+        -- Historial
+        local history = LT.GetHistory()
+        for _, row in ipairs(historyBox.rows) do row:Hide() end
+        local shown = math.min(#history, 60)
+        for i = 1, shown do
+            local entry = history[i]
+            local row = SimpleRow(historyBox, i)
+            row:SetPoint("TOPLEFT", historyBox.child, "TOPLEFT", 4, -(i - 1) * 16)
+            local link = LT.DisplayLink(entry.link)
+            row.link = link
+            row.text:SetText("|cFF808080" .. date("%d/%m", entry.at or 0) .. "|r  " .. ClassName(entry.winner)
+                .. (entry.kind == "need" and " |cFFFFD100+1|r  " or L[" |cFF66B3FF(off)|r  "]) .. link)
+            row:Show()
+        end
+        historyBox.child:SetHeight(math.max(1, shown * 16))
+        historyBox.empty:SetShown(#history == 0)
+        historyBox.empty:SetText(L["Todavía no se ha repartido nada."])
+    end
+
+    LT.AddListener(function() Refresh() end)
+    view:SetScript("OnShow", Refresh)
+    containers.views["Botín"] = view
+end
+
+-- La ventanita de tirada se abre aunque la ventana del addon esté cerrada
+if addonTable.Loot then
+    addonTable.Loot.OnRollStarted = function(key) uiModule.ShowLootRollPopup(key) end
+end
+
+-- =========================================================================
+-- 9. VISTA DE CONFIGURACIÓN (HERMANDAD, VENTANA, IDIOMA Y SALUDO)
+-- =========================================================================
 
 local PRESET_ICONS = {
     "Achievement_GuildPerk_MobileBanking", "Achievement_GuildPerk_EverybodysFriend", "Ability_Hunter_Pet_Wolf",
     "INV_BannerPVP_01", "INV_BannerPVP_02", "Ability_Warrior_BattleShout", "INV_Sword_04", "INV_Shield_06",
     "Spell_Holy_PowerWordShield", "Spell_Nature_HealingTouch", "Spell_Fire_Fire", "Spell_Frost_FrostBolt02",
-    "Spell_Shadow_ShadowBolt", "INV_Misc_Head_Dragon_01", "INV_Misc_Coin_01", "INV_Misc_QuestionMark",
+    "Spell_Shadow_ShadowBolt", "INV_Misc_Head_Dragon_01", "INV_Misc_Coin_01", "Achievement_Boss_Ragnaros",
+    "Ability_Mount_Drake_Proto", "INV_Misc_Book_09", "Spell_Holy_HolyBolt", "Ability_DualWield",
+    "INV_Helmet_06", "Achievement_Dungeon_ClassicDungeonMaster", "Ability_Warrior_DefensiveStance", "INV_Misc_QuestionMark",
 }
+
+-- Selector con todos los iconos del juego (los de las macros): cuadrícula con desplazamiento.
+-- onPick(fileID) se llama al elegir uno.
+local GC_IconPicker = nil
+local gameIcons = nil
+local PICKER_COLS, PICKER_ROWS, PICKER_CELL = 10, 9, 40
+
+local function LoadGameIcons()
+    if gameIcons then return gameIcons end
+    gameIcons = {}
+    if GetMacroIcons then pcall(GetMacroIcons, gameIcons) end
+    if GetMacroItemIcons then pcall(GetMacroItemIcons, gameIcons) end
+    if #gameIcons == 0 then
+        for _, iconName in ipairs(PRESET_ICONS) do table.insert(gameIcons, "Interface\\Icons\\" .. iconName) end
+    end
+    return gameIcons
+end
+
+function uiModule.ShowIconPicker(onPick)
+    if not GC_UI then return end
+    if not GC_IconPicker then
+        local frame = CreateFrame("Frame", "GuildControlIconPicker", GC_UI, "BasicFrameTemplateWithInset")
+        frame:SetSize(PICKER_COLS * PICKER_CELL + 52, PICKER_ROWS * PICKER_CELL + 70)
+        frame:SetPoint("CENTER", GC_UI, "CENTER", 0, 0)
+        frame:SetFrameStrata("DIALOG")
+        frame:EnableMouse(true)
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["Iconos del juego"])
+        frame.offset = 0
+
+        frame.cells = {}
+        for row = 1, PICKER_ROWS do
+            for col = 1, PICKER_COLS do
+                local btn = CreateFrame("Button", nil, frame)
+                btn:SetSize(PICKER_CELL - 4, PICKER_CELL - 4)
+                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + (col - 1) * PICKER_CELL, -32 - (row - 1) * PICKER_CELL)
+                btn.icon = btn:CreateTexture(nil, "ARTWORK")
+                btn.icon:SetAllPoints()
+                btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+                btn:SetScript("OnClick", function(self)
+                    if self.value and frame.onPick then frame.onPick(self.value) end
+                    frame:Hide()
+                end)
+                table.insert(frame.cells, btn)
+            end
+        end
+
+        local slider = CreateFrame("Slider", nil, frame, "BackdropTemplate")
+        slider:SetOrientation("VERTICAL")
+        slider:SetSize(16, PICKER_ROWS * PICKER_CELL - 4)
+        slider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -32)
+        slider:SetBackdrop({ bgFile = "Interface\\Buttons\\UI-SliderBar-Background", edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8, insets = { left = 3, right = 3, top = 6, bottom = 6 } })
+        slider:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+        slider:SetValueStep(1)
+        slider:SetObeyStepOnDrag(true)
+        frame.slider = slider
+
+        frame.countText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame.countText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 12)
+
+        function frame.Render()
+            local icons = LoadGameIcons()
+            for i, btn in ipairs(frame.cells) do
+                local value = icons[frame.offset * PICKER_COLS + i]
+                btn.value = value
+                btn.icon:SetTexture(value)
+                btn:SetShown(value ~= nil)
+            end
+            frame.countText:SetText(#icons .. L[" iconos · rueda del ratón para desplazarte"])
+        end
+        slider:SetScript("OnValueChanged", function(_, value)
+            frame.offset = math.floor(value + 0.5)
+            frame.Render()
+        end)
+        frame:EnableMouseWheel(true)
+        frame:SetScript("OnMouseWheel", function(_, delta)
+            local minValue, maxValue = slider:GetMinMaxValues()
+            slider:SetValue(math.max(minValue, math.min(maxValue, slider:GetValue() - delta * 3)))
+        end)
+        GC_IconPicker = frame
+    end
+    local frame = GC_IconPicker
+    frame.onPick = onPick
+    local totalRows = math.ceil(#LoadGameIcons() / PICKER_COLS)
+    frame.slider:SetMinMaxValues(0, math.max(0, totalRows - PICKER_ROWS))
+    frame.slider:SetValue(0)
+    frame.offset = 0
+    frame.Render()
+    frame:Show()
+end
 
 local function BuildConfigView(parent)
     local view = CreateFrame("Frame", nil, parent)
@@ -7221,79 +7898,90 @@ local function BuildConfigView(parent)
     end
 
     -- ---------------------------------------------------------------------
-    -- 9.1 Hermandad: nombre, Discord e icono
+    -- 9.1 Hermandad: Discord e icono (los definen los oficiales y se comparten)
     -- ---------------------------------------------------------------------
     local guildBox = Section(L["Hermandad"], 10, -36, 560, 236)
+    local G = addonTable.GuildConfig
+    local officerOnly = {}   -- controles que solo pueden usar los oficiales
 
-    local nameLabel = Label(guildBox, L["Nombre (vacío = el nombre real de la hermandad)"], 14, -32)
-    local nameInput = Input(guildBox, 230, nameLabel, nil, 48)
+    local readOnlyNote = guildBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    readOnlyNote:SetPoint("TOPRIGHT", guildBox, "TOPRIGHT", -12, -12)
+    readOnlyNote:SetText(L["Lo definen los oficiales"])
 
-    local function SaveName()
-        settings().guildName = strtrim(nameInput:GetText() or "")
-        nameInput:ClearFocus()
-        uiModule.UpdateHeader()
-    end
-    local btnSaveName = Button(guildBox, L["Guardar"], 80, nameInput, SaveName)
-    Button(guildBox, L["Usar nombre del juego"], 150, btnSaveName, function()
-        nameInput:SetText("")
-        SaveName()
-    end)
-    nameInput:SetScript("OnEnterPressed", SaveName)
-    nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().guildName or "") end)
-
-    local discordLabel = Label(guildBox, L["Enlace de Discord (se muestra un botón junto al nombre)"], 14, -84)
+    local discordLabel = Label(guildBox, L["Enlace de Discord (se muestra un botón junto al nombre)"], 14, -32)
     local discordInput = Input(guildBox, 300, discordLabel, L["https://discord.gg/..."], 120)
 
     local function SaveDiscord()
-        settings().discordLink = strtrim(discordInput:GetText() or "")
         discordInput:ClearFocus()
-        uiModule.UpdateHeader()
+        if G then G.Set(strtrim(discordInput:GetText() or ""), nil) end
     end
     local btnSaveDiscord = Button(guildBox, L["Guardar"], 80, discordInput, SaveDiscord)
-    Button(guildBox, L["Quitar"], 70, btnSaveDiscord, function()
+    local btnClearDiscord = Button(guildBox, L["Quitar"], 70, btnSaveDiscord, function()
         discordInput:SetText("")
         SaveDiscord()
     end)
     discordInput:SetScript("OnEnterPressed", SaveDiscord)
     discordInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().discordLink or "") end)
+    for _, w in ipairs({ discordInput, btnSaveDiscord, btnClearDiscord }) do table.insert(officerOnly, w) end
 
-    local iconLabel = Label(guildBox, L["Icono: nombre (INV_Misc_QuestionMark), ID numérico o ruta, o elige uno"], 14, -136)
-    local iconPreview = guildBox:CreateTexture(nil, "ARTWORK")
-    iconPreview:SetSize(32, 32)
-    iconPreview:SetPoint("TOPLEFT", iconLabel, "BOTTOMLEFT", 0, -4)
+    local iconLabel = Label(guildBox, L["Icono de la hermandad"], 14, -84)
+    local iconPreview = CreateGuildIconHolder(guildBox, 40)
+    iconPreview:SetPoint("TOPLEFT", iconLabel, "BOTTOMLEFT", 0, -6)
 
     local iconInput = CreateFrame("EditBox", nil, guildBox, "InputBoxTemplate")
-    iconInput:SetSize(230, 20)
-    iconInput:SetPoint("LEFT", iconPreview, "RIGHT", 12, 0)
+    iconInput:SetSize(220, 20)
     iconInput:SetAutoFocus(false)
 
     local function RefreshIconFields()
-        iconInput:SetText(tostring(settings().guildIcon or ""))
-        iconPreview:SetTexture(addonTable.ResolveIconTexture(settings().guildIcon))
+        local value = settings().guildIcon
+        iconInput:SetText(value == "tabard" and "" or tostring(value or ""))
+        iconPreview:SetGuildIcon(value)
     end
 
     local function SaveIcon(value)
-        value = strtrim(value or "")
-        if value == "" then value = DEFAULT_GUILD_ICON end
-        settings().guildIcon = tonumber(value) or value
         iconInput:ClearFocus()
-        uiModule.UpdateHeader()
+        if not G then return end
+        if not G.CleanIcon(value) then
+            PrintGC(L["|cFFFF3333Icono no válido: escribe un ID numérico o una ruta de textura.|r"])
+            return
+        end
+        G.Set(nil, value)
         RefreshIconFields()
     end
 
-    local btnApplyIcon = Button(guildBox, L["Aplicar"], 80, iconInput, function() SaveIcon(iconInput:GetText()) end)
-    Button(guildBox, L["Restablecer"], 100, btnApplyIcon, function() SaveIcon(DEFAULT_GUILD_ICON) end)
-    iconInput:SetScript("OnEnterPressed", function(self) SaveIcon(self:GetText()) end)
+    local btnTabard = CreateFrame("Button", nil, guildBox, "UIPanelButtonTemplate")
+    btnTabard:SetSize(150, 22)
+    btnTabard:SetPoint("TOPLEFT", iconPreview, "TOPRIGHT", 12, 2)
+    btnTabard:SetText(L["Emblema del juego"])
+    btnTabard:SetScript("OnClick", function() SaveIcon("tabard") end)
+
+    local btnPicker = CreateFrame("Button", nil, guildBox, "UIPanelButtonTemplate")
+    btnPicker:SetSize(170, 22)
+    btnPicker:SetPoint("LEFT", btnTabard, "RIGHT", 6, 0)
+    btnPicker:SetText(L["Iconos del juego..."])
+    btnPicker:SetScript("OnClick", function() uiModule.ShowIconPicker(function(value) SaveIcon(value) end) end)
+
+    iconInput:SetPoint("TOPLEFT", btnTabard, "BOTTOMLEFT", 6, -4)
+    local iconPlaceholder = iconInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    iconPlaceholder:SetPoint("LEFT", iconInput, "LEFT", 2, 0)
+    iconPlaceholder:SetText(L["ID o ruta de tu imagen"])
+    local btnApplyIcon = Button(guildBox, L["Aplicar"], 80, iconInput, function() SaveIcon(strtrim(iconInput:GetText() or "")) end)
+    iconInput:SetScript("OnEnterPressed", function(self) SaveIcon(strtrim(self:GetText() or "")) end)
     iconInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshIconFields() end)
     iconInput:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then iconPreview:SetTexture(addonTable.ResolveIconTexture(strtrim(self:GetText() or ""))) end
+        iconPlaceholder:SetShown((self:GetText() or "") == "")
+        if userInput and G and G.CleanIcon(strtrim(self:GetText() or "")) then
+            iconPreview:SetGuildIcon(G.CleanIcon(strtrim(self:GetText() or "")))
+        end
     end)
+    for _, w in ipairs({ btnTabard, btnPicker, iconInput, btnApplyIcon }) do table.insert(officerOnly, w) end
 
-    -- Iconos predefinidos en una fila
+    -- Iconos rápidos (el resto, en "Iconos del juego...")
     for i, iconName in ipairs(PRESET_ICONS) do
+        if i > 17 then break end
         local btn = CreateFrame("Button", nil, guildBox)
-        btn:SetSize(28, 28)
-        btn:SetPoint("TOPLEFT", iconPreview, "BOTTOMLEFT", (i - 1) * 33, -8)
+        btn:SetSize(26, 26)
+        btn:SetPoint("TOPLEFT", guildBox, "TOPLEFT", 14 + (i - 1) * 31, -156)
         btn:SetNormalTexture("Interface\\Icons\\" .. iconName)
         btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
         btn:SetScript("OnClick", function() SaveIcon("Interface\\Icons\\" .. iconName) end)
@@ -7303,7 +7991,25 @@ local function BuildConfigView(parent)
             GameTooltip:Show()
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        table.insert(officerOnly, btn)
     end
+
+    local iconHint = guildBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    iconHint:SetPoint("TOPLEFT", guildBox, "TOPLEFT", 14, -190)
+    iconHint:SetWidth(532)
+    iconHint:SetJustifyH("LEFT")
+    iconHint:SetText(L["Imagen propia: copia un archivo TGA o BLP de 64×64 o 128×128 en Interface\\AddOns\\GuildControl\\Media\\ (reinicia el juego) y escribe su ruta, p. ej. Interface\\AddOns\\GuildControl\\Media\\logo. Cada jugador necesita el archivo para verla."])
+    table.insert(officerOnly, iconHint)
+
+    -- Los jugadores ven lo que definieron los oficiales, sin poder cambiarlo
+    local function ApplyGuildEditPermissions()
+        local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        readOnlyNote:SetShown(not isOfficer)
+        for _, w in ipairs(officerOnly) do w:SetShown(isOfficer) end
+        discordInput:Show()
+        discordInput:SetEnabled(isOfficer)
+    end
+    if G then G.AddListener(function() if view:IsShown() then discordInput:SetText(settings().discordLink or ""); RefreshIconFields() end end) end
 
     -- ---------------------------------------------------------------------
     -- 9.2 Ventana
@@ -7459,9 +8165,9 @@ local function BuildConfigView(parent)
 
     view:SetScript("OnShow", function()
         local s = settings()
-        nameInput:SetText(s.guildName or "")
         discordInput:SetText(s.discordLink or "")
         RefreshIconFields()
+        ApplyGuildEditPermissions()
         chkOnTop:SetChecked(s.windowOnTop)
         chkGreet:SetChecked(s.autoGreet)
         greetInput:SetText(s.greetMessage or "")
@@ -7751,6 +8457,7 @@ function uiModule.CreateUI()
     BuildProfessionsView(mainContent)
     BuildMythicPlusView(mainContent)
     BuildRaidView(mainContent)
+    BuildLootView(mainContent)
     BuildSummaryView(mainContent)
     BuildRosterView(mainContent)
     BuildWarningView(mainContent)

@@ -1,0 +1,6 @@
+Carpeta para imágenes propias de GuildControl (por ejemplo, el logo de tu hermandad).
+
+- Formato: TGA (32 bits) o BLP, de 64x64 o 128x128 píxeles.
+- Copia aquí el archivo, reinicia el juego y en Configuración > Hermandad escribe su ruta sin extensión,
+  por ejemplo: Interface\AddOns\GuildControl\Media\logo
+- Cada jugador necesita el mismo archivo en esta carpeta para ver la imagen.

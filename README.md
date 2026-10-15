@@ -12,6 +12,8 @@
 - **`Modules/Professions.lua`**: Módulo aislado para el escaneo y sincronización de profesiones de los miembros.
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
 - **`Modules/Favorites.lua`**: Personajes favoritos y aviso cuando se conectan.
+- **`Modules/GuildConfig.lua`**: Discord e icono de la hermandad que definen los oficiales y se comparten con todos.
+- **`Modules/Loot.lua`**: Reparto de botín con el sistema +1: tiradas desde el addon, +1 y historial.
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
@@ -49,11 +51,10 @@ Debajo, el tablón de noticias:
 
 La pestaña **Configuración** está dividida en tres secciones: **Hermandad** (nombre, Discord e icono), **Ventana** (siempre por encima e idioma) y **Saludo automático** (mensaje, tiempos y palabras).
 
-El encabezado muestra debajo del nombre el reino de la hermandad y la facción. Si configuras un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C.
+El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y la facción. Si los oficiales configuran un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C. Junto al autor, el botón **Donar** muestra el enlace para apoyar el desarrollo del addon.
 
 
-- **Nombre de la hermandad**: escribe el nombre que quieres mostrar. Si lo dejas vacío (o pulsas "Usar nombre del juego") se usa el nombre real de la hermandad.
-- **Icono**: elige uno de los iconos predefinidos o escribe el nombre del icono (por ejemplo `INV_Misc_QuestionMark`), su ID numérico o la ruta completa.
+- **Discord e icono de la hermandad** (solo oficiales; los jugadores ven lo que definen): el Discord y el icono se envían a todos los que usan GuildControl. El icono puede ser el **emblema de la hermandad del juego**, cualquiera de los **iconos del juego** (selector con todos ellos), uno de los iconos rápidos o una **imagen propia** (archivo TGA o BLP en `Interface\AddOns\GuildControl\Media\`; cada jugador necesita el archivo para verla). El nombre de la hermandad ya no se puede cambiar: siempre es el del juego.
 - **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) y **acaba de conectarse** (por defecto, en los 5 minutos siguientes) sin que nadie le haya saludado todavía, el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Los segundos de espera, los minutos sin repetir saludo, los minutos tras conectarse y las **palabras de saludo** se configuran en la columna derecha. A quien ya estaba conectado cuando entraste no se le saluda. Si varios miembros usan GuildControl, solo responde uno.
 - **Siempre por encima**: muestra la ventana del addon por encima de las barras de acción y otros botones del juego.
 - **Idioma**: Automático (el del juego), Español o English. El cambio se aplica al recargar la interfaz (botón **Recargar** o `/reload`).
@@ -62,7 +63,8 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 
 - Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**, y para **añadirlo a favoritos** o quitarlo. El botón **Favoritos** filtra la lista (con estrella junto al nombre) y, cuando un favorito se conecta, se avisa en el chat, en el centro de la pantalla y con un sonido.
 - **Actualizar** (junto a Sheets / CSV) vuelve a pedir la lista de la hermandad al servidor. Si al abrir la ventana la lista está vacía, se pide sola.
-- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
+- Columnas: nivel, clase, nombre, rango, tipo, rol, enfoque, profesiones (solo el nombre; el nivel está en la pestaña Profesiones y en la vista previa), **zona** (la última conocida si está desconectado), roster y conexión.
+- Busca por nombre, clase, rango, rol, profesión, roster o zona y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
  y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
@@ -92,6 +94,8 @@ La vista previa y el tooltip de cada integrante muestran su asistencia (de las b
 - **Sincronización**: como en Raid, cada cambio de un oficial (integrantes, criterios, nombre...) se envía solo a la hermandad unos segundos después y los demás clientes lo aplican al momento; los rosters nuevos aparecen solos en los demás oficiales y borrar un roster lo borra en todos. Solo se aceptan rosters de oficiales. **Compartir** lo reenvía en el momento.
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
+
+La pestaña **Mi perfil** se organiza en paneles de colores: **Roles**, **Personaje** (principal o alter y enfoque), **Especialización**, **Nota y envío**, y a la derecha **Tu ficha en la hermandad** y, para oficiales, **Oficiales**.
 
 - La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** (elegida entre las de su clase, con icono; al elegirla se ajusta el rol principal), una **especialización off** (solo si tiene equipo para ella; se ve en la vista previa de Miembros), si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).
@@ -130,6 +134,15 @@ La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster**
 - **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
 - **Asistencia** (oficiales): lista de las bandas próximas y de los últimos 14 días. Para la banda elegida aparecen los inscritos y los integrantes del roster asociado con su respuesta; márcalos como Presente, Tarde, Ausente o Justificada (un segundo clic quita la marca). **Tomar del grupo actual** marca presentes a los del grupo, justificados a quienes avisaron de que faltaban y ausentes al resto; **Apuntados presentes** marca a los apuntados. La asistencia se guarda aparte (no se pierde cuando se borra la banda), se envía sola a la hermandad y cuenta en el Roster, Mis rosters y Warning. Las justificadas no cuentan para el porcentaje.
 - Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
+
+## 💰 Botín (sistema +1)
+
+La pestaña **Botín** reparte los objetos de banda con el sistema **+1** (el DKP llegará más adelante; el selector de sistema ya está preparado).
+
+- **Objetos de la banda**: aparecen solos al derrotar a un jefe en grupo (con quién se lo llevó), o se añaden con Shift+clic en un objeto. Al salir botín se abre una sesión, o se crea una con **Nueva sesión**.
+- **Tirada**: un oficial, el líder o un ayudante pulsa **Tirar**. A todos los del grupo con GuildControl les aparece una ventanita con **Necesidad (+1)**, **Off-spec** o **Pasar**; el addon lanza el `/roll` y apunta la tirada. Quien no tiene el addon puede escribir `/roll` (cuenta como Necesidad).
+- **Ganador**: Necesidad antes que Off-spec; entre Necesidad, el que tiene **menos +1** y, si empatan, la tirada más alta. La lista avisa de quién **ya ganó algo en esta banda**. **Asignar al ganador** (o clic derecho en un jugador para elegir otro) suma **+1** si era Necesidad, lo anuncia en el chat de banda y lo guarda en el **historial**.
+- **+1 de la hermandad**: ranking de +1, compartido con los demás clientes (los oficiales pueden reiniciarlo). El historial muestra fecha, ganador y objeto.
 
 ## 🗝️ Míticas+
 
