@@ -4,8 +4,9 @@ local L = addonTable.L
 addonTable.RaidTools = {}
 local toolsModule = addonTable.RaidTools
 
--- Herramientas de banda (sin frames): comprobación de listos, cuenta atrás de pull, marcas
--- en el objetivo y buff check. La UI (modo minimalista y ventana de buffos) está en UI.lua.
+-- Herramientas de banda (sin frames): comprobación de listos, cuenta atrás de pull y buff
+-- check. Las marcas no están aquí: SetRaidTarget está protegida y se ponen con botones
+-- seguros en UI.lua. La UI (modo minimalista y ventana de buffos) está en UI.lua.
 --
 -- Buff check: los buffos se leen de las auras de cada integrante (fuera de combate; en
 -- combate el juego puede ocultarlas). Lo que llevan en las bolsas (pociones, frascos, comida,
@@ -94,20 +95,6 @@ end
 
 function toolsModule.CancelPull()
     toolsModule.Pull(0)
-end
-
--- Marca (1-8) en el objetivo; 0 la quita. Pulsar la misma marca otra vez también la quita.
-function toolsModule.MarkTarget(index)
-    if not UnitExists("target") then
-        PrintGC(L["|cFFFF3333Selecciona primero un objetivo.|r"])
-        return
-    end
-    if not SetRaidTarget then return end
-    local current = GetRaidTargetIndex and GetRaidTargetIndex("target")
-    if IsSecret(current) then current = nil end
-    if index ~= 0 and current == index then index = 0 end
-    local ok = pcall(SetRaidTarget, "target", index)
-    if not ok then PrintGC(L["|cFFFF3333El juego no deja poner marcas ahora mismo.|r"]) end
 end
 
 -- =========================================================================

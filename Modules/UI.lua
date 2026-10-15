@@ -9213,6 +9213,10 @@ end
 function uiModule.BuffCheck()
     if not addonTable.RaidTools then return end
     addonTable.RaidTools.RequestReports()
+    if InCombatLockdown() and raidMiniFrame and raidMiniFrame:IsShown() then
+        uiModule.ShowBuffWindow(nil)
+        return
+    end
     if raidMiniFrame and raidMiniFrame:IsShown() then
         uiModule.ExitMiniMode()
     elseif not (GC_UI and GC_UI:IsShown()) then
@@ -9225,6 +9229,26 @@ end
 -- -------------------------------------------------------------------------
 -- Panel minimalista
 -- -------------------------------------------------------------------------
+-- El panel tiene botones seguros (las marcas): en combate no se puede mostrar ni ocultar, así
+-- que el cambio de modo se aplaza hasta salir del combate
+local pendingAfterCombat = nil
+local afterCombatFrame = CreateFrame("Frame")
+afterCombatFrame:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    local fn = pendingAfterCombat
+    pendingAfterCombat = nil
+    if fn then fn() end
+end)
+local function AfterCombat(fn)
+    if not InCombatLockdown() then
+        fn()
+        return
+    end
+    pendingAfterCombat = fn
+    afterCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    PrintGC(L["En combate no se puede cambiar de modo: se hará al salir del combate."])
+end
+
 local MINI_WIDTH, MINI_HEIGHT, MINI_PAD, MINI_GAP = 244, 112, 8, 4
 
 local function SaveMiniPosition(frame)
@@ -9262,8 +9286,10 @@ local function CreateRaidMiniFrame()
     btnClose:SetSize(22, 22)
     btnClose:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 1, 1)
     btnClose:SetScript("OnClick", function()
-        GuildControlDB.settings.raidMini = false
-        frame:Hide()
+        AfterCombat(function()
+            GuildControlDB.settings.raidMini = false
+            frame:Hide()
+        end)
     end)
     local line = frame:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(1, 1, 1, 0.1)
@@ -9289,8 +9315,11 @@ local function CreateRaidMiniFrame()
     local MARK_SIZE = 22
     local markGap = (inner - MARK_SIZE * 9) / 8
     for i = 1, 9 do
-        local btn = CreateFrame("Button", nil, frame)
+        -- SetRaidTarget está protegida: las marcas son botones seguros del tipo "raidtarget",
+        -- que el juego ejecuta como si el jugador usara /tm
+        local btn = CreateFrame("Button", "GC_RaidMiniMark" .. i, frame, "SecureActionButtonTemplate")
         btn:SetSize(MARK_SIZE, MARK_SIZE)
+        btn:RegisterForClicks("AnyUp", "AnyDown")
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (MARK_SIZE + markGap), -55)
         local index = i <= 8 and i or 0
         if index > 0 then
@@ -9299,7 +9328,10 @@ local function CreateRaidMiniFrame()
             btn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
         end
         btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        btn:SetScript("OnClick", function() T.MarkTarget(index) end)
+        btn:SetAttribute("type", "raidtarget")
+        btn:SetAttribute("unit", "target")
+        btn:SetAttribute("action", index > 0 and "toggle" or "clear")
+        btn:SetAttribute("marker", index)
         btn:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:SetText(index > 0 and L[RAID_ICONS[index]] or L["Quitar marca"], 1, 1, 1)
@@ -9327,18 +9359,22 @@ end
 
 function uiModule.EnterMiniMode()
     if not addonTable.RaidTools then return end
-    addonTable.InitDB()
-    if not raidMiniFrame then raidMiniFrame = CreateRaidMiniFrame() end
-    GuildControlDB.settings.raidMini = true
-    if GC_UI then GC_UI:Hide() end
-    raidMiniFrame:Show()
+    AfterCombat(function()
+        addonTable.InitDB()
+        if not raidMiniFrame then raidMiniFrame = CreateRaidMiniFrame() end
+        GuildControlDB.settings.raidMini = true
+        if GC_UI then GC_UI:Hide() end
+        raidMiniFrame:Show()
+    end)
 end
 
 function uiModule.ExitMiniMode()
-    GuildControlDB.settings.raidMini = false
-    if raidMiniFrame then raidMiniFrame:Hide() end
-    if not (GC_UI and GC_UI:IsShown()) then uiModule.ToggleUI() end
-    SwitchTab("Raid")
+    AfterCombat(function()
+        GuildControlDB.settings.raidMini = false
+        if raidMiniFrame then raidMiniFrame:Hide() end
+        if not (GC_UI and GC_UI:IsShown()) then uiModule.ToggleUI() end
+        SwitchTab("Raid")
+    end)
 end
 
 function uiModule.IsMiniMode()
