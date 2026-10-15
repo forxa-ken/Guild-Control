@@ -21,7 +21,7 @@ jobs:
       GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0   # el empaquetador necesita el historial para el número de versión
 
