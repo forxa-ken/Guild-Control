@@ -154,6 +154,65 @@ function mplusModule.RequestKeystones(throttled)
 end
 
 -- =========================================================================
+-- MÍTICAS+ DE LA SEMANA
+-- =========================================================================
+-- Cada cliente con GuildControl comparte su mejor Mítica+ de la semana ("B;mapID;nivel")
+-- y se guarda en GuildControlDB.mplusWeekly[nombre] = { mapID, level, at }. Con eso el
+-- Resumen muestra la mejor llave de la hermandad desde el reinicio semanal.
+mplusModule.GetLastWeeklyReset = LastWeeklyReset
+
+local function WeeklyStore()
+    if type(GuildControlDB.mplusWeekly) ~= "table" then GuildControlDB.mplusWeekly = {} end
+    return GuildControlDB.mplusWeekly
+end
+
+-- Mis Míticas+ completadas esta semana: número, mejor nivel y su mazmorra
+function mplusModule.GetMyWeeklyRuns()
+    if not (C_MythicPlus and C_MythicPlus.GetRunHistory) then return 0, nil, nil end
+    local ok, runs = pcall(C_MythicPlus.GetRunHistory, false, false)
+    if not ok or type(runs) ~= "table" then return 0, nil, nil end
+    local count, bestLevel, bestMap = 0, nil, nil
+    for _, run in ipairs(runs) do
+        if run.thisWeek ~= false and run.completed ~= false then
+            count = count + 1
+            if run.level and (not bestLevel or run.level > bestLevel) then
+                bestLevel, bestMap = run.level, run.mapChallengeModeID
+            end
+        end
+    end
+    return count, bestLevel, bestMap
+end
+
+local function SetWeeklyBest(fullName, mapID, level, at)
+    if not fullName or not level or level <= 0 then return end
+    local store = WeeklyStore()
+    local current = store[fullName]
+    if current and current.at and current.at >= LastWeeklyReset() and (current.level or 0) >= level then return end
+    store[fullName] = { mapID = mapID, level = level, at = at or time() }
+end
+
+function mplusModule.BroadcastWeeklyBest()
+    local _, level, mapID = mplusModule.GetMyWeeklyRuns()
+    if not level then return end
+    SetWeeklyBest(NormalizeName(UnitName("player")), mapID, level)
+    if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(KEY_PREFIX, "B;" .. (mapID or 0) .. ";" .. level, "GUILD")
+    end
+end
+
+-- Mejor llave de la hermandad desde el reinicio semanal: nombre, nivel, mapID (o nil)
+function mplusModule.GetGuildWeeklyBest()
+    local reset = LastWeeklyReset()
+    local bestName, bestLevel, bestMap = nil, nil, nil
+    for name, entry in pairs(WeeklyStore()) do
+        if entry.at and entry.at >= reset and entry.level and (not bestLevel or entry.level > bestLevel) then
+            bestName, bestLevel, bestMap = name, entry.level, entry.mapID
+        end
+    end
+    return bestName, bestLevel, bestMap
+end
+
+-- =========================================================================
 -- AFIJOS Y MEJORES TIEMPOS PROPIOS
 -- =========================================================================
 function mplusModule.RequestData()
@@ -234,6 +293,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
                 StoreMyKeystone()
                 mplusModule.BroadcastKeystone(true)
                 mplusModule.RequestKeystones()
+                mplusModule.BroadcastWeeklyBest()
             end)
             C_Timer.After(45, function()
                 StoreMyKeystone()
@@ -243,6 +303,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         end
         return
     elseif event == "CHALLENGE_MODE_COMPLETED" or event == "BAG_UPDATE_DELAYED" then
+        -- El historial de la semana se actualiza unos segundos después de terminar
+        if event == "CHALLENGE_MODE_COMPLETED" then
+            C_Timer.After(5, function() mplusModule.BroadcastWeeklyBest(); Notify() end)
+        end
         -- La llave cambia al terminar una mítica o al recibir una nueva
         StoreMyKeystone()
         mplusModule.BroadcastKeystone(false)
@@ -262,11 +326,15 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
     if msg == "Q" then
         mplusModule.BroadcastKeystone(true)
+        mplusModule.BroadcastWeeklyBest()
         return
     end
     local kind, mapID, level = strsplit(";", msg)
     if kind == "K" then
         SetKeystone(fullSender, tonumber(mapID), tonumber(level))
+        Notify()
+    elseif kind == "B" then
+        SetWeeklyBest(fullSender, tonumber(mapID), tonumber(level))
         Notify()
     end
 end)

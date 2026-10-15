@@ -1037,6 +1037,39 @@ function rosterModule.GetRaidTiers(maxTiers)
     return result
 end
 
+-- Nombres de las mazmorras y bandas de la expansión actual (diario de encuentros) y de las
+-- mazmorras de Míticas+ de la temporada. Sirve para saber quién está en una instancia por su
+-- zona. Se calcula una vez por sesión.
+local instanceNames = nil
+function rosterModule.GetInstanceNames()
+    if instanceNames then return instanceNames end
+    instanceNames = {}
+    if EJ_GetNumTiers and EJ_GetInstanceByIndex then
+        local okNum, numTiers = pcall(EJ_GetNumTiers)
+        if okNum and numTiers then
+            WithEJTier(numTiers, function()
+                for _, isRaid in ipairs({ true, false }) do
+                    local index = 1
+                    while true do
+                        local instanceID, name = EJ_GetInstanceByIndex(index, isRaid)
+                        if not instanceID then break end
+                        if name then instanceNames[name] = true end
+                        index = index + 1
+                    end
+                end
+            end)
+        end
+    end
+    if C_ChallengeMode and C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapUIInfo then
+        local ok, maps = pcall(C_ChallengeMode.GetMapTable)
+        for _, mapID in ipairs(ok and maps or {}) do
+            local okName, name = pcall(C_ChallengeMode.GetMapUIInfo, mapID)
+            if okName and name then instanceNames[name] = true end
+        end
+    end
+    return instanceNames
+end
+
 -- Nombres de los jefes de una banda, en orden
 function rosterModule.GetRaidBosses(instanceID)
     local bosses = {}

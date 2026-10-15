@@ -1,5 +1,12 @@
 # GuildControl
 
+## Próxima versión
+
+### Resumen
+- Nueva fila de cajas arriba: **Para ti** (tu próxima banda y respuesta, rol sin declarar, asistencia, llave y Míticas+ de la semana), **Ahora en la hermandad** (conectados, favoritos conectados y quién está en mazmorra o banda), **Esta semana** (jefes, logros, altas, bajas y la mejor llave de la hermandad) y, para oficiales, **Pendiente** (Warning por categoría y bandas a las que les faltan roles). Cada línea lleva a su pestaña.
+- Se quita la caja Rosters del Resumen (están en Roster y en Mis rosters).
+- Cada cliente comparte su mejor Mítica+ de la semana para calcular la mejor llave de la hermandad.
+
 ## 5.0.0-beta2
 
 ### Favoritos, rosters y noticias

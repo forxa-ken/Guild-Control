@@ -466,20 +466,8 @@ function newsModule.LookupItemSource(link, callback)
 end
 
 -- =========================================================================
--- PRÓXIMAS BANDAS, ROSTERS Y CIFRAS
+-- PRÓXIMAS BANDAS
 -- =========================================================================
--- Rosters visibles: los propios (oficiales) o los publicados por los oficiales (jugadores)
-local function VisibleRosters()
-    local R = addonTable.Roster
-    if not R then return {} end
-    local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
-    if isOfficer then return R.GetAll() end
-    local list = {}
-    for _, item in ipairs(R.GetSharedRosters()) do table.insert(list, item.roster) end
-    return list
-end
-
--- { {roster, event}, ... } ordenadas por fecha, solo las de hoy en adelante
 -- Próximas bandas de la pestaña Raid: { {event}, ... }, más próximas primero
 function newsModule.GetUpcomingRaids(limit)
     local result = {}
@@ -490,45 +478,6 @@ function newsModule.GetUpcomingRaids(limit)
         if limit and #result >= limit then break end
     end
     return result
-end
-
--- { {name, difficulty, size, starters, bench, published}, ... }
-function newsModule.GetRosterSummaries()
-    local R = addonTable.Roster
-    local result = {}
-    if not R then return result end
-    for _, roster in ipairs(VisibleRosters()) do
-        local starters, bench = 0, 0
-        for _, slot in pairs(roster.members or {}) do
-            if slot == "bench" then bench = bench + 1 else starters = starters + 1 end
-        end
-        table.insert(result, {
-            name = roster.name, difficulty = R.DifficultyLabel(roster), size = roster.size,
-            starters = starters, bench = bench, published = roster.syncId ~= nil,
-        })
-    end
-    return result
-end
-
-function newsModule.GetStats()
-    local stats = { members = 0, online = 0, joins = 0, leaves = 0, declared = 0, achievementPoints = 0 }
-    for _, m in pairs(GuildControlDB.members or {}) do
-        stats.members = stats.members + 1
-        if m.isOnline then stats.online = stats.online + 1 end
-        if m.declared and m.declared.main then stats.declared = stats.declared + 1 end
-    end
-    local weekAgo = date("%Y-%m-%d", time() - 7 * 86400)
-    for _, log in ipairs(GuildControlDB.history or {}) do
-        if log.date and string.sub(log.date, 1, 10) >= weekAgo then
-            if log.action == "ALTA" then stats.joins = stats.joins + 1 end
-            if log.action == "BAJA" then stats.leaves = stats.leaves + 1 end
-        end
-    end
-    if GetTotalAchievementPoints then
-        local ok, points = pcall(GetTotalAchievementPoints, true)
-        if ok and points then stats.achievementPoints = points end
-    end
-    return stats
 end
 
 function newsModule.GetMOTD()

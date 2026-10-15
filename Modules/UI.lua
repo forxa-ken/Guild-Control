@@ -3950,7 +3950,8 @@ local function BuildSummaryView(parent)
     -- ---------------------------------------------------------------------
     -- Columna izquierda: noticias
     -- ---------------------------------------------------------------------
-    local feedBox = CreateBackdropBox(view, 566, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
+    local SUMMARY_TOP_HEIGHT = 150   -- fila de cajas de arriba (Para ti, Ahora, Esta semana, Pendiente)
+    local feedBox = CreateBackdropBox(view, 566, 500 - SUMMARY_TOP_HEIGHT - 6, "TOPLEFT", view, "TOPLEFT", 10, -10 - SUMMARY_TOP_HEIGHT - 6)
 
     local feedTitle = feedBox:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     feedTitle:SetPoint("TOPLEFT", feedBox, "TOPLEFT", 14, -12)
@@ -4205,7 +4206,7 @@ local function BuildSummaryView(parent)
 
 
     -- ---------------------------------------------------------------------
-    -- Columna derecha: mensaje del día, próximas bandas, rosters y oficiales
+    -- Columna derecha: mensaje del día, próximas bandas y oficiales
     -- ---------------------------------------------------------------------
     local function SideBox(titleText, height, anchor)
         local box = CreateBackdropBox(view, 304, height)
@@ -4226,10 +4227,9 @@ local function BuildSummaryView(parent)
         return box
     end
 
-    local motdBox = SideBox(L["Mensaje del día"], 84)
-    local raidsBox = SideBox(L["Próximas bandas"], 118, motdBox)
-    local rostersBox = SideBox(L["Rosters"], 118, raidsBox)
-    local officersBox = SideBox(L["Oficiales"], 162, rostersBox)
+    local motdBox = SideBox(L["Mensaje del día"], 70)
+    local raidsBox = SideBox(L["Próximas bandas"], 120, motdBox)
+    local officersBox = SideBox(L["Oficiales"], 500 - SUMMARY_TOP_HEIGHT - 6 - 70 - 120 - 12, raidsBox)
 
     -- La lista de oficiales puede ser larga: va dentro de un scroll
     officersBox.text:Hide()
@@ -4253,6 +4253,242 @@ local function BuildSummaryView(parent)
         return WEEKDAYS[tonumber(date("%w", t)) + 1] .. " " .. d .. "/" .. mo .. " " .. (event.time or "")
     end
 
+    -- ---------------------------------------------------------------------
+    -- Arriba: lo que te toca hacer, lo que pasa ahora y la semana (y lo pendiente, oficiales)
+    -- Cada línea puede llevar a la pestaña o al filtro correspondiente con un clic.
+    -- ---------------------------------------------------------------------
+    local INFO_LINE_HEIGHT = 16
+    local function InfoBox(titleText)
+        local box = CreateBackdropBox(view, 214, SUMMARY_TOP_HEIGHT)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+        box.title:SetText(titleText)
+        box.lines = {}
+        return box
+    end
+
+    -- lines = { {text, onClick}, ... }; las que tienen onClick se resaltan al pasar el ratón
+    local function SetBoxLines(box, lines)
+        for _, row in ipairs(box.lines) do row:Hide() end
+        local maxLines = math.floor((SUMMARY_TOP_HEIGHT - 36) / INFO_LINE_HEIGHT)
+        for i, line in ipairs(lines) do
+            if i > maxLines then break end
+            local row = box.lines[i]
+            if not row then
+                row = CreateFrame("Button", nil, box)
+                row:SetHeight(INFO_LINE_HEIGHT)
+                row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.text:SetAllPoints()
+                row.text:SetJustifyH("LEFT")
+                row.text:SetWordWrap(false)
+                row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+                row.highlight:SetAllPoints()
+                row.highlight:SetColorTexture(1, 1, 1, 0.08)
+                row:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+                box.lines[i] = row
+            end
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -30 - (i - 1) * INFO_LINE_HEIGHT)
+            row:SetPoint("RIGHT", box, "RIGHT", -10, 0)
+            row.text:SetText(line.text)
+            row.onClick = line.onClick
+            row:EnableMouse(line.onClick ~= nil)
+            row:Show()
+        end
+    end
+
+    local forYouBox = InfoBox(L["Para ti"])
+    local nowBox = InfoBox(L["Ahora en la hermandad"])
+    local weekBox = InfoBox(L["Esta semana"])
+    local pendingBox = InfoBox(L["Pendiente (oficiales)"])
+
+    local function LayoutTopBoxes(isOfficer)
+        local boxes = isOfficer and { forYouBox, nowBox, weekBox, pendingBox } or { forYouBox, nowBox, weekBox }
+        local gap = 6
+        local width = math.floor((878 - gap * (#boxes - 1)) / #boxes)
+        pendingBox:SetShown(isOfficer)
+        for i, box in ipairs(boxes) do
+            box:ClearAllPoints()
+            box:SetWidth(width)
+            box:SetPoint("TOPLEFT", view, "TOPLEFT", 10 + (i - 1) * (width + gap), -10)
+        end
+    end
+
+    local function GoTo(tabName) return function() SwitchTab(tabName) end end
+    local function ShowFilter(key) return function() currentFilter = key; Refresh() end end
+
+    -- Rosters en los que estoy (los míos de oficial y los publicados), sin repetir nombre
+    local function MyRosters(me)
+        local R = addonTable.Roster
+        local list, seen = {}, {}
+        local function Add(roster)
+            if roster and roster.members and roster.members[me] and not seen[roster.name] then
+                seen[roster.name] = true
+                table.insert(list, roster)
+            end
+        end
+        for _, roster in ipairs(R.GetAll()) do Add(roster) end
+        for _, item in ipairs(R.GetSharedRosters()) do Add(item.roster) end
+        return list
+    end
+
+    local function ForYouLines(isOfficer)
+        local E, M, P = addonTable.RaidEvents, addonTable.MythicPlus, addonTable.Profiles
+        local me = P.GetMyFullName()
+        local lines = {}
+        local function Add(text, onClick) table.insert(lines, { text = text, onClick = onClick }) end
+
+        local nextEvent = E.GetUpcomingForRoster(nil)[1]
+        if nextEvent then
+            local signup = E.GetMySignup(nextEvent)
+            local answer = signup and ("|cFF" .. E.STATUS_COLORS[signup.status] .. L[E.STATUS_LABELS[signup.status]] .. "|r"
+                .. (signup.role and (" " .. RoleIcon(signup.role, 12)) or "")) or L["|cFFFF7F00sin responder|r"]
+            Add("|cFFFFD100" .. ShortEventDate(nextEvent) .. "|r  " .. nextEvent.title, GoTo("Raid"))
+            Add(L["Tu respuesta: "] .. answer, GoTo("Raid"))
+        else
+            Add(L["|cFF808080Sin bandas próximas|r"])
+        end
+
+        local profile = P.GetMyProfile()
+        if not (profile and profile.main) then Add(L["|cFFFF7F00No has declarado tu rol|r"], GoTo("Mi perfil")) end
+
+        local threshold = GuildControlDB.settings.lowAttendance or 70
+        local shown = 0
+        for _, roster in ipairs(MyRosters(me)) do
+            local stats = E.GetAttendanceStats(roster.name, me)
+            if stats.percent and shown < 2 then
+                shown = shown + 1
+                local color = stats.percent < threshold and "FF3333" or "00FF00"
+                Add(L["Asistencia en "] .. roster.name .. ": |cFF" .. color .. stats.percent .. "%|r", GoTo(isOfficer and "Roster" or "Mis rosters"))
+            end
+        end
+
+        local key = M.GetKeystone(me)
+        if key then
+            Add(L["Tu llave: "] .. "|cFFA335EE+" .. key.level .. "|r " .. (M.GetMapName(key.mapID) or ""), GoTo("Míticas+"))
+        end
+        local runs, best = M.GetMyWeeklyRuns()
+        if runs > 0 then
+            Add(L["Míticas+ esta semana: "] .. runs .. (best and (" |cFF808080(+" .. best .. ")|r") or ""), GoTo("Míticas+"))
+        else
+            Add(L["|cFFFF7F00Aún no has hecho Míticas+ esta semana|r"], GoTo("Míticas+"))
+        end
+        return lines
+    end
+
+    local function NowLines()
+        local F, R = addonTable.Favorites, addonTable.Roster
+        local lines = {}
+        local function Add(text, onClick) table.insert(lines, { text = text, onClick = onClick }) end
+        local online, total = 0, 0
+        local instances = R.GetInstanceNames()
+        local inInstance = {}
+        for name, m in pairs(GuildControlDB.members) do
+            total = total + 1
+            if m.isOnline then
+                online = online + 1
+                if m.zone and instances[m.zone] then table.insert(inInstance, { name = name, m = m }) end
+            end
+        end
+        Add(L["Conectados: "] .. "|cFF00FF00" .. online .. "|r / " .. total, GoTo("Miembros"))
+
+        local favOnline = {}
+        for _, name in ipairs(F.GetAll()) do
+            local m = GuildControlDB.members[name]
+            if m and m.isOnline then
+                table.insert(favOnline, "|cFF" .. addonTable.GetClassColorHex(m.class) .. (string.match(name, "^([^-]+)") or name) .. "|r")
+            end
+        end
+        Add(L["Favoritos conectados: "] .. #favOnline, GoTo("Favoritos"))
+        if #favOnline > 0 then Add("  " .. table.concat(favOnline, ", "), GoTo("Favoritos")) end
+
+        table.sort(inInstance, function(a, b) return a.name < b.name end)
+        Add(L["En mazmorra o banda: "] .. #inInstance, GoTo("Miembros"))
+        for i, entry in ipairs(inInstance) do
+            if i > 2 then break end
+            Add("  |cFF" .. addonTable.GetClassColorHex(entry.m.class) .. (string.match(entry.name, "^([^-]+)") or entry.name)
+                .. "|r |cFF808080· " .. entry.m.zone .. "|r")
+        end
+        return lines
+    end
+
+    local function WeekLines()
+        local M = addonTable.MythicPlus
+        local lines = {}
+        local function Add(text, onClick) table.insert(lines, { text = text, onClick = onClick }) end
+        local reset = M.GetLastWeeklyReset()
+        local resetKey = date("%Y%m%d", reset)
+        local function CountSince(filter)
+            local n = 0
+            for _, item in ipairs(N.GetFeed(filter)) do
+                if string.sub(item.sortKey or "", 1, 8) >= resetKey then n = n + 1 end
+            end
+            return n
+        end
+        local resetText = date("%Y-%m-%d %H:%M:%S", reset)
+        local joins, leaves = 0, 0
+        for _, log in ipairs(GuildControlDB.history or {}) do
+            if (log.date or "") >= resetText then
+                if log.action == "ALTA" then joins = joins + 1 elseif log.action == "BAJA" then leaves = leaves + 1 end
+            end
+        end
+        Add(L["Jefes derrotados: "] .. "|cFFFFD100" .. CountSince("boss") .. "|r", ShowFilter("boss"))
+        Add(L["Logros de la hermandad: "] .. "|cFFFFD100" .. CountSince("guildAchievement") .. "|r", ShowFilter("guildAchievement"))
+        Add(L["Logros de personajes: "] .. "|cFFFFD100" .. CountSince("achievement") .. "|r", ShowFilter("achievement"))
+        Add(L["Altas: "] .. "|cFF00FF00" .. joins .. "|r" .. L["   Bajas: "] .. "|cFFFF3333" .. leaves .. "|r", ShowFilter("join"))
+        local bestName, bestLevel, bestMap = M.GetGuildWeeklyBest()
+        if bestName then
+            Add(L["Mejor llave: "] .. "|cFFA335EE+" .. bestLevel .. "|r " .. (M.GetMapName(bestMap) or ""), GoTo("Míticas+"))
+            Add("  |cFF808080" .. (string.match(bestName, "^([^-]+)") or bestName) .. "|r", GoTo("Míticas+"))
+        else
+            Add(L["|cFF808080Mejor llave: sin datos todavía|r"], GoTo("Míticas+"))
+        end
+        return lines
+    end
+
+    local function PendingLines()
+        local E, R = addonTable.RaidEvents, addonTable.Roster
+        local lines = {}
+        local function Add(text, onClick) table.insert(lines, { text = text, onClick = onClick }) end
+        local summary = uiModule.GetWarningSummary and uiModule.GetWarningSummary() or {}
+        for i, item in ipairs(summary) do
+            if i > 4 then break end
+            local key = item.key
+            Add(L[item.label] .. ": |cFFFF7F7F" .. item.count .. "|r", function()
+                if uiModule.OpenWarningCategory then uiModule.OpenWarningCategory(key) end
+            end)
+        end
+        if #summary == 0 then Add(L["|cFF00FF00Nada pendiente en Warning|r"], GoTo("Warning")) end
+
+        -- Bandas de los próximos 7 días a las que les faltan roles
+        local limit = date("%Y-%m-%d", time() + 7 * 86400)
+        for _, event in ipairs(E.GetUpcomingForRoster(nil)) do
+            if event.date <= limit then
+                local roster
+                for _, r in ipairs(R.GetAll()) do if r.name == event.rosterName then roster = r end end
+                local need = R.GetTargets(roster or { size = event.size })
+                local counts = E.CountSignups(event)
+                local parts = {}
+                for _, role in ipairs({ "tank", "healer", "dps" }) do
+                    local missing = (need[role] or 0) - (counts[role] or 0)
+                    if missing > 0 then table.insert(parts, missing .. " " .. RoleIcon(role, 12)) end
+                end
+                local status = #parts > 0 and (L["faltan "] .. table.concat(parts, "  ")) or L["|cFF00FF00completa|r"]
+                Add("|cFFFFD100" .. ShortEventDate(event) .. "|r  " .. status, GoTo("Raid"))
+            end
+        end
+        return lines
+    end
+
+    local function RefreshTop()
+        local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        LayoutTopBoxes(isOfficer)
+        SetBoxLines(forYouBox, ForYouLines(isOfficer))
+        SetBoxLines(nowBox, NowLines())
+        SetBoxLines(weekBox, WeekLines())
+        if isOfficer then SetBoxLines(pendingBox, PendingLines()) end
+    end
+
     local function RefreshSide()
         local motd = N.GetMOTD()
         motdBox.text:SetText(motd ~= "" and motd or L["|cFF808080La hermandad no tiene mensaje del día.|r"])
@@ -4264,18 +4500,6 @@ local function BuildSummaryView(parent)
         end
         raidsBox.text:SetText(#raidLines > 0 and table.concat(raidLines, "\n")
             or L["|cFF808080No hay bandas programadas. Los oficiales las crean en Raid.|r"])
-
-        local rosterLines = {}
-        for i, r in ipairs(N.GetRosterSummaries()) do
-            if i > 5 then
-                table.insert(rosterLines, L["|cFF808080y más...|r"])
-                break
-            end
-            local color = r.starters >= r.size and "00FF00" or "FFD100"
-            table.insert(rosterLines, r.name .. " |cFF808080(" .. r.difficulty .. " " .. r.size .. L[")|r  |cFF"] .. color
-                .. r.starters .. "/" .. r.size .. "|r" .. (r.bench > 0 and (" |cFF808080+" .. r.bench .. "|r") or ""))
-        end
-        rostersBox.text:SetText(#rosterLines > 0 and table.concat(rosterLines, "\n") or L["|cFF808080Todavía no hay rosters.|r"])
 
         -- Todos los oficiales de la hermandad con su rango (conectados con punto verde)
         local officerLines = {}
@@ -4339,9 +4563,12 @@ local function BuildSummaryView(parent)
         if not view:IsShown() then return end
         RefreshFeed()
         RefreshSide()
+        RefreshTop()
     end
 
     N.AddListener(function() Refresh() end)
+    if addonTable.RaidEvents then addonTable.RaidEvents.AddListener(function() Refresh() end) end
+    if addonTable.MythicPlus then addonTable.MythicPlus.AddListener(function() Refresh() end) end
     view:SetScript("OnShow", function()
         N.Request()
         Refresh()
@@ -4819,6 +5046,18 @@ local function CollectCategory(category)
 end
 
 -- Total de avisos para la caja "Warnings" del encabezado: inactivos + lista negra
+-- Recuento de cada categoría con avisos (para el bloque de oficiales del Resumen):
+-- { {key, label, count}, ... } en el orden de WARNING_CATEGORIES
+function uiModule.GetWarningSummary()
+    local result = {}
+    local settings = WarningSettings()
+    for _, category in ipairs(WARNING_CATEGORIES) do
+        local count = #category.collect(settings)
+        if count > 0 then table.insert(result, { key = category.key, label = category.label, count = count }) end
+    end
+    return result
+end
+
 function uiModule.CountWarnings()
     local total = 0
     for _, category in ipairs(WARNING_CATEGORIES) do
@@ -5198,6 +5437,12 @@ local function BuildWarningView(parent)
 
     view:SetScript("OnShow", Refresh)
     uiModule.RefreshWarnings = Refresh
+    -- Abre Warning en una categoría concreta (desde el Resumen)
+    uiModule.OpenWarningCategory = function(key)
+        selectedKey = key
+        if uiModule.SwitchTab then uiModule.SwitchTab("Warning") end
+        Refresh()
+    end
     containers.views["Warning"] = view
 end
 

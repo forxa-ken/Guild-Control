@@ -22,13 +22,19 @@
 
 ## 📰 Resumen
 
-La pestaña **Resumen** funciona como un tablón de noticias:
+La pestaña **Resumen** es lo primero que se ve al abrir el addon. Arriba, una fila de cajas (cada línea lleva con un clic a su pestaña o filtro):
+
+- **Para ti**: tu próxima banda y tu respuesta, aviso si no has declarado tu rol, tu asistencia en los rosters en los que estás (en rojo si baja del umbral de Warning), tu llave y tus Míticas+ de esta semana (aviso si aún no has hecho ninguna).
+- **Ahora en la hermandad**: conectados, favoritos conectados y quién está en una mazmorra o banda de la expansión actual.
+- **Esta semana** (desde el reinicio semanal): jefes derrotados, logros de la hermandad y de personajes, altas y bajas, y la mejor llave de la hermandad (de quien usa GuildControl).
+- **Pendiente** (solo oficiales): recuentos de Warning por categoría (abre esa categoría) y las bandas de los próximos 7 días con los roles que faltan.
+
+Debajo, el tablón de noticias:
 
 - **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas; solo se ven los que tienen noticias (Altas y Bajas siempre). **Jefes** incluye, además de las noticias del juego, los jefes de banda y de mazmorra que derrota quien usa GuildControl con al menos otro miembro de la hermandad en el grupo (se comparten entre clientes y se guardan 30 días). Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
 - **Altas**: las 5 últimas incorporaciones a la hermandad bajo la cabecera «¡Bienvenidos a la hermandad!».
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** creadas en la pestaña Raid.
-- **Rosters** con su dificultad, tamaño y titulares.
 - **Oficiales**: todos los miembros con rango de oficial (el rango mínimo de Mi perfil o el permiso de chat de oficiales del juego), con su rango; conectados en verde.
 
 ## 🏆 Panel de logros
