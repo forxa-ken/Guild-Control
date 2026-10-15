@@ -28,6 +28,7 @@ local TAB_HELP = {
         .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
         .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
         .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
+        .. "|cFFFFD100Con DKP:|r se gana por jefe, por banda y cada semana por antigüedad (desde que se rellena Mi perfil), y pierde un % cada semana. Cada objeto se subasta: gana la puja más alta (a igualdad, más antigüedad) y paga lo que pujó.\n"
         .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía.",
 }
 
@@ -7390,6 +7391,31 @@ function uiModule.ShowLootRollPopup(key)
             frame.buttons[kind] = btn
             previous = btn
         end
+        -- Subasta DKP: cantidad, Pujar y Pasar
+        frame.bidInput = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+        frame.bidInput:SetSize(90, 20)
+        frame.bidInput:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 18, 13)
+        frame.bidInput:SetAutoFocus(false)
+        frame.bidInput:SetNumeric(true)
+        frame.bidInput:SetMaxLetters(6)
+        frame.bidButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.bidButton:SetSize(100, 24)
+        frame.bidButton:SetPoint("LEFT", frame.bidInput, "RIGHT", 8, 0)
+        frame.bidButton:SetText(L["Pujar"])
+        local function DoBid()
+            if LT.Bid(frame.key, frame.bidInput:GetText()) then frame:Hide() end
+        end
+        frame.bidButton:SetScript("OnClick", DoBid)
+        frame.bidInput:SetScript("OnEnterPressed", DoBid)
+        frame.bidInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        frame.bidPass = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.bidPass:SetSize(100, 24)
+        frame.bidPass:SetPoint("LEFT", frame.bidButton, "RIGHT", 4, 0)
+        frame.bidPass:SetText(L["Pasar"])
+        frame.bidPass:SetScript("OnClick", function()
+            LT.Choose(frame.key, "pass")
+            frame:Hide()
+        end)
         GC_LootRollFrame = frame
         -- Se cierra sola cuando la tirada termina
         LT.AddListener(function()
@@ -7405,8 +7431,21 @@ function uiModule.ShowLootRollPopup(key)
     frame.itemButton.icon:SetTexture(ItemIconFromLink(link))
     frame.itemButton.text:SetText(link)
     local wins = LT.GetSessionWins(me)
-    frame.info:SetText(L["Tus +1: |cFFFFD100"] .. LT.GetPoints(me) .. "|r"
-        .. (wins > 0 and (L["   |cFFFF7F00Ya ganaste "] .. wins .. L[" objeto(s) en esta banda|r"]) or ""))
+    local dkp = LT.IsDkp()
+    for _, btn in pairs(frame.buttons) do btn:SetShown(not dkp) end
+    frame.bidInput:SetShown(dkp)
+    frame.bidButton:SetShown(dkp)
+    frame.bidPass:SetShown(dkp)
+    frame.title:SetText(dkp and L["Subasta DKP"] or L["Tirada de botín"])
+    local winsText = wins > 0 and (L["   |cFFFF7F00Ya ganaste "] .. wins .. L[" objeto(s) en esta banda|r"]) or ""
+    if dkp then
+        local D = addonTable.Dkp
+        local minBid = D.GetSettings().minBid
+        frame.bidInput:SetText(tostring(minBid))
+        frame.info:SetText(L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. L["|r   Puja mínima: |cFFFFD100"] .. minBid .. "|r" .. winsText)
+    else
+        frame.info:SetText(L["Tus +1: |cFFFFD100"] .. LT.GetPoints(me) .. "|r" .. winsText)
+    end
     frame:Show()
 end
 
@@ -7428,10 +7467,15 @@ local function BuildLootView(parent)
     local dropSystem = CreateFrame("DropdownButton", "GC_LootSystem", view, "WowStyle1DropdownTemplate")
     dropSystem:SetPoint("LEFT", systemLabel, "RIGHT", 8, 0)
     dropSystem:SetWidth(170)
+    -- El sistema lo eligen los oficiales y llega a toda la hermandad
     dropSystem:SetupMenu(function(_, root)
+        local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
         for _, system in ipairs(LT.SYSTEMS) do
-            local button = root:CreateRadio(L[system.label], function() return system.key == "plusone" end, function() end)
-            if system.disabled and button and button.SetEnabled then button:SetEnabled(false) end
+            local key = system.key
+            local button = root:CreateRadio(L[system.label], function() return LT.GetSystem() == key end, function()
+                if addonTable.Dkp then addonTable.Dkp.SetSystem(key) end
+            end)
+            if not isOfficer and button and button.SetEnabled then button:SetEnabled(false) end
         end
     end)
     dropSystem:SetText("+1")
@@ -7573,16 +7617,42 @@ local function BuildLootView(parent)
         previousChoose = btn
     end
 
+    -- Subasta DKP: cantidad, Pujar y Pasar (se puede subir la puja mientras siga abierta)
+    local bidInput = CreateFrame("EditBox", nil, rollBox, "InputBoxTemplate")
+    bidInput:SetSize(80, 20)
+    bidInput:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 6, -7)
+    bidInput:SetAutoFocus(false)
+    bidInput:SetNumeric(true)
+    bidInput:SetMaxLetters(6)
+    bidInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local btnBid = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnBid:SetSize(100, 22)
+    btnBid:SetPoint("LEFT", bidInput, "RIGHT", 8, 0)
+    btnBid:SetText(L["Pujar"])
+    local function DoBid()
+        if selectedKey and LT.Bid(selectedKey, bidInput:GetText()) then bidInput:ClearFocus() end
+    end
+    btnBid:SetScript("OnClick", DoBid)
+    bidInput:SetScript("OnEnterPressed", DoBid)
+    local btnBidPass = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnBidPass:SetSize(80, 22)
+    btnBidPass:SetPoint("LEFT", btnBid, "RIGHT", 4, 0)
+    btnBidPass:SetText(L["Pasar"])
+    btnBidPass:SetScript("OnClick", function() if selectedKey then LT.Choose(selectedKey, "pass") end end)
+    local bidControls = { bidInput, btnBid, btnBidPass }
+
     local MAX_ROLL_ROWS = 4   -- filas de tirada que caben en el panel
     local ROLL_COLS = { name = 0, kind = 130, roll = 230, points = 280, wins = 320 }
     local rollHeader = CreateFrame("Frame", nil, rollBox)
     rollHeader:SetSize(420, 14)
     rollHeader:SetPoint("TOPLEFT", rollState, "BOTTOMLEFT", 0, -32)
-    for _, h in ipairs({ { L["Jugador"], ROLL_COLS.name }, { L["Pide"], ROLL_COLS.kind }, { L["Tirada"], ROLL_COLS.roll },
-                         { "+1", ROLL_COLS.points }, { L["En esta banda"], ROLL_COLS.wins } }) do
+    rollHeader.labels = {}
+    for _, h in ipairs({ { "name", L["Jugador"] }, { "kind", L["Pide"] }, { "roll", L["Tirada"] },
+                         { "points", "+1" }, { "wins", L["En esta banda"] } }) do
         local fs = rollHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("LEFT", rollHeader, "LEFT", h[2], 0)
-        fs:SetText(h[1])
+        fs:SetPoint("LEFT", rollHeader, "LEFT", ROLL_COLS[h[1]], 0)
+        fs:SetText(h[2])
+        rollHeader.labels[h[1]] = fs
     end
     local rollRows = {}
     local function AcquireRollRow(index)
@@ -7658,6 +7728,36 @@ local function BuildLootView(parent)
         end
     end)
 
+    -- DKP: ajustes y DKP de banda (oficiales)
+    local btnDkpSettings = CreateFrame("Button", nil, pointsBox, "UIPanelButtonTemplate")
+    btnDkpSettings:SetSize(76, 20)
+    btnDkpSettings:SetPoint("TOPRIGHT", pointsBox, "TOPRIGHT", -8, -3)
+    btnDkpSettings:SetText(L["Ajustes"])
+    btnDkpSettings:SetScript("OnClick", function() if uiModule.ShowDkpSettings then uiModule.ShowDkpSettings() end end)
+    local raidArmedUntil = 0
+    local btnRaidDkp = CreateFrame("Button", nil, pointsBox, "UIPanelButtonTemplate")
+    btnRaidDkp:SetSize(110, 20)
+    btnRaidDkp:SetPoint("RIGHT", btnDkpSettings, "LEFT", -4, 0)
+    btnRaidDkp:SetText(L["DKP de banda"])
+    btnRaidDkp:SetScript("OnClick", function(self)
+        if GetTime() < raidArmedUntil then
+            raidArmedUntil = 0
+            self:SetText(L["DKP de banda"])
+            addonTable.Dkp.AwardRaid()
+        else
+            raidArmedUntil = GetTime() + 4
+            self:SetText(L["|cFFFF3333¿Dar "] .. addonTable.Dkp.GetSettings().raid .. "?|r")
+            C_Timer.After(4, function() if GetTime() >= raidArmedUntil then self:SetText(L["DKP de banda"]) end end)
+        end
+    end)
+    btnRaidDkp:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(L["DKP de banda"], 1, 1, 1)
+        GameTooltip:AddLine(L["Da los DKP de banda completada a los miembros de la hermandad de tu grupo (dos clics)."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnRaidDkp:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     local function SimpleRow(box, index)
         local row = box.rows[index]
         if row then return row end
@@ -7682,8 +7782,21 @@ local function BuildLootView(parent)
         if not view:IsShown() then return end
         local canManage = LT.CanManage()
         local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
+        local dkp = LT.IsDkp()
+        local D = addonTable.Dkp
         btnNewSession:SetShown(canManage)
-        btnReset:SetShown(isOfficer)
+        btnReset:SetShown(isOfficer and not dkp)
+        btnDkpSettings:SetShown(isOfficer and dkp)
+        btnRaidDkp:SetShown(isOfficer and dkp)
+        dropSystem:SetText(dkp and "DKP" or "+1")
+        pointsBox.title:SetText(dkp and L["DKP de la hermandad"] or L["+1 de la hermandad"])
+        rollHeader.labels.kind:SetText(dkp and L["Puja"] or L["Pide"])
+        rollHeader.labels.roll:SetText(dkp and "DKP" or L["Tirada"])
+        rollHeader.labels.points:SetText(dkp and L["Antig."] or "+1")
+        local function WinnerText(it)
+            if it.kind == "bid" then return " |cFFFFD100" .. tostring(it.roll or 0) .. " DKP|r" end
+            return it.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]
+        end
         local session = LT.GetSession()
         sessionText:SetText(session and (L["Sesión: |cFFFFD100"] .. session.title .. "|r |cFF808080" .. date("%d/%m %H:%M", session.startedAt) .. "|r")
             or L["|cFF808080Sin sesión: empieza al salir botín en banda.|r"])
@@ -7702,11 +7815,11 @@ local function BuildLootView(parent)
             row.icon:SetTexture(ItemIconFromLink(link))
             row.name:SetText(link)
             local state = item.state == "done"
-                and (L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. (item.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]))
+                and (L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. WinnerText(item))
                 or STATE_TEXT[item.state] or ""
             row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. "   " .. state)
             row.action:SetShown(canManage and item.state ~= "done")
-            row.action:SetText(item.state == "rolling" and L["Asignar"] or L["Tirar"])
+            row.action:SetText(item.state == "rolling" and L["Asignar"] or (dkp and L["Subastar"] or L["Tirar"]))
             row.action:SetScript("OnClick", function()
                 selectedKey = item.key
                 if item.state == "rolling" then LT.Award(item.key) else LT.StartRoll(item.key) end
@@ -7724,6 +7837,7 @@ local function BuildLootView(parent)
         for _, w in ipairs({ rollItem, rollState, rollHeader, passText }) do w:SetShown(hasItem) end
         rollEmpty:SetShown(not hasItem)
         for _, btn in pairs(chooseButtons) do btn:SetShown(false) end
+        for _, w in ipairs(bidControls) do w:SetShown(false) end
         btnStartRoll:SetShown(false); btnAward:SetShown(false); btnCancelRoll:SetShown(false)
         if hasItem then
             local link = LT.DisplayLink(item.link)
@@ -7731,12 +7845,19 @@ local function BuildLootView(parent)
             rollItem.icon:SetTexture(ItemIconFromLink(link))
             rollItem.text:SetText(link)
             local myChoice = LT.GetMyChoice(item.key)
-            if item.state == "rolling" then
+            local me = addonTable.Profiles.GetMyFullName()
+            if item.state == "rolling" and dkp then
+                local mine = item.rolls[me]
+                rollState:SetText(L["|cFF00FF00Subasta abierta.|r "] .. L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. "|r"
+                    .. ((mine and mine.kind == "bid") and (L["   Tu puja: |cFFFFD100"] .. mine.bid .. "|r") or ""))
+                for _, w in ipairs(bidControls) do w:SetShown(true) end
+                if not bidInput:HasFocus() then bidInput:SetText(tostring(D.GetSettings().minBid)) end
+            elseif item.state == "rolling" then
                 rollState:SetText(L["|cFF00FF00Tirada abierta.|r "] .. (myChoice and (L["Has pedido: "] .. L[LT.KINDS[myChoice]]) or L["Elige qué pides:"]))
                 for _, btn in pairs(chooseButtons) do btn:SetShown(not myChoice) end
             elseif item.state == "done" then
-                rollState:SetText(L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner)
-                    .. (item.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]) .. L["  ·  tirada "] .. tostring(item.roll or "-"))
+                rollState:SetText(L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. WinnerText(item)
+                    .. (item.kind == "bid" and "" or (L["  ·  tirada "] .. tostring(item.roll or "-"))))
             else
                 rollState:SetText(L["|cFFBFBFBFPendiente de tirar.|r"])
             end
@@ -7748,9 +7869,16 @@ local function BuildLootView(parent)
                 row.playerName = entry.name
                 local color = LT.KIND_COLORS[entry.kind] or "FFFFFF"
                 row.cells.name:SetText((i == 1 and item.state == "rolling" and "|cFFFFD100>|r " or "") .. ClassName(entry.name))
-                row.cells.kind:SetText("|cFF" .. color .. L[LT.KINDS[entry.kind]] .. "|r")
-                row.cells.roll:SetText(entry.roll and tostring(entry.roll) or "|cFF808080...|r")
-                row.cells.points:SetText(tostring(entry.points))
+                if entry.kind == "bid" then
+                    -- Puja, DKP del jugador (en rojo si la puja los supera) y días de antigüedad
+                    row.cells.kind:SetText((entry.valid and "|cFFFFD100" or "|cFFFF3333") .. entry.bid .. "|r")
+                    row.cells.roll:SetText(tostring(entry.balance))
+                    row.cells.points:SetText(entry.days and (entry.days .. L["d"]) or "|cFF808080-|r")
+                else
+                    row.cells.kind:SetText("|cFF" .. color .. L[LT.KINDS[entry.kind]] .. "|r")
+                    row.cells.roll:SetText(entry.roll and tostring(entry.roll) or "|cFF808080...|r")
+                    row.cells.points:SetText(tostring(entry.points))
+                end
                 row.cells.wins:SetText(entry.wins > 0 and ("|cFFFF7F00" .. L["Ya ganó "] .. entry.wins .. "|r") or "")
                 row:Show()
             end
@@ -7765,19 +7893,30 @@ local function BuildLootView(parent)
             btnCancelRoll:SetShown(canManage and item.state == "rolling")
         end
 
-        -- +1
-        local points = LT.GetPointsList()
+        -- +1 o DKP de la hermandad (con DKP: clic derecho de un oficial para ajustar)
+        local points = dkp and D.GetList() or LT.GetPointsList()
         for _, row in ipairs(pointsBox.rows) do row:Hide() end
         for i, entry in ipairs(points) do
             local row = SimpleRow(pointsBox, i)
             row:SetPoint("TOPLEFT", pointsBox.child, "TOPLEFT", 4, -(i - 1) * 16)
             row.link = nil
-            row.text:SetText("|cFFFFD100+" .. entry.points .. "|r  " .. ClassName(entry.name))
+            if dkp then
+                row.text:SetText("|cFFFFD100" .. entry.balance .. " DKP|r  " .. ClassName(entry.name)
+                    .. (entry.days and (" |cFF808080(" .. entry.days .. L[" días)"] .. "|r") or L[" |cFF808080(sin Mi perfil)|r"]))
+                row:RegisterForClicks("RightButtonUp")
+                local name = entry.name
+                row:SetScript("OnClick", function()
+                    if isOfficer and uiModule.ShowDkpAdjust then uiModule.ShowDkpAdjust(name) end
+                end)
+            else
+                row.text:SetText("|cFFFFD100+" .. entry.points .. "|r  " .. ClassName(entry.name))
+                row:SetScript("OnClick", nil)
+            end
             row:Show()
         end
         pointsBox.child:SetHeight(math.max(1, #points * 16))
         pointsBox.empty:SetShown(#points == 0)
-        pointsBox.empty:SetText(L["Nadie tiene +1 todavía."])
+        pointsBox.empty:SetText(dkp and L["Nadie tiene DKP todavía. Se ganan por jefe, por banda y por antigüedad (desde que se rellena Mi perfil)."] or L["Nadie tiene +1 todavía."])
 
         -- Historial
         local history = LT.GetHistory()
@@ -7789,8 +7928,11 @@ local function BuildLootView(parent)
             row:SetPoint("TOPLEFT", historyBox.child, "TOPLEFT", 4, -(i - 1) * 16)
             local link = LT.DisplayLink(entry.link)
             row.link = link
-            row.text:SetText("|cFF808080" .. date("%d/%m", entry.at or 0) .. "|r  " .. ClassName(entry.winner)
-                .. (entry.kind == "need" and " |cFFFFD100+1|r  " or L[" |cFF66B3FF(off)|r  "]) .. link)
+            local kindText
+            if entry.kind == "bid" then kindText = " |cFFFFD100-" .. tostring(entry.roll or 0) .. " DKP|r  "
+            elseif entry.kind == "need" then kindText = " |cFFFFD100+1|r  "
+            else kindText = L[" |cFF66B3FF(off)|r  "] end
+            row.text:SetText("|cFF808080" .. date("%d/%m", entry.at or 0) .. "|r  " .. ClassName(entry.winner) .. kindText .. link)
             row:Show()
         end
         historyBox.child:SetHeight(math.max(1, shown * 16))
@@ -7799,6 +7941,7 @@ local function BuildLootView(parent)
     end
 
     LT.AddListener(function() Refresh() end)
+    if addonTable.Dkp then addonTable.Dkp.AddListener(function() Refresh() end) end
     view:SetScript("OnShow", Refresh)
     containers.views["Botín"] = view
 end
@@ -9390,4 +9533,199 @@ miniLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadin
     if GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.raidMini then
         C_Timer.After(1, uiModule.EnterMiniMode)
     end
+end)
+
+
+-- =========================================================================
+-- 12. DKP: AJUSTES Y AJUSTE MANUAL (OFICIALES)
+-- =========================================================================
+local dkpSettingsFrame = nil
+local DKP_SETTING_FIELDS = {
+    { key = "boss", label = "DKP por jefe de banda" },
+    { key = "raid", label = "DKP por banda completada" },
+    { key = "seniority", label = "DKP semanales por antigüedad" },
+    { key = "decay", label = "Decay semanal (%)" },
+    { key = "minBid", label = "Puja mínima" },
+}
+
+function uiModule.ShowDkpSettings()
+    local D = addonTable.Dkp
+    if not D or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return end
+    if not dkpSettingsFrame then
+        local frame = CreateFrame("Frame", "GuildControlDkpSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:SetSize(320, 250)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame:SetToplevel(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        tinsert(UISpecialFrames, "GuildControlDkpSettingsFrame")
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["Ajustes de DKP"])
+
+        frame.inputs = {}
+        for i, field in ipairs(DKP_SETTING_FIELDS) do
+            local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -40 - (i - 1) * 28)
+            label:SetText(L[field.label])
+            local input = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+            input:SetSize(60, 20)
+            input:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -22, -36 - (i - 1) * 28)
+            input:SetAutoFocus(false)
+            input:SetNumeric(true)
+            input:SetMaxLetters(4)
+            input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            frame.inputs[field.key] = input
+        end
+
+        local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -182)
+        hint:SetWidth(284)
+        hint:SetJustifyH("LEFT")
+        hint:SetText(L["La antigüedad cuenta desde que cada jugador rellena Mi perfil. El decay y los DKP de antigüedad se aplican en cada reinicio semanal."])
+
+        local btnSave = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnSave:SetSize(110, 22)
+        btnSave:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
+        btnSave:SetText(L["Guardar"])
+        btnSave:SetScript("OnClick", function()
+            local values = {}
+            for key, input in pairs(frame.inputs) do values[key] = input:GetText() end
+            if D.SetSettings(values) then
+                PrintGC(L["Ajustes de DKP guardados y enviados a la hermandad."])
+                frame:Hide()
+            end
+        end)
+        dkpSettingsFrame = frame
+    end
+    local settings = D.GetSettings()
+    for key, input in pairs(dkpSettingsFrame.inputs) do input:SetText(tostring(settings[key] or 0)) end
+    dkpSettingsFrame:Show()
+end
+
+-- Clic derecho en un jugador de la lista de DKP: sumar (o restar con -) una cantidad
+StaticPopupDialogs["GUILDCONTROL_DKP_ADJUST"] = {
+    text = "%s",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    hasEditBox = true,
+    maxLetters = 6,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local box = self.EditBox or self.editBox
+        if box then box:SetText(""); box:SetFocus() end
+    end,
+    OnAccept = function(self, data)
+        local box = self.EditBox or self.editBox
+        local amount = box and tonumber(box:GetText())
+        if data and amount and amount ~= 0 and addonTable.Dkp then
+            addonTable.Dkp.Adjust({ data }, amount, L["Ajuste manual"])
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        local onAccept = parent and StaticPopupDialogs["GUILDCONTROL_DKP_ADJUST"].OnAccept
+        if onAccept then onAccept(parent, parent.data) end
+        if parent then parent:Hide() end
+    end,
+    EditBoxOnEscapePressed = function(self)
+        local parent = self:GetParent()
+        if parent then parent:Hide() end
+    end,
+}
+
+function uiModule.ShowDkpAdjust(fullName)
+    if not addonTable.Dkp or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return end
+    local short = string.match(fullName, "^([^-]+)") or fullName
+    StaticPopup_Show("GUILDCONTROL_DKP_ADJUST",
+        L["DKP para "] .. short .. L[" (ahora "] .. addonTable.Dkp.GetBalance(fullName) .. L["). Escribe la cantidad (usa - para restar):"],
+        nil, fullName)
+end
+
+-- =========================================================================
+-- 13. TAREA PENDIENTE: RELLENAR MI PERFIL
+-- =========================================================================
+-- Al entrar en el juego, quien no ha rellenado Mi perfil ve una ventanita que se lo recuerda
+-- (la antigüedad del DKP empieza a contar desde ese momento). "Más tarde" la oculta hasta la
+-- próxima vez que entre.
+local taskFrame = nil
+
+local function NeedsProfile()
+    if not IsInGuild() or not addonTable.Profiles then return false end
+    local profile = addonTable.Profiles.GetMyProfile()
+    return not profile.main
+end
+
+function uiModule.ShowProfileTask()
+    if not NeedsProfile() then
+        if taskFrame then taskFrame:Hide() end
+        return
+    end
+    if not taskFrame then
+        local frame = CreateFrame("Frame", "GuildControlTaskFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:SetSize(360, 170)
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -180)
+        frame:SetFrameStrata("DIALOG")
+        frame:SetToplevel(true)
+        frame:SetClampedToScreen(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["GuildControl · Tarea pendiente"])
+
+        local icon = frame:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(36, 36)
+        icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -34)
+        icon:SetTexture("Interface\\Icons\\INV_Misc_Note_01")
+
+        local heading = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        heading:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -2)
+        heading:SetText(L["Rellena Mi perfil"])
+
+        local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -6)
+        text:SetPoint("RIGHT", frame, "RIGHT", -16, 0)
+        text:SetJustifyH("LEFT")
+        text:SetText(L["Indica tu rol, tu especialización y si es tu personaje principal. Los oficiales lo usan para los rosters y las bandas, y tu antigüedad en el DKP empieza a contar cuando lo guardas."])
+
+        local btnGo = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnGo:SetSize(150, 24)
+        btnGo:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 14)
+        btnGo:SetText(L["Ir a Mi perfil"])
+        btnGo:SetScript("OnClick", function()
+            frame:Hide()
+            if uiModule.IsMiniMode and uiModule.IsMiniMode() then uiModule.ExitMiniMode() end
+            if not (GC_UI and GC_UI:IsShown()) then uiModule.ToggleUI() end
+            SwitchTab("Mi perfil")
+        end)
+        local btnLater = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnLater:SetSize(150, 24)
+        btnLater:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 14)
+        btnLater:SetText(L["Más tarde"])
+        btnLater:SetScript("OnClick", function() frame:Hide() end)
+        taskFrame = frame
+    end
+    taskFrame:Show()
+end
+
+local taskLoginFrame = CreateFrame("Frame")
+taskLoginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+taskLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadingUi)
+    if not (isInitialLogin or isReloadingUi) then return end
+    self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    -- Se espera a que llegue la hermandad; en combate se deja para después
+    C_Timer.After(12, function()
+        if InCombatLockdown() then return end
+        if GuildControlDB then uiModule.ShowProfileTask() end
+    end)
 end)

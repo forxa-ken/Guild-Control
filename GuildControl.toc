@@ -25,6 +25,7 @@ Modules\Blacklist.lua
 Modules\MythicPlus.lua
 Modules\RaidEvents.lua
 Modules\GuildConfig.lua
+Modules\Dkp.lua
 Modules\Loot.lua
 Modules\RaidTools.lua
 Modules\UI.lua

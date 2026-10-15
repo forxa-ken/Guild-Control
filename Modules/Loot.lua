@@ -4,7 +4,10 @@ local L = addonTable.L
 addonTable.Loot = {}
 local lootModule = addonTable.Loot
 
--- Sistema de reparto de botín (sin frames). De momento solo "+1" (DKP vendrá después):
+-- Sistema de reparto de botín (sin frames): "+1" o "DKP" (lo eligen los oficiales; los saldos,
+-- la antigüedad y el decay del DKP están en Dkp.lua). Con DKP, la tirada es una subasta abierta:
+-- cada uno puja desde el addon (sin pasar de sus DKP), gana la puja más alta (a igualdad, más
+-- antigüedad) y paga lo que pujó. Con +1:
 --   - Los objetos que salen en la banda (ENCOUNTER_LOOT_RECEIVED) se apuntan en la sesión.
 --   - Un oficial o el líder abre la tirada de un objeto; cada jugador elige Necesidad (+1),
 --     Off-spec o Pasar y el addon lanza el /roll. Quien no tiene el addon puede tirar a mano.
@@ -22,7 +25,7 @@ local lootModule = addonTable.Loot
 --          rolls = { [Nombre-Reino] = { roll, kind } } }
 --
 -- Mensajes (prefijo GuildControlLoot):
---   grupo:     S;clave;dueño;enlace (abre tirada)   K;clave;tipo (lo que pido)   E;clave (cancela)
+--   grupo:     S;clave;dueño;enlace (abre tirada)   K;clave;tipo[;puja] (lo que pido)   E;clave (cancela)
 --   hermandad: W;id;clave;ganador;tipo;tirada;hora;sesión;enlace (asignado)   Z;hora (reinicio de +1)
 --              Q (petición al entrar)   P;nombre;puntos;hora (puntos de un jugador, en respuesta)
 
@@ -38,12 +41,20 @@ if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
 end
 
-lootModule.KINDS = { need = "Necesidad (+1)", offspec = "Off-spec", pass = "Pasar" }
-lootModule.KIND_COLORS = { need = "00FF00", offspec = "66B3FF", pass = "808080" }
+lootModule.KINDS = { need = "Necesidad (+1)", offspec = "Off-spec", pass = "Pasar", bid = "Puja" }
+lootModule.KIND_COLORS = { need = "00FF00", offspec = "66B3FF", pass = "808080", bid = "FFD100" }
 lootModule.SYSTEMS = {
     { key = "plusone", label = "+1" },
-    { key = "dkp", label = "DKP (próximamente)", disabled = true },
+    { key = "dkp", label = "DKP" },
 }
+
+-- Sistema activo: lo deciden los oficiales y se comparte con el estado del DKP
+function lootModule.GetSystem()
+    return addonTable.Dkp and addonTable.Dkp.GetSystem() or "plusone"
+end
+
+local function IsDkp() return lootModule.GetSystem() == "dkp" end
+lootModule.IsDkp = IsDkp
 
 -- =========================================================================
 -- DATOS
@@ -54,7 +65,6 @@ local function Store()
         db = {}
         GuildControlDB.loot = db
     end
-    if db.system ~= "plusone" then db.system = "plusone" end
     if type(db.points) ~= "table" then db.points = {} end
     if type(db.pointsAt) ~= "table" then db.pointsAt = {} end
     if type(db.history) ~= "table" then db.history = {} end
@@ -217,7 +227,31 @@ end
 -- =========================================================================
 -- Orden de prioridad: Necesidad antes que Off-spec; en Necesidad, menos +1 primero; luego la
 -- tirada más alta. Devuelve la lista ordenada { {name, roll, kind, points, wins}, ... }
+-- Con DKP: pujas de más a menos (las que superan los DKP del jugador van al final), a igualdad
+-- más antigüedad y luego el nombre. { {name, bid, kind, balance, days, valid, wins}, ... }
+local function GetBidList(item)
+    local D = addonTable.Dkp
+    local list = {}
+    for name, r in pairs(item and item.rolls or {}) do
+        if r.kind == "bid" and r.bid then
+            local balance = D and D.GetBalance(name) or 0
+            table.insert(list, { name = name, kind = "bid", bid = r.bid, roll = r.bid, balance = balance,
+                                 days = D and D.GetSeniorityDays(name), valid = r.bid <= balance,
+                                 points = balance, wins = lootModule.GetSessionWins(name) })
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.valid ~= b.valid then return a.valid end
+        if a.bid ~= b.bid then return a.bid > b.bid end
+        local da, db = a.days or -1, b.days or -1
+        if da ~= db then return da > db end
+        return a.name < b.name
+    end)
+    return list
+end
+
 function lootModule.GetRollList(item)
+    if IsDkp() then return GetBidList(item) end
     local list = {}
     for name, r in pairs(item and item.rolls or {}) do
         if r.kind ~= "pass" then
@@ -267,7 +301,12 @@ function lootModule.StartRoll(key)
     OpenRoll(key)
     SendGroup(table.concat({ "S", key, item.owner or "?", ShortLink(item.link) }, ";"))
     if lootModule.OnRollStarted then lootModule.OnRollStarted(key) end
-    Announce(L["Tirada por "] .. item.link .. L[": pulsa Necesidad (+1), Off-spec o Pasar en GuildControl, o escribe /roll."])
+    if IsDkp() then
+        local minBid = addonTable.Dkp.GetSettings().minBid
+        Announce(L["Subasta DKP por "] .. item.link .. L[": puja en GuildControl (mínimo "] .. minBid .. L[" DKP)."])
+    else
+        Announce(L["Tirada por "] .. item.link .. L[": pulsa Necesidad (+1), Off-spec o Pasar en GuildControl, o escribe /roll."])
+    end
     Notify()
     return true
 end
@@ -296,10 +335,43 @@ end
 
 function lootModule.GetMyChoice(key) return myChoice[key] end
 
+-- Mi puja (DKP). Se puede subir mientras la subasta siga abierta.
+function lootModule.Bid(key, amount)
+    local item = lootModule.GetItem(key)
+    if not item or item.state ~= "rolling" or not IsDkp() then return false end
+    amount = math.floor(tonumber(amount) or 0)
+    local D = addonTable.Dkp
+    local me = MyName()
+    local minBid, balance = D.GetSettings().minBid, D.GetBalance(me)
+    if amount < minBid then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333La puja mínima es "] .. minBid .. L[" DKP.|r"])
+        return false
+    end
+    if amount > balance then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No tienes tantos DKP (tienes "] .. balance .. ").|r")
+        return false
+    end
+    local previous = item.rolls[me]
+    if previous and previous.kind == "bid" and previous.bid and amount <= previous.bid then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333Para cambiar tu puja tiene que ser más alta.|r"])
+        return false
+    end
+    myChoice[key] = "bid"
+    item.rolls[me] = { kind = "bid", bid = amount }
+    SendGroup("K;" .. key .. ";bid;" .. amount)
+    Notify()
+    return true
+end
+
 -- Asigna el objeto (al primero de la lista si no se dice a quién)
 function lootModule.Award(key, winnerName)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return nil end
+    -- Con DKP solo asignan los oficiales: son los que llevan los saldos
+    if IsDkp() and not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333Con DKP solo un oficial puede asignar el objeto.|r"])
+        return nil
+    end
     local list = lootModule.GetRollList(item)
     local winner
     if winnerName then
@@ -308,6 +380,10 @@ function lootModule.Award(key, winnerName)
         winner = list[1]
     end
     if not winner then return nil end
+    if winner.kind == "bid" and not winner.valid then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333Esa puja supera los DKP del jugador.|r"])
+        return nil
+    end
     local session = EnsureSession()
     local at = GetServerTime()
     local id = (UnitName("player") or "?") .. "-" .. at .. "-" .. math.random(1000, 9999)
@@ -316,9 +392,15 @@ function lootModule.Award(key, winnerName)
                             at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName() })
     SendGuild(table.concat({ "W", id, key, winner.name, winner.kind, tostring(winner.roll or 0), at, session.id, ShortLink(item.link) }, ";"))
     SendGroup("E;" .. key)
+    if winner.kind == "bid" and addonTable.Dkp then addonTable.Dkp.Spend(winner.name, winner.bid, item.link) end
     local short = Ambiguate(winner.name, "none")
-    local extra = winner.kind == "need" and L[" (+1, tirada "] or L[" (off-spec, tirada "]
-    Announce(L["Ganador de "] .. item.link .. ": " .. short .. extra .. tostring(winner.roll or "-") .. ")."
+    local extra
+    if winner.kind == "bid" then
+        extra = " (" .. tostring(winner.bid) .. " DKP"
+    else
+        extra = (winner.kind == "need" and L[" (+1, tirada "] or L[" (off-spec, tirada "]) .. tostring(winner.roll or "-")
+    end
+    Announce(L["Ganador de "] .. item.link .. ": " .. short .. extra .. ")."
         .. (alreadyWon > 0 and (L[" Ya había ganado "] .. alreadyWon .. L[" objeto(s) en esta banda."]) or ""))
     return winner
 end
@@ -400,6 +482,7 @@ end
 
 local function OnRollResult(text)
     if not activeKey or not ROLL_PATTERN then return end
+    if IsDkp() then return end
     local name, roll, low, high = string.match(text, ROLL_PATTERN)
     roll, low, high = tonumber(roll), tonumber(low), tonumber(high)
     if not name or not roll or low ~= 1 or high ~= 100 then return end
@@ -439,7 +522,7 @@ local function OnAddonMessage(msg, channel, sender)
         if kind == "W;" then
             local _, id, key, winner, wkind, roll, at, session, link = strsplit(";", msg, 9)
             at = tonumber(at)
-            if id and key and winner and at and (wkind == "need" or wkind == "offspec") then
+            if id and key and winner and at and (wkind == "need" or wkind == "offspec" or wkind == "bid") then
                 lootModule.ApplyAward({ id = id, key = key, winner = winner, kind = wkind, roll = tonumber(roll),
                                         at = at, session = session, link = link, by = fullSender })
             end
@@ -474,11 +557,16 @@ local function OnAddonMessage(msg, channel, sender)
         if lootModule.OnRollStarted then lootModule.OnRollStarted(key) end
         Notify()
     elseif kind == "K;" then
-        local _, key, choice = strsplit(";", msg)
+        local _, key, choice, amount = strsplit(";", msg)
         local item = lootModule.GetItem(key)
         if item and item.state == "rolling" and lootModule.KINDS[choice] then
             item.rolls[fullSender] = item.rolls[fullSender] or {}
             item.rolls[fullSender].kind = choice
+            if choice == "bid" then
+                local bid = math.floor(tonumber(amount) or 0)
+                if bid <= 0 then return end
+                item.rolls[fullSender].bid = math.max(bid, item.rolls[fullSender].bid or 0)
+            end
             Notify()
         end
     elseif kind == "E;" then

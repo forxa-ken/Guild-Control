@@ -13,7 +13,8 @@
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
 - **`Modules/Favorites.lua`**: Personajes favoritos y aviso cuando se conectan.
 - **`Modules/GuildConfig.lua`**: Discord e icono de la hermandad que definen los oficiales y se comparten con todos.
-- **`Modules/Loot.lua`**: Reparto de botín con el sistema +1: tiradas desde el addon, +1 y historial.
+- **`Modules/Loot.lua`**: Reparto de botín con el sistema +1 o DKP: tiradas y subastas desde el addon, +1 e historial.
+- **`Modules/Dkp.lua`**: DKP: saldos, antigüedad desde Mi perfil, decay semanal, DKP por jefe, banda y antigüedad, y sincronización desde los oficiales.
 - **`Modules/RaidTools.lua`**: Herramientas de banda: comprobación de listos, cuenta atrás de pull, marcas en el objetivo y buff check (buffos, frascos, comida, runas y pociones).
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
@@ -141,14 +142,23 @@ La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster**
 - **Modo minimalista** (botón junto al título de Raid o `/gct mini`): cambia la ventana por un panel pequeño para la banda con **Listos** (comprobación de listos), **Pull 10**, **Pull 5**, **Cancelar** (cuenta atrás del juego; en banda hace falta ser líder o ayudante), las **8 marcas** y quitar marca para tu objetivo, **Buff check**, **Buffos** y **Modo normal**. Se puede mover y recuerda dónde estaba; si lo dejas activo, vuelve al entrar en el juego. `/gct` también vuelve al modo normal.
 - **Buff check** (en Raid o en el modo minimalista): abre GuildControl en modo normal en Raid con la **ventana de buffos** de la banda. Cada integrante sale con su grupo, los **buffos de banda** que le faltan (solo los que alguien del grupo puede dar: Intelecto Arcano, Entereza, Grito de batalla, Marca de lo Salvaje, Bendición del bronce y Furia del cielo), **frasco**, **comida** y **runa** (de sus auras) y las **pociones** que lleva. Las pociones y el resto de las bolsas solo se ven de quien usa GuildControl (al pasar el ratón por la fila). En combate o fuera de alcance los buffos no se pueden leer. El botón **Buffos** del modo minimalista abre la misma ventana sin salir de él.
 
-## 💰 Botín (sistema +1)
+## 💰 Botín (+1 o DKP)
 
-La pestaña **Botín** reparte los objetos de banda con el sistema **+1** (el DKP llegará más adelante; el selector de sistema ya está preparado). Tiene cuatro paneles del mismo tamaño (Objetos de la banda, Tirada, Historial de botín y +1 de la hermandad) y, al entrar, la vista previa explica cómo funciona cada uno.
+La pestaña **Botín** reparte los objetos de banda con el sistema **+1** o con **DKP**. El sistema lo eligen los oficiales en el selector de arriba y llega a toda la hermandad. Tiene cuatro paneles del mismo tamaño (Objetos de la banda, Tirada, Historial de botín y +1 de la hermandad) y, al entrar, la vista previa explica cómo funciona cada uno.
 
 - **Objetos de la banda**: aparecen solos al derrotar a un jefe en grupo (con quién se lo llevó), o se añaden con Shift+clic en un objeto. Al salir botín se abre una sesión, o se crea una con **Nueva sesión**.
 - **Tirada**: un oficial, el líder o un ayudante pulsa **Tirar**. A todos los del grupo con GuildControl les aparece una ventanita con **Necesidad (+1)**, **Off-spec** o **Pasar**; el addon lanza el `/roll` y apunta la tirada. Quien no tiene el addon puede escribir `/roll` (cuenta como Necesidad).
 - **Ganador**: Necesidad antes que Off-spec; entre Necesidad, el que tiene **menos +1** y, si empatan, la tirada más alta. La lista avisa de quién **ya ganó algo en esta banda**. **Asignar al ganador** (o clic derecho en un jugador para elegir otro) suma **+1** si era Necesidad, lo anuncia en el chat de banda y lo guarda en el **historial**.
 - **+1 de la hermandad**: ranking de +1, compartido con los demás clientes (los oficiales pueden reiniciarlo). El historial muestra fecha, ganador y objeto.
+
+### DKP
+
+- **Cómo se gana**: por cada **jefe de banda** derrotado (los miembros de la hermandad del grupo; lo da el líder si es oficial o, si no, el primer oficial del grupo), por **banda completada** (botón **DKP de banda** de un oficial, con dos clics) y cada semana por **antigüedad**.
+- **Antigüedad**: empieza a contar el día en que el jugador rellena **Mi perfil** con GuildControl. Da DKP cada semana y **desempata** las pujas. Quien no ha rellenado Mi perfil ve al entrar una ventana de **tarea pendiente** que lo lleva a Mi perfil.
+- **Decay**: en cada reinicio semanal los DKP pierden un % (10 % por defecto) para evitar la inflación.
+- **Subasta abierta**: al abrir la subasta de un objeto, a todos los del grupo con GuildControl les sale una ventanita para **pujar** (desde la puja mínima hasta sus DKP) o **pasar**. Se ve quién puja y cuánto, y se puede subir la puja. Gana la más alta (a igualdad, más antigüedad) y **paga lo que pujó**. Con DKP solo un oficial asigna el objeto.
+- **DKP de la hermandad**: lista de saldos con los días de antigüedad. Clic derecho de un oficial en un jugador para sumar o restar DKP a mano. **Ajustes** (oficiales): DKP por jefe, por banda, semanales por antigüedad, decay y puja mínima.
+- Los saldos los llevan los oficiales y se comparten con toda la hermandad (al entrar se pide la última versión).
 
 ## 🗝️ Míticas+
 

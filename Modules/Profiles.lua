@@ -213,6 +213,8 @@ function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mai
     profile.offSpec = Clean(offSpec, 30)
     if profile.offSpec == "" or profile.offSpec == profile.spec then profile.offSpec = nil end
     profile.savedAt = time()
+    -- Primera vez que se rellena (la antigüedad del DKP cuenta desde aquí)
+    profile.firstSavedAt = profile.firstSavedAt or profile.savedAt
     ApplyDeclared(profilesModule.GetMyFullName(), profile.main, profile.secondary, profile.spec, profile.note,
         profile.savedAt, ProfileExtra(profile))
     profilesModule.Broadcast(true)
