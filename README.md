@@ -49,7 +49,7 @@ Debajo, el tablón de noticias:
 
 ## ⚙️ Configuración
 
-La pestaña **Configuración** está dividida en tres secciones: **Hermandad** (nombre, Discord e icono), **Ventana** (siempre por encima e idioma) y **Saludo automático** (mensaje, tiempos y palabras).
+La pestaña **Configuración** (con desplazamiento) tiene las secciones **Hermandad** (Discord e icono), **Ventana** (siempre por encima e idioma), **Saludo automático** (mensaje, tiempos y palabras), **Bienvenida a nuevos miembros**, **Canales de reclutamiento** y **Aviso de favoritos**.
 
 El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y la facción. Si los oficiales configuran un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C. Junto al autor, el botón **Donar** muestra el enlace para apoyar el desarrollo del addon.
 
@@ -57,6 +57,9 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 - **Discord e icono de la hermandad** (solo oficiales; los jugadores ven lo que definen): el Discord y el icono se envían a todos los que usan GuildControl. El icono puede ser el **emblema de la hermandad del juego**, cualquiera de los **iconos del juego** (selector con todos ellos), uno de los iconos rápidos o una **imagen propia** (archivo TGA o BLP en `Interface\AddOns\GuildControl\Media\`; cada jugador necesita el archivo para verla). El nombre de la hermandad ya no se puede cambiar: siempre es el del juego.
 - **Saludo automático**: si está activado, cuando alguien de la hermandad saluda (hola, buenas, saludos...) y **acaba de conectarse** (por defecto, en los 5 minutos siguientes) sin que nadie le haya saludado todavía, el addon responde con el mensaje configurado tras 2-6 s. `{nombre}` se sustituye por su nombre. Los segundos de espera, los minutos sin repetir saludo, los minutos tras conectarse y las **palabras de saludo** se configuran en la columna derecha. A quien ya estaba conectado cuando entraste no se le saluda. Si varios miembros usan GuildControl, solo responde uno.
 - **Siempre por encima**: muestra la ventana del addon por encima de las barras de acción y otros botones del juego.
+- **Bienvenida a nuevos miembros**: si está activada, cuando el juego avisa de que alguien se ha unido a la hermandad se le da la bienvenida en el chat de hermandad con el mensaje configurado (`{nombre}`, `{hermandad}`). A esa persona no se le aplica el saludo automático. Si varios usan GuildControl, solo responde uno, y no se envía si alguien le escribe antes mencionándolo.
+- **Canales de reclutamiento**: el nombre con el que empiezan en tu chat los canales General, Comercio y Mundo (para Invitar > Publicar en).
+- **Aviso de favoritos**: activa o desactiva el sonido cuando se conecta un favorito y elige cuál (con **Probar**).
 - **Idioma**: Automático (el del juego), Español o English. El cambio se aplica al recargar la interfaz (botón **Recargar** o `/reload`).
 
 ## 👥 Miembros y chat
@@ -74,7 +77,7 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 
 La pestaña **Favoritos** (debajo de Miembros) reúne:
 
-- **Favoritos de la hermandad**: conectados primero, con su zona o su última conexión, y botones para **susurrar**, **invitar al grupo** o **quitar**. Se añaden escribiendo el nombre abajo o con clic derecho en Miembros. Cuando uno se conecta, el addon avisa en el chat, en pantalla y con un sonido.
+- **Favoritos de la hermandad**: conectados primero, con su zona o su última conexión, y botones para **susurrar**, **invitar al grupo** o **quitar**. Se añaden escribiendo el nombre abajo o con clic derecho en Miembros. Cuando uno se conecta, el addon avisa en el chat, en pantalla y con el sonido elegido en Configuración.
 - **Amigos de Battle.net (Real ID)** y **Amigos BattleTag**, en contenedores separados: conectados primero, con el personaje y la zona si están en WoW, y botones para susurrar (Battle.net) e invitar al grupo (si están jugando a WoW).
 
 ## 🛡️ Roster de banda
@@ -164,12 +167,13 @@ La pestaña **Invitar** (debajo de Warning) genera el mensaje de reclutamiento:
 1. Marca los roles y actividades que buscáis, el horario y un texto final, y pulsa **Generar mensaje**.
 2. Retoca el mensaje a mano si quieres; el contador avisa si pasa de 255 caracteres. `{nombre}` se sustituye por el nombre del jugador al susurrar.
 3. Escribe el nombre del jugador (o pulsa **Usar objetivo**) y elige **Susurrar mensaje**, **Invitar a la hermandad** o **Susurrar e invitar**. **Abrir en el chat** coloca el mensaje en tu caja de chat para publicarlo en el canal que quieras.
+4. **Publicar en**: elige **Gritar** o el canal **General**, **Comercio** o **Mundo** y pulsa **Publicar** para enviar el mensaje allí (tienes que estar en ese canal). Los nombres de los canales se cambian en Configuración.
 
 Invitar a la hermandad requiere que tu rango tenga ese permiso.
 
 **Invitación masiva** (botón arriba a la derecha de la pestaña Invitar):
 
-1. Llena la cola pegando nombres (uno por línea o separados por comas) o buscando con /who por rango de nivel y filtro extra (clase, zona...). De la búsqueda solo se añaden jugadores sin hermandad.
+1. Llena la cola buscando con /who por rango de nivel y filtro extra (clase, zona...). Solo se añaden jugadores sin hermandad.
 2. Edita el susurro que recibe cada jugador. Admite `{nombre}`, `{hermandad}` e iconos de banda.
 3. **Invitar siguiente** procesa un jugador; **Invitar lote** procesa 10, uno cada 3 s (**Detener** lo corta). Se omiten los miembros y a quien ya se invitó en los últimos 7 días.
 

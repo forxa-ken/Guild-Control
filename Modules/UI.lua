@@ -2489,6 +2489,21 @@ local function ComposeRecruitMessage(recruit)
     return table.concat(parts, " ")
 end
 
+-- Número del canal de chat cuyo nombre empieza por "name" (p. ej. "Comercio" encuentra
+-- "Comercio - Ciudad"), o nil si el jugador no está en él
+local function FindChatChannel(name)
+    if not name or strtrim(name) == "" then return nil end
+    local wanted = string.lower(strtrim(name))
+    local list = { GetChannelList() }
+    for i = 1, #list, 3 do
+        local id, channelName = list[i], list[i + 1]
+        if type(channelName) == "string" and string.find(string.lower(channelName), wanted, 1, true) == 1 then return id end
+    end
+    local id = GetChannelName(name)
+    if id and id > 0 then return id end
+    return nil
+end
+
 -- Sustituye {nombre} (sin reino) y {hermandad}; nil si el resultado no cabe en el chat
 local function ExpandMessage(template, name)
     local short = string.match(name or "", "^([^-]+)") or name or ""
@@ -2755,8 +2770,69 @@ local function BuildSingleInvitePanel(panel)
         if msg and msg ~= "" then OpenChatWith(msg) end
     end)
 
+    -- 4. Publicar en un canal: grito o canal General, Comercio o Mundo (los nombres de los
+    -- canales se cambian en Configuración). Se envía con el clic, como si lo escribiera el jugador.
+    local PUBLISH_OPTIONS = {
+        { key = "yell", label = "Gritar" },
+        { key = "general", label = "Canal General" },
+        { key = "trade", label = "Canal de Comercio" },
+        { key = "world", label = "Canal Mundo" },
+    }
+    local function PublishLabel(key)
+        for _, option in ipairs(PUBLISH_OPTIONS) do
+            if option.key == key then
+                if key == "yell" then return L[option.label] end
+                local channelName = GuildControlDB.settings.recruitChannels and GuildControlDB.settings.recruitChannels[key] or ""
+                return L[option.label] .. " |cFF808080(" .. channelName .. ")|r"
+            end
+        end
+        return ""
+    end
+
+    local publishLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    publishLabel:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -46)
+    publishLabel:SetText(L["4. Publicar en:"])
+
+    local dropPublish = CreateFrame("DropdownButton", "GC_RecruitPublish", panel, "WowStyle1DropdownTemplate")
+    dropPublish:SetPoint("LEFT", publishLabel, "RIGHT", 10, 0)
+    dropPublish:SetWidth(250)
+    dropPublish:SetupMenu(function(_, root)
+        for _, option in ipairs(PUBLISH_OPTIONS) do
+            local key = option.key
+            root:CreateRadio(PublishLabel(key), function() return recruit().publishChannel == key end, function()
+                recruit().publishChannel = key
+                dropPublish:SetText(PublishLabel(key))
+            end)
+        end
+    end)
+
+    local btnPublish = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnPublish:SetSize(110, 22)
+    btnPublish:SetPoint("LEFT", dropPublish, "RIGHT", 8, 0)
+    btnPublish:SetText(L["Publicar"])
+    btnPublish:SetScript("OnClick", function()
+        local msg = ExpandMessage(editor.GetText(), "")
+        if not msg or msg == "" then
+            PrintGC(L["|cFFFF3333El mensaje está vacío: pulsa \"Generar mensaje\" o escríbelo.|r"])
+            return
+        end
+        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+        local key = recruit().publishChannel or "trade"
+        if key == "yell" then
+            send(msg, "YELL")
+            return
+        end
+        local channelName = GuildControlDB.settings.recruitChannels[key]
+        local channelId = FindChatChannel(channelName)
+        if not channelId then
+            PrintGC(L["|cFFFF3333No estás en el canal "] .. (channelName or "?") .. L[". Únete a él o cambia su nombre en Configuración.|r"])
+            return
+        end
+        send(msg, "CHANNEL", nil, channelId)
+    end)
+
     local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", nameInput, "BOTTOMLEFT", -6, -44)
+    hint:SetPoint("TOPLEFT", publishLabel, "BOTTOMLEFT", 0, -14)
     hint:SetWidth(850)
     hint:SetJustifyH("LEFT")
     hint:SetText(L["{nombre} = nombre del jugador, {hermandad} = nombre de la hermandad. \"Abrir en el chat\" coloca el mensaje en tu caja de chat para publicarlo en el canal que elijas (por ejemplo /2 para Comercio)."])
@@ -2769,6 +2845,7 @@ local function BuildSingleInvitePanel(panel)
         extraInput:SetText(r.extra or "")
         if (r.message or "") == "" then r.message = ComposeRecruitMessage(r) end
         editor.SetText(r.message)
+        dropPublish:SetText(PublishLabel(r.publishChannel or "trade"))
     end)
 end
 
@@ -2804,36 +2881,10 @@ local function BuildMassInvitePanel(panel)
     step1:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
     step1:SetText(L["1. Jugadores a invitar"])
 
-    -- 1a. Pegar nombres
-    local pasteLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    pasteLabel:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -10)
-    pasteLabel:SetText(L["Pega nombres (uno por línea o separados por comas):"])
-
-    local pasteBox = CreateBackdropBox(panel, 270, 112, "TOPLEFT", pasteLabel, "BOTTOMLEFT", 0, -4)
-    local pasteScroll = CreateFrame("ScrollFrame", nil, pasteBox, "UIPanelScrollFrameTemplate")
-    pasteScroll:SetPoint("TOPLEFT", pasteBox, "TOPLEFT", 6, -6)
-    pasteScroll:SetPoint("BOTTOMRIGHT", pasteBox, "BOTTOMRIGHT", -26, 6)
-    local pasteEdit = CreateFrame("EditBox", nil, pasteScroll)
-    pasteEdit:SetMultiLine(true)
-    pasteEdit:SetFontObject(ChatFontNormal)
-    pasteEdit:SetWidth(232)
-    pasteEdit:SetHeight(100)
-    pasteEdit:SetAutoFocus(false)
-    pasteEdit:SetMaxLetters(0)
-    pasteEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    pasteScroll:SetScrollChild(pasteEdit)
-    pasteBox:EnableMouse(true)
-    pasteBox:SetScript("OnMouseDown", function() pasteEdit:SetFocus() end)
-
-    local btnAddPasted = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    btnAddPasted:SetSize(130, 22)
-    btnAddPasted:SetPoint("TOPLEFT", pasteBox, "BOTTOMLEFT", 0, -4)
-    btnAddPasted:SetText(L["Añadir a la cola"])
-
-    -- 1b. Búsqueda /who de jugadores sin hermandad
+    -- 1a. Búsqueda /who de jugadores sin hermandad
     local whoTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    whoTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 300, -10)
-    whoTitle:SetText(L["O busca jugadores sin hermandad (/who):"])
+    whoTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -10)
+    whoTitle:SetText(L["Busca jugadores sin hermandad (/who):"])
 
     local minLabel, minInput = CreateLabeledInput(panel, L["Nivel mínimo:"], 40)
     minLabel:SetPoint("TOPLEFT", whoTitle, "BOTTOMLEFT", 0, -14)
@@ -2854,9 +2905,9 @@ local function BuildMassInvitePanel(panel)
     btnWho:SetPoint("TOPLEFT", extraWhoLabel, "BOTTOMLEFT", 0, -12)
     btnWho:SetText(L["Buscar y añadir"])
 
-    -- 1c. Cola
+    -- 1b. Cola
     local queueTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    queueTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 540, -10)
+    queueTitle:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 300, -10)
 
     local queueBox = CreateBackdropBox(panel, 320, 112, "TOPLEFT", queueTitle, "BOTTOMLEFT", 0, -4)
     local queueScroll = CreateFrame("ScrollFrame", nil, queueBox, "UIPanelScrollFrameTemplate")
@@ -2931,18 +2982,6 @@ local function BuildMassInvitePanel(panel)
         return true
     end
 
-    btnAddPasted:SetScript("OnClick", function()
-        local added = 0
-        for token in string.gmatch(pasteEdit:GetText() or "", "[^,;\r\n]+") do
-            token = strtrim(token)
-            if token ~= "" and not string.find(token, "%s") and AddToQueue(token) then added = added + 1 end
-        end
-        pasteEdit:SetText("")
-        pasteEdit:ClearFocus()
-        PrintGC(L["Añadidos a la cola: |cFFFFD100"] .. added .. "|r.")
-        RefreshQueue()
-    end)
-
     btnClear:SetScript("OnClick", function()
         wipe(queue)
         RefreshQueue()
@@ -2998,7 +3037,7 @@ local function BuildMassInvitePanel(panel)
     end)
 
     -- 2. Susurro editable ----------------------------------------------------
-    local editor = CreateMessageEditor(panel, btnAddPasted, L["2. Susurro que recibe cada jugador al invitarlo"], 50,
+    local editor = CreateMessageEditor(panel, btnWho, L["2. Susurro que recibe cada jugador al invitarlo"], 50,
         function(text) recruit().massMessage = text end)
     editor.label:ClearAllPoints()
     editor.label:SetPoint("TOPLEFT", step1, "BOTTOMLEFT", 0, -186)
@@ -3522,9 +3561,9 @@ local function BuildMyProfileView(parent)
     roleBox:SetPoint("TOPLEFT", view, "TOPLEFT", LEFT_X, TOP_Y)
     local charBox = CreateColoredPanel(view, L["Personaje"], PANEL_COLORS.gold, 564, 112)
     charBox:SetPoint("TOPLEFT", roleBox, "BOTTOMLEFT", 0, -GAP)
-    local specBox = CreateColoredPanel(view, L["Especialización"], PANEL_COLORS.green, 564, 76)
+    local specBox = CreateColoredPanel(view, L["Especialización"], PANEL_COLORS.blue, 564, 76)
     specBox:SetPoint("TOPLEFT", charBox, "BOTTOMLEFT", 0, -GAP)
-    local noteBox = CreateColoredPanel(view, L["Nota y envío"], PANEL_COLORS.purple, 564, 470 - 112 - 112 - 76 - GAP * 3)
+    local noteBox = CreateColoredPanel(view, L["Nota y envío"], PANEL_COLORS.gold, 564, 470 - 112 - 112 - 76 - GAP * 3)
     noteBox:SetPoint("TOPLEFT", specBox, "BOTTOMLEFT", 0, -GAP)
 
     -- Grupo de casillas que se comportan como botones de opción, dentro de un panel
@@ -3695,7 +3734,7 @@ local function BuildMyProfileView(parent)
     end)
 
     -- Derecha: tu ficha y, para oficiales, la gestión de perfiles
-    local side = CreateColoredPanel(view, L["Tu ficha en la hermandad"], PANEL_COLORS.cyan, 310, 150)
+    local side = CreateColoredPanel(view, L["Tu ficha en la hermandad"], PANEL_COLORS.blue, 310, 150)
     side:SetPoint("TOPLEFT", view, "TOPLEFT", RIGHT_X, TOP_Y)
 
     local sideText = side:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -7857,9 +7896,17 @@ local function BuildConfigView(parent)
     title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText(L["Configuración"])
 
-    -- Cada sección es una caja con su título
+    -- Las secciones no caben en la ventana: van dentro de un área con desplazamiento
+    local scroll = CreateFrame("ScrollFrame", nil, view, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -30)
+    scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -26, 6)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(870, 760)
+    scroll:SetScrollChild(content)
+
+    -- Cada sección es una caja con su título (y como si empezara bajo el título de la vista)
     local function Section(titleText, x, y, width, height)
-        local box = CreateBackdropBox(view, width, height, "TOPLEFT", view, "TOPLEFT", x, y)
+        local box = CreateBackdropBox(content, width, height, "TOPLEFT", content, "TOPLEFT", x, y + 30)
         box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
         box.title:SetText(titleText)
@@ -8163,6 +8210,119 @@ local function BuildConfigView(parent)
     wordsHint:SetJustifyH("LEFT")
     wordsHint:SetText(L["Separadas por comas; el mensaje debe empezar por una. Vacío = lista por defecto."])
 
+    -- ---------------------------------------------------------------------
+    -- 9.4 Bienvenida a quien entra nuevo en la hermandad
+    -- ---------------------------------------------------------------------
+    local welcomeBox = Section(L["Bienvenida a nuevos miembros"], 10, -512, 880, 100)
+
+    local chkWelcome = CreateFrame("CheckButton", "GC_CfgWelcomeNew", welcomeBox, "UICheckButtonTemplate")
+    chkWelcome:SetPoint("TOPLEFT", welcomeBox, "TOPLEFT", 10, -28)
+    _G[chkWelcome:GetName() .. "Text"]:SetText(L["Dar la bienvenida en el chat de hermandad a quien se une"])
+    chkWelcome:SetScript("OnClick", function(self) settings().welcomeNew = self:GetChecked() and true or false end)
+
+    local welcomeInput = CreateFrame("EditBox", nil, welcomeBox, "InputBoxTemplate")
+    welcomeInput:SetSize(560, 20)
+    welcomeInput:SetPoint("TOPLEFT", chkWelcome, "BOTTOMLEFT", 8, -4)
+    welcomeInput:SetAutoFocus(false)
+    welcomeInput:SetMaxLetters(200)
+    local function SaveWelcome()
+        local text = strtrim(welcomeInput:GetText() or "")
+        if text ~= "" then settings().welcomeMessage = text end
+        welcomeInput:SetText(settings().welcomeMessage or "")
+        welcomeInput:ClearFocus()
+    end
+    Button(welcomeBox, L["Guardar"], 70, welcomeInput, SaveWelcome)
+    welcomeInput:SetScript("OnEnterPressed", SaveWelcome)
+    welcomeInput:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().welcomeMessage or "") end)
+
+    local welcomeHint = welcomeBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    welcomeHint:SetPoint("TOPLEFT", welcomeInput, "BOTTOMLEFT", -6, -6)
+    welcomeHint:SetWidth(850)
+    welcomeHint:SetJustifyH("LEFT")
+    welcomeHint:SetText(L["{nombre} y {hermandad} se sustituyen. A quien entra nuevo no se le aplica el saludo automático. Si varios usan GuildControl, solo responde uno."])
+
+    -- ---------------------------------------------------------------------
+    -- 9.5 Canales para publicar el mensaje de reclutamiento (Invitar)
+    -- ---------------------------------------------------------------------
+    local channelsBox = Section(L["Canales de reclutamiento"], 10, -618, 430, 130)
+    local CHANNEL_FIELDS = {
+        { key = "general", label = "Canal General:" },
+        { key = "trade", label = "Canal de Comercio:" },
+        { key = "world", label = "Canal Mundo:" },
+    }
+    local channelInputs = {}
+    for i, field in ipairs(CHANNEL_FIELDS) do
+        local label = Label(channelsBox, L[field.label], 14, -32 - (i - 1) * 26)
+        local input = CreateFrame("EditBox", nil, channelsBox, "InputBoxTemplate")
+        input:SetSize(180, 20)
+        input:SetPoint("LEFT", label, "LEFT", 140, 0)
+        input:SetAutoFocus(false)
+        input:SetMaxLetters(40)
+        local key = field.key
+        local function SaveChannel(self)
+            local text = strtrim(self:GetText() or "")
+            if text ~= "" then settings().recruitChannels[key] = text end
+            self:SetText(settings().recruitChannels[key] or "")
+            self:ClearFocus()
+        end
+        input:SetScript("OnEnterPressed", SaveChannel)
+        input:SetScript("OnEditFocusLost", function(self)
+            local text = strtrim(self:GetText() or "")
+            if text ~= "" then settings().recruitChannels[key] = text end
+        end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus(); self:SetText(settings().recruitChannels[key] or "") end)
+        channelInputs[key] = input
+    end
+    local channelsHint = channelsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    channelsHint:SetPoint("TOPLEFT", channelsBox, "TOPLEFT", 14, -108)
+    channelsHint:SetWidth(400)
+    channelsHint:SetJustifyH("LEFT")
+    channelsHint:SetText(L["El nombre con el que empieza el canal en tu chat (Invitar > Publicar en)."])
+
+    -- ---------------------------------------------------------------------
+    -- 9.6 Sonido al conectarse un favorito
+    -- ---------------------------------------------------------------------
+    local soundBox = Section(L["Aviso de favoritos"], 448, -618, 442, 130)
+    local F = addonTable.Favorites
+
+    local chkSound = CreateFrame("CheckButton", "GC_CfgFavoriteSound", soundBox, "UICheckButtonTemplate")
+    chkSound:SetPoint("TOPLEFT", soundBox, "TOPLEFT", 10, -28)
+    _G[chkSound:GetName() .. "Text"]:SetText(L["Sonido cuando se conecta un favorito"])
+    chkSound:SetScript("OnClick", function(self) settings().favoriteSoundEnabled = self:GetChecked() and true or false end)
+
+    local function SoundLabel(key)
+        for _, sound in ipairs(F and F.SOUNDS or {}) do
+            if sound.key == key then return L[sound.label] end
+        end
+        return key or ""
+    end
+
+    local dropSound = CreateFrame("DropdownButton", "GC_CfgFavoriteSoundSelect", soundBox, "WowStyle1DropdownTemplate")
+    dropSound:SetPoint("TOPLEFT", chkSound, "BOTTOMLEFT", 6, -6)
+    dropSound:SetWidth(220)
+    dropSound:SetupMenu(function(_, root)
+        for _, sound in ipairs(F and F.SOUNDS or {}) do
+            local key = sound.key
+            root:CreateRadio(L[sound.label], function() return settings().favoriteSound == key end, function()
+                settings().favoriteSound = key
+                dropSound:SetText(SoundLabel(key))
+                if F then F.PlaySound(key) end
+            end)
+        end
+    end)
+
+    local btnTestSound = CreateFrame("Button", nil, soundBox, "UIPanelButtonTemplate")
+    btnTestSound:SetSize(90, 22)
+    btnTestSound:SetPoint("LEFT", dropSound, "RIGHT", 8, 0)
+    btnTestSound:SetText(L["Probar"])
+    btnTestSound:SetScript("OnClick", function() if F then F.PlaySound(settings().favoriteSound) end end)
+
+    local soundHint = soundBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    soundHint:SetPoint("TOPLEFT", dropSound, "BOTTOMLEFT", 0, -8)
+    soundHint:SetWidth(410)
+    soundHint:SetJustifyH("LEFT")
+    soundHint:SetText(L["Los favoritos se marcan con clic derecho en Miembros o en la pestaña Favoritos."])
+
     view:SetScript("OnShow", function()
         local s = settings()
         discordInput:SetText(s.discordLink or "")
@@ -8170,6 +8330,11 @@ local function BuildConfigView(parent)
         ApplyGuildEditPermissions()
         chkOnTop:SetChecked(s.windowOnTop)
         chkGreet:SetChecked(s.autoGreet)
+        chkWelcome:SetChecked(s.welcomeNew)
+        welcomeInput:SetText(s.welcomeMessage or "")
+        for key, input in pairs(channelInputs) do input:SetText(s.recruitChannels and s.recruitChannels[key] or "") end
+        chkSound:SetChecked(s.favoriteSoundEnabled ~= false)
+        dropSound:SetText(SoundLabel(s.favoriteSound))
         greetInput:SetText(s.greetMessage or "")
         delayInput:SetText(tostring(s.greetDelay))
         cooldownInput:SetText(tostring(s.greetCooldown))

@@ -40,6 +40,8 @@ local loginTimes = {}         -- [nombre corto] = GetTime() de su última conexi
 local lastGreetByPlayer = {}  -- [nombre corto] = GetTime() del último saludo (de quien sea) a esa persona
 local lastGreetTime = -GREET_GLOBAL_COOLDOWN
 local pendingGreets = {}      -- [nombre corto] = timer pendiente
+local pendingWelcomes = {}    -- [nombre corto] = timer de la bienvenida a un miembro nuevo
+local newMembers = {}         -- [nombre corto] = true: entró en la hermandad en esta sesión (sin saludo automático)
 
 local chatFrame = CreateFrame("Frame")
 chatFrame:RegisterEvent("CHAT_MSG_GUILD")
@@ -132,6 +134,7 @@ end
 
 local ONLINE_PATTERN = FormatToPattern(ERR_FRIEND_ONLINE_SS)
 local OFFLINE_PATTERN = FormatToPattern(ERR_FRIEND_OFFLINE_S)
+local JOIN_PATTERN = FormatToPattern(ERR_GUILD_JOIN_S)
 
 -- =========================================================================
 -- MENSAJES PARA EL PANEL
@@ -237,6 +240,7 @@ local function ScheduleGreet(sender)
     local name = ShortName(sender)
     local now = GetTime()
     if pendingGreets[name] then return end
+    if newMembers[name] then return end
     if not IsNewcomerWaitingGreeting(name) then return end
     local cooldown = (tonumber(settings.greetCooldown) or DEFAULT_GREET_COOLDOWN_MIN) * 60
     if lastGreetByPlayer[name] and now - lastGreetByPlayer[name] < cooldown then return end
@@ -257,6 +261,42 @@ local function ScheduleGreet(sender)
         lastGreetTime = GetTime()
         if C_ChatInfo and C_ChatInfo.SendAddonMessage then
             C_ChatInfo.SendAddonMessage("GuildControlGreet", name, "GUILD")
+        end
+        SendGuild(reply)
+    end)
+end
+
+-- =========================================================================
+-- BIENVENIDA A MIEMBROS NUEVOS
+-- =========================================================================
+-- Cuando el juego avisa de que alguien se ha unido a la hermandad, se le da la bienvenida
+-- con settings.welcomeMessage ({nombre}, {hermandad}). Responde un solo cliente (prefijo
+-- GuildControlGreet, "W:nombre") y no se envía si alguien le escribe antes mencionándolo.
+local function CancelWelcome(name)
+    local timer = pendingWelcomes[name]
+    if timer then
+        timer:Cancel()
+        pendingWelcomes[name] = nil
+    end
+end
+
+local function ScheduleWelcome(who)
+    -- El nombre puede venir como enlace de jugador: |Hplayer:Nombre|h[Nombre]|h
+    who = string.match(who, "|Hplayer:([^|:]+)") or string.match(who, "%[(.-)%]") or who
+    local name = ShortName(who)
+    if IsMe(name) then return end
+    newMembers[name] = true
+    MarkGreeted(name)   -- el saludo automático no se le aplica
+    if not GetSettings().welcomeNew or pendingWelcomes[name] then return end
+    pendingWelcomes[name] = C_Timer.NewTimer(3 + math.random() * GREET_DELAY_JITTER, function()
+        pendingWelcomes[name] = nil
+        if not IsInGuild() or not GetSettings().welcomeNew then return end
+        local template = GetSettings().welcomeMessage
+        if not template or strtrim(template) == "" then return end
+        local reply = string.gsub(addonTable.NormalizeVars(template), "{nombre}", function() return name end)
+        reply = string.gsub(reply, "{hermandad}", function() return addonTable.GetDisplayGuildName() end)
+        if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+            C_ChatInfo.SendAddonMessage("GuildControlGreet", "W:" .. name, "GUILD")
         end
         SendGuild(reply)
     end)
@@ -284,6 +324,9 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
                 MarkGreeted(newcomer)
                 answeredSomeone = true
             end
+        end
+        for pendingName in pairs(pendingWelcomes) do
+            if pendingName ~= name and Mentions(text, pendingName) then CancelWelcome(pendingName) end
         end
         for pendingName in pairs(pendingGreets) do
             if pendingName ~= name and Mentions(text, pendingName) then
@@ -317,6 +360,11 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
             if addonTable.Favorites and addonTable.Favorites.OnOnline then addonTable.Favorites.OnOnline(who) end
             return
         end
+        local joined = JOIN_PATTERN and string.match(text, JOIN_PATTERN)
+        if joined then
+            ScheduleWelcome(joined)
+            return
+        end
         local gone = OFFLINE_PATTERN and string.match(text, OFFLINE_PATTERN)
         if gone then chatModule.MarkOffline(gone) end
     elseif event == "CHAT_MSG_ADDON" then
@@ -324,7 +372,13 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         if IsSecret(prefix) or IsSecret(msg) or IsSecret(sender) then return end
         -- Otro cliente con GuildControl ya ha saludado a esta persona
         if prefix == "GuildControlGreet" and channel == "GUILD" and msg and not IsMe(sender) then
-            MarkGreeted(msg)
+            local welcomed = string.match(msg, "^W:(.+)$")
+            if welcomed then
+                CancelWelcome(welcomed)
+                MarkGreeted(welcomed)
+            else
+                MarkGreeted(msg)
+            end
         end
     end
 end)

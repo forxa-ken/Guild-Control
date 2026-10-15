@@ -2,6 +2,13 @@
 
 ## Próxima versión
 
+### Invitar, configuración y avisos
+- Invitar: el mensaje de reclutamiento se puede **gritar** o publicar en el canal **General**, **Comercio** o **Mundo** (nombres configurables). La invitación masiva ya solo busca con /who.
+- **Bienvenida a nuevos miembros**: mensaje automático en el chat de hermandad para quien se une (sin el saludo automático habitual).
+- Sonido configurable al conectarse un favorito.
+- Configuración con desplazamiento para las secciones nuevas.
+- Mi perfil usa solo azul, amarillo y rojo.
+
 ### Chat
 - El chat se guarda: el historial (500 mensajes) sobrevive a `/reload` y a cerrar el juego, y se puede limpiar.
 - Ahora incluye susurros, chat de banda (y avisos) y de grupo o mazmorra, con pestañas por canal y por persona. Se escribe en el canal de la pestaña activa.

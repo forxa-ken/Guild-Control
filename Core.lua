@@ -104,6 +104,25 @@ function addonTable.InitDB()
     end
     if type(recruit.massWhisper) ~= "boolean" then recruit.massWhisper = true end
     if recruit.mode ~= "single" and recruit.mode ~= "mass" then recruit.mode = "single" end
+    -- Dónde se publica el mensaje de reclutamiento: "yell" (grito) o un canal de recruitChannels
+    if recruit.publishChannel ~= "yell" and recruit.publishChannel ~= "general" and recruit.publishChannel ~= "trade"
+        and recruit.publishChannel ~= "world" then recruit.publishChannel = "trade" end
+    -- Nombres de los canales (se cambian en Configuración; dependen del idioma del cliente)
+    if type(GuildControlDB.settings.recruitChannels) ~= "table" then GuildControlDB.settings.recruitChannels = {} end
+    local channels = GuildControlDB.settings.recruitChannels
+    if type(channels.general) ~= "string" or channels.general == "" then channels.general = L["General"] end
+    if type(channels.trade) ~= "string" or channels.trade == "" then channels.trade = L["Comercio"] end
+    if type(channels.world) ~= "string" or channels.world == "" then channels.world = L["Mundo"] end
+
+    -- Aviso de favoritos conectados: sonido activado y cuál (Favorites.SOUNDS)
+    if type(GuildControlDB.settings.favoriteSoundEnabled) ~= "boolean" then GuildControlDB.settings.favoriteSoundEnabled = true end
+    if type(GuildControlDB.settings.favoriteSound) ~= "string" then GuildControlDB.settings.favoriteSound = "toast" end
+
+    -- Bienvenida a quien entra nuevo en la hermandad (desactivada por defecto)
+    if type(GuildControlDB.settings.welcomeNew) ~= "boolean" then GuildControlDB.settings.welcomeNew = false end
+    if type(GuildControlDB.settings.welcomeMessage) ~= "string" or GuildControlDB.settings.welcomeMessage == "" then
+        GuildControlDB.settings.welcomeMessage = L["¡Bienvenido/a a <{hermandad}>, {nombre}! Si tienes cualquier duda, pregunta por aquí."]
+    end
 
     -- Mensaje para los integrantes de un roster (botón Mensaje de la vista Roster)
     if type(GuildControlDB.settings.rosterMessage) ~= "string" or GuildControlDB.settings.rosterMessage == "" then

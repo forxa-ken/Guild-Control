@@ -5,11 +5,33 @@ addonTable.Favorites = {}
 local favModule = addonTable.Favorites
 
 -- Personajes favoritos (sin frames): GuildControlDB.favorites[Nombre-Reino] = true.
--- Cuando uno se conecta se avisa en el chat, en el centro de la pantalla y con un sonido.
+-- Cuando uno se conecta se avisa en el chat, en el centro de la pantalla y con el sonido elegido.
 -- Llega por dos vías (aviso del sistema y escaneo de la lista), así que se evita repetir.
 
 local REPEAT_SECONDS = 300
 local lastAlert = {}
+
+-- Sonidos que se pueden elegir en Configuración (settings.favoriteSound)
+favModule.SOUNDS = {
+    { key = "toast", label = "Aviso de Battle.net", kit = "UI_BNET_TOAST" },
+    { key = "whisper", label = "Susurro", kit = "TELL_MESSAGE" },
+    { key = "readycheck", label = "Comprobación de listos", kit = "READY_CHECK" },
+    { key = "raidwarning", label = "Aviso de banda", kit = "RAID_WARNING" },
+    { key = "quest", label = "Misión completada", kit = "IG_QUEST_LIST_COMPLETE" },
+    { key = "levelup", label = "Subida de nivel", kit = "LEVEL_UP" },
+    { key = "alarm", label = "Alarma", kit = "ALARM_CLOCK_WARNING_3" },
+}
+
+function favModule.PlaySound(key)
+    if not (PlaySound and SOUNDKIT) then return end
+    for _, sound in ipairs(favModule.SOUNDS) do
+        if sound.key == key then
+            local id = SOUNDKIT[sound.kit] or SOUNDKIT.TELL_MESSAGE
+            if id then pcall(PlaySound, id, "Master") end
+            return
+        end
+    end
+end
 
 local function Store()
     if type(GuildControlDB.favorites) ~= "table" then GuildControlDB.favorites = {} end
@@ -64,7 +86,6 @@ function favModule.OnOnline(name)
     local text = L["Tu favorito "] .. "|cFF" .. hex .. short .. "|r" .. L[" se ha conectado."]
     print("|cFF00FFFF[GuildControl]|r |A:PetJournal-FavoritesIcon:14:14|a " .. text)
     if UIErrorsFrame and UIErrorsFrame.AddMessage then UIErrorsFrame:AddMessage(text, 1, 0.82, 0) end
-    if PlaySound and SOUNDKIT then
-        pcall(PlaySound, SOUNDKIT.UI_BNET_TOAST or SOUNDKIT.TELL_MESSAGE)
-    end
+    local settings = GuildControlDB.settings or {}
+    if settings.favoriteSoundEnabled ~= false then favModule.PlaySound(settings.favoriteSound or "toast") end
 end
