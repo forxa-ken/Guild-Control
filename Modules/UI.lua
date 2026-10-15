@@ -5075,7 +5075,7 @@ local WARNING_CATEGORIES = {
     },
     {
         key = "lowattendance", label = "Baja asistencia",
-        help = "Titulares de un roster con asistencia por debajo del umbral (con al menos 3 bandas con lista pasada en Raid).",
+        help = "Titulares de un roster con asistencia por debajo del umbral (con al menos 2 bandas con lista pasada en Raid).",
         collect = function(s)
             local list = {}
             local E = addonTable.RaidEvents
@@ -5083,7 +5083,7 @@ local WARNING_CATEGORIES = {
                 local m = GuildControlDB.members[name]
                 for _, roster in ipairs(rosters) do
                     local stats = E.GetAttendanceStats(roster.name, name)
-                    if m and stats.percent and stats.counted >= 3 and stats.percent < s.lowAttendance then
+                    if m and stats.percent and stats.counted >= 2 and stats.percent < s.lowAttendance then
                         table.insert(list, { name = name, data = m, sort = 100 - stats.percent,
                             detail = roster.name .. ": " .. stats.percent .. "% (" .. (stats.present + stats.late) .. L[" de "] .. stats.counted .. L[" bandas)"] })
                     end

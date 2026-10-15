@@ -35,6 +35,7 @@
 - Cada cliente comparte su mejor Mítica+ de la semana para calcular la mejor llave de la hermandad.
 - Los filtros de noticias sin noticias ya no se muestran (tampoco Bajas). Los jefes se registran también con el aviso BOSS_KILL del juego.
 - Los botones de filtro se ajustan al texto (en inglés "Char. achievements" se salía del botón).
+- Warning avisa de baja asistencia desde 2 bandas con lista pasada (antes 3).
 
 ## 5.0.0-beta2
 

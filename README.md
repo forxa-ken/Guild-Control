@@ -116,7 +116,7 @@ La pestaña **Warning** (oficiales) agrupa los avisos por categorías, cada una 
 - **Inactivos**: sin conectarse desde hace 14 días a 1 año (con o sin alters). Clic derecho para expulsar, con confirmación.
 - **Sin rol declarado**: miembros activos que no han rellenado Mi perfil; **Recordar a los conectados** les envía un susurro.
 - **Alters sin principal**: se declaran alter de alguien que no está en la hermandad.
-- **Baja asistencia**: titulares de roster por debajo del porcentaje elegido (70 % por defecto, con al menos 3 bandas con lista pasada en Raid).
+- **Baja asistencia**: titulares de roster por debajo del porcentaje elegido (70 % por defecto, con al menos 2 bandas con lista pasada en Raid).
 - **Titulares inactivos**: titulares de roster que llevan días sin conectarse.
 - **Rangos a revisar**: nivel bajo en un rango de raider o superior, y reclutas que llevan tiempo en la hermandad (posible ascenso).
 - **Nota pública**: vacía o sin el texto obligatorio que configures.
