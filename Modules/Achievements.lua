@@ -87,10 +87,28 @@ function achModule.GetStats()
         stats.totalPoints = GetTotalAchievementPoints(mode == "guild") or 0
     end
 
+    -- El juego solo tiene todos los datos de logros con su interfaz de logros cargada; sin
+    -- ella GetNumCompletedAchievements puede quedarse corto (p. ej. 51 en vez de 63)
+    achModule.EnsureLoaded()
     if GetNumCompletedAchievements then
         local total, completed = GetNumCompletedAchievements(mode == "guild")
         stats.totalCount = total or 0
         stats.completedCount = completed or 0
+    end
+
+    -- Hermandad: recuento por categorías, como lo muestra la ventana de logros; se usa el mayor
+    local list = (mode == "guild") and GetGuildCategoryList and GetGuildCategoryList()
+    if list and GetCategoryNumAchievements then
+        local total, completed = 0, 0
+        for _, catId in ipairs(list) do
+            local ok, numItems, numCompleted = pcall(GetCategoryNumAchievements, catId, true)
+            if ok then
+                total = total + (numItems or 0)
+                completed = completed + (numCompleted or 0)
+            end
+        end
+        if completed > stats.completedCount then stats.completedCount = completed end
+        if total > stats.totalCount then stats.totalCount = total end
     end
 
     if GetLatestCompletedAchievements then
@@ -185,16 +203,46 @@ function achModule.GetMaxMembersShown()
     return MAX_MEMBERS_SHOWN
 end
 
--- Abre el logro en la ventana de Blizzard
+-- Abre la ventana de logros de Blizzard en ese logro concreto (pestaña de hermandad o de
+-- personaje según el logro)
 function achModule.OpenAchievement(id)
     if not id then return end
     achModule.EnsureLoaded()
     if not AchievementFrame then return end
 
-    ShowUIPanel(AchievementFrame)
-    if AchievementFrame_SelectAchievement then
-        pcall(AchievementFrame_SelectAchievement, id)
+    local isGuild = select(12, GetAchievementInfo(id)) and true or false
+    -- Función del propio juego para los enlaces de logro: abre la ventana y lo selecciona
+    if OpenAchievementFrameToAchievement and pcall(OpenAchievementFrameToAchievement, id) then
+        if AchievementFrame_SelectAchievement then
+            C_Timer.After(0.1, function() pcall(AchievementFrame_SelectAchievement, id, true) end)
+        end
+        return
     end
+
+    if not AchievementFrame:IsShown() then
+        if AchievementFrame_ToggleAchievementFrame then
+            pcall(AchievementFrame_ToggleAchievementFrame, false, isGuild)
+        else
+            ShowUIPanel(AchievementFrame)
+        end
+    end
+    if AchievementFrame_SelectAchievement then
+        -- forceSelect: lo selecciona aunque el filtro de la ventana lo oculte
+        pcall(AchievementFrame_SelectAchievement, id, true)
+        -- La ventana termina de montarse en el siguiente fotograma: segundo intento
+        C_Timer.After(0.1, function() pcall(AchievementFrame_SelectAchievement, id, true) end)
+    end
+end
+
+-- true si el personaje (o la cuenta) ya tiene el logro; para los de hermandad, si la hermandad lo tiene
+function achModule.IsCompleted(id)
+    if not id then return false end
+    local _, _, _, completed = GetAchievementInfo(id)
+    return completed and true or false
+end
+
+function achModule.IsGuildAchievement(id)
+    return id and select(12, GetAchievementInfo(id)) and true or false
 end
 
 -- Refresco automático al ganar un logro

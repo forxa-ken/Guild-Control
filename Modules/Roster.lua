@@ -146,6 +146,9 @@ end
 function rosterModule.Rename(roster, name)
     name = strtrim(name or "")
     if roster and name ~= "" then
+        if addonTable.RaidEvents and addonTable.RaidEvents.RenameRoster then
+            addonTable.RaidEvents.RenameRoster(roster.name, name)
+        end
         roster.name = name
         rosterModule.SyncMemberRosterField()
     end
@@ -495,7 +498,7 @@ function rosterModule.BuildCSV(roster)
     for _, slot in ipairs(rosterModule.SLOTS) do
         for _, name in ipairs(bySlot[slot]) do
             local m = GuildControlDB.members[name] or {}
-            local stats = rosterModule.GetAttendanceStats(roster, name)
+            local stats = addonTable.RaidEvents and addonTable.RaidEvents.GetAttendanceStats(roster.name, name) or {}
             table.insert(lines, string.format("%s,%s,%s,%s,%s,%s,%s,%s",
                 rosterModule.GetDisplayName(roster), DifficultyLabel(roster), L[rosterModule.SLOT_LABELS[slot]], name,
                 rosterModule.GetClassName(m.class), tostring(m.level or ""), m.rank or "",
@@ -547,20 +550,8 @@ end
 
 
 -- =========================================================================
--- FECHAS DE BANDA Y ASISTENCIA (FASE 2)
+-- FECHAS (las bandas y la asistencia viven en RaidEvents.lua)
 -- =========================================================================
--- roster.events[id] = { id, date = "AAAA-MM-DD", time = "HH:MM", note,
---                       attendance = { [Nombre-Reino] = "present"|"late"|"absent"|"excused" } }
-rosterModule.ATTENDANCE = { "present", "late", "absent", "excused" }
-rosterModule.ATTENDANCE_LABELS = { present = "Presente", late = "Tarde", absent = "Ausente", excused = "Justif." }
-rosterModule.ATTENDANCE_COLORS = { present = "00FF00", late = "FFD100", absent = "FF3333", excused = "66B3FF" }
-
-local function Events(roster)
-    if type(roster.events) ~= "table" then roster.events = {} end
-    if type(roster.nextEventId) ~= "number" then roster.nextEventId = 1 end
-    return roster.events
-end
-
 -- Valida y normaliza fecha y hora. Devuelve "AAAA-MM-DD", "HH:MM" o nil, nil y un error
 function rosterModule.ParseDateTime(dateText, timeText)
     local y, mo, d = string.match(strtrim(dateText or ""), "^(%d%d%d%d)-(%d%d?)-(%d%d?)$")
@@ -579,179 +570,6 @@ function rosterModule.FormatEventDate(event)
     local y, mo, d = string.match(event.date or "", "^(%d+)-(%d+)-(%d+)$")
     if not y then return event.date or "?" end
     return d .. "/" .. mo .. "/" .. y .. " " .. (event.time or "")
-end
-
-function rosterModule.AddEvent(roster, dateText, timeText, note)
-    local date, time, err = rosterModule.ParseDateTime(dateText, timeText)
-    if not date then return nil, err end
-    local events = Events(roster)
-    for _, event in pairs(events) do
-        if event.date == date and event.time == time then return nil, L["Ya existe una fecha con ese día y hora."] end
-    end
-    local id = roster.nextEventId
-    roster.nextEventId = id + 1
-    local event = { id = id, date = date, time = time, note = strtrim(note or ""), attendance = {} }
-    events[id] = event
-    return event
-end
-
-function rosterModule.DeleteEvent(roster, event)
-    if roster and event then Events(roster)[event.id] = nil end
-end
-
--- Más reciente primero
-function rosterModule.GetEventsSorted(roster)
-    local list = {}
-    for _, event in pairs(Events(roster)) do table.insert(list, event) end
-    table.sort(list, function(a, b) return (a.date .. a.time) > (b.date .. b.time) end)
-    return list
-end
-
-function rosterModule.GetEvent(roster, id)
-    return id and Events(roster)[id]
-end
-
-function rosterModule.SetAttendance(event, fullName, status)
-    if not event or not fullName then return end
-    if event.attendance[fullName] == status then
-        event.attendance[fullName] = nil      -- un segundo clic quita la marca
-    else
-        event.attendance[fullName] = status
-    end
-end
-
-function rosterModule.GetEventCounts(event)
-    local counts = { present = 0, late = 0, absent = 0, excused = 0 }
-    for _, status in pairs(event.attendance or {}) do
-        if counts[status] then counts[status] = counts[status] + 1 end
-    end
-    return counts
-end
-
--- Asistencia de un jugador en las fechas de este roster.
--- percent = (presente + tarde) / (presente + tarde + ausente); las justificadas no cuentan.
-function rosterModule.GetAttendanceStats(roster, fullName)
-    local stats = { present = 0, late = 0, absent = 0, excused = 0 }
-    for _, event in pairs(Events(roster)) do
-        local status = event.attendance[fullName]
-        if status and stats[status] then stats[status] = stats[status] + 1 end
-    end
-    local counted = stats.present + stats.late + stats.absent
-    stats.counted = counted
-    stats.percent = counted > 0 and math.floor((stats.present + stats.late) * 100 / counted + 0.5) or nil
-    return stats
-end
-
--- Media de asistencia de los integrantes actuales
-function rosterModule.GetRosterAttendanceAverage(roster)
-    local total, n = 0, 0
-    for name in pairs(roster.members) do
-        local stats = rosterModule.GetAttendanceStats(roster, name)
-        if stats.percent then
-            total = total + stats.percent
-            n = n + 1
-        end
-    end
-    return n > 0 and math.floor(total / n + 0.5) or nil
-end
-
--- Integrantes a mostrar en la hoja de una fecha: los del roster y quien tenga marca en ella
-function rosterModule.GetAttendanceList(roster, event)
-    local slotOrder = { tank = 1, healer = 2, dps = 3, bench = 4 }
-    local seen, list = {}, {}
-    for name, slot in pairs(roster.members) do
-        seen[name] = true
-        table.insert(list, { name = name, slot = slot })
-    end
-    for name in pairs(event.attendance or {}) do
-        if not seen[name] then table.insert(list, { name = name, slot = "gone" }) end
-    end
-    table.sort(list, function(a, b)
-        local oa, ob = slotOrder[a.slot] or 5, slotOrder[b.slot] or 5
-        if oa ~= ob then return oa < ob end
-        return a.name < b.name
-    end)
-    return list
-end
-
--- Nombres (Nombre-Reino) de quienes están ahora en mi grupo o banda
-local function CurrentGroupNames()
-    local realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
-    local function Normalize(name, unitRealm)
-        if not name then return nil end
-        if string.find(name, "-", 1, true) then return (string.gsub(name, "%s+", "")) end
-        local r = (unitRealm and unitRealm ~= "") and unitRealm or realm
-        return (string.gsub(name .. "-" .. r, "%s+", ""))
-    end
-
-    local names = {}
-    names[Normalize(UnitName("player"))] = true
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local n = Normalize((GetRaidRosterInfo(i)))
-            if n then names[n] = true end
-        end
-    elseif IsInGroup() then
-        for i = 1, GetNumSubgroupMembers() do
-            local n = Normalize(UnitName("party" .. i))
-            if n then names[n] = true end
-        end
-    end
-    return names
-end
-
--- Marca la asistencia según el grupo actual: titulares presentes o ausentes (las
--- justificadas se respetan); los suplentes solo se marcan si están en el grupo.
-function rosterModule.TakeAttendanceFromGroup(roster, event)
-    local inGroup = CurrentGroupNames()
-    local present = 0
-    for name, slot in pairs(roster.members) do
-        if inGroup[name] then
-            event.attendance[name] = "present"
-            present = present + 1
-        elseif slot ~= "bench" and event.attendance[name] ~= "excused" then
-            event.attendance[name] = "absent"
-        end
-    end
-    return present
-end
-
-function rosterModule.MarkAllStarters(roster, event, status)
-    for name, slot in pairs(roster.members) do
-        if slot ~= "bench" then event.attendance[name] = status end
-    end
-end
-
-function rosterModule.ClearAttendance(event)
-    if event then wipe(event.attendance) end
-end
-
--- Importa los eventos del calendario del juego (mes actual y siguiente), sin festividades
--- ni reinicios de banda. Devuelve cuántas fechas se añadieron (nil si no hay API).
-function rosterModule.ImportCalendarEvents(roster)
-    if not (C_Calendar and C_Calendar.GetNumDayEvents and C_Calendar.GetDayEvent and C_Calendar.GetMonthInfo) then
-        return nil
-    end
-    local skip = { HOLIDAY = true, RAID_LOCKOUT = true, RAID_RESET = true }
-    local added = 0
-    for monthOffset = 0, 1 do
-        local okInfo, info = pcall(C_Calendar.GetMonthInfo, monthOffset)
-        if okInfo and info and info.numDays then
-            for day = 1, info.numDays do
-                local okNum, num = pcall(C_Calendar.GetNumDayEvents, monthOffset, day)
-                for index = 1, (okNum and num or 0) do
-                    local okEvent, event = pcall(C_Calendar.GetDayEvent, monthOffset, day, index)
-                    if okEvent and event and event.startTime and not skip[event.calendarType or ""] then
-                        local st = event.startTime
-                        local dateText = string.format("%04d-%02d-%02d", st.year, st.month, st.monthDay)
-                        local timeText = string.format("%02d:%02d", st.hour, st.minute)
-                        if rosterModule.AddEvent(roster, dateText, timeText, event.title) then added = added + 1 end
-                    end
-                end
-            end
-        end
-    end
-    return added
 end
 
 
@@ -835,7 +653,6 @@ end
 
 -- Copia limpia de un roster recibido: solo campos conocidos y con tipos válidos
 local VALID_SLOTS = { tank = true, healer = true, dps = true, bench = true }
-local VALID_STATUS = { present = true, late = true, absent = true, excused = true }
 local VALID_DIFFICULTY = { normal = true, heroic = true, mythic = true }
 
 local function CleanString(value, maxLen)
@@ -855,7 +672,6 @@ local function SanitizeRoster(raw)
         updatedAt = tonumber(raw.updatedAt) or 0,
         members = {},
         variants = {}, variantOrder = {}, nextVariantId = 1,
-        events = {}, nextEventId = 1,
     }
     if type(raw.members) == "table" then
         for name, slot in pairs(raw.members) do
@@ -877,24 +693,6 @@ local function SanitizeRoster(raw)
                 end
                 roster.variants[id] = clean
                 table.insert(roster.variantOrder, id)
-            end
-        end
-    end
-    if type(raw.events) == "table" then
-        for _, e in pairs(raw.events) do
-            if type(e) == "table" then
-                local date, time = rosterModule.ParseDateTime(e.date, e.time)
-                if date then
-                    local id = roster.nextEventId
-                    roster.nextEventId = id + 1
-                    local clean = { id = id, date = date, time = time, note = CleanString(e.note, 40) or "", attendance = {} }
-                    if type(e.attendance) == "table" then
-                        for name, status in pairs(e.attendance) do
-                            if type(name) == "string" and VALID_STATUS[status] then clean.attendance[CleanString(name)] = status end
-                        end
-                    end
-                    roster.events[id] = clean
-                end
             end
         end
     end
@@ -944,7 +742,7 @@ function rosterModule.ShareRoster(roster, isRepublish)
             name = roster.name, syncId = roster.syncId, difficulty = roster.difficulty, size = roster.size,
             updatedAt = roster.updatedAt,
             tanks = roster.tanks, healers = roster.healers, members = roster.members,
-            variants = roster.variants, variantOrder = roster.variantOrder, events = roster.events,
+            variants = roster.variants, variantOrder = roster.variantOrder,
         },
     }
     local out = {}
@@ -1172,7 +970,7 @@ function rosterModule.ImportReceived(index, mode)
         target = rosterModule.Create(incoming.name)
     end
     for _, field in ipairs({ "name", "syncId", "difficulty", "size", "tanks", "healers",
-                             "members", "variants", "variantOrder", "nextVariantId", "events", "nextEventId" }) do
+                             "members", "variants", "variantOrder", "nextVariantId" }) do
         target[field] = incoming[field]
     end
     target.selectedVariant = nil

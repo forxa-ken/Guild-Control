@@ -507,6 +507,11 @@ local function BuildAchievementPreviewText(id)
     else
         table.insert(lines, L["Estado: |cFFFF3333Pendiente|r"])
     end
+    -- Logros de personaje: si quien mira ya lo tiene
+    if not d.isGuild then
+        table.insert(lines, d.completed and L["|cFF00FF00Ya completaste este logro.|r"]
+            or L["|cFFFF7F00Aún no has completado este logro.|r"])
+    end
 
     if d.rewardText ~= "" then
         table.insert(lines, "")
@@ -795,6 +800,16 @@ local function BuildMembersView(parent)
     exportLabel:SetText(L["Exportar"])
     btnCSV:SetScript("OnClick", function()
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
+    end)
+
+    -- Vuelve a pedir la lista de la hermandad al servidor (a veces llega tarde al conectar)
+    local btnReload = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnReload:SetSize(90, 22)
+    btnReload:SetPoint("RIGHT", btnCSV, "LEFT", -8, 0)
+    btnReload:SetText(L["Actualizar"])
+    btnReload:SetScript("OnClick", function()
+        if addonTable.ForceRosterScan then addonTable.ForceRosterScan() end
+        if uiModule.RefreshList then uiModule.RefreshList() end
     end)
 
     -- Encabezados ordenables
@@ -1453,47 +1468,6 @@ local function BuildAchievementsView(parent)
     btnModePlayer:SetScript("OnClick", function() SetAchievementMode("player") end)
     btnModeGuild:SetEnabled(false)
 
-    -- Abre un logro concreto: modo, categoría, filtros limpios, desplazamiento y vista previa.
-    -- Lo usa el Resumen para llevar a la sección Logros al hacer clic en una noticia.
-    -- Si el logro no aparece en su categoría (por ejemplo, un paso intermedio de una serie),
-    -- se busca por nombre en todas las categorías y, si hace falta, en el otro modo.
-    local function ScrollToSelected(id)
-        for index, row in ipairs(achRows) do
-            if row:IsShown() and row.achId == id then
-                local maxScroll = achScroll:GetVerticalScrollRange() or 0
-                achScroll:SetVerticalScroll(math.min(maxScroll, math.max(0, (index - 3) * 26)))
-                return true
-            end
-        end
-        return false
-    end
-
-    uiModule.FocusAchievement = function(id, mode, name)
-        if not id or not addonTable.Achievements then return end
-        name = name or select(2, GetAchievementInfo(id))
-        local modes = { mode or "guild", (mode == "player") and "guild" or "player" }
-        for _, tryMode in ipairs(modes) do
-            SetAchievementMode(tryMode)
-            filterState, filterSeason = "TODOS", false
-            chkSeason:SetChecked(false)
-            searchBox:SetText("")
-            local categoryId = GetAchievementCategory and GetAchievementCategory(id)
-            if categoryId then currentCategoryId = categoryId end
-            selectedAchievementId = id
-            uiModule.RefreshAchievements()
-            UpdateCategorySelection()
-            if ScrollToSelected(id) then break end
-
-            if name and name ~= "" then
-                searchBox:SetText(name)   -- con texto se busca en todas las categorías
-                selectedAchievementId = id
-                uiModule.RefreshAchievements()
-                if ScrollToSelected(id) then break end
-            end
-        end
-        uiModule.ShowAchievementPreview(id)
-    end
-
     containers.views["Logros"] = view
 end
 
@@ -1547,372 +1521,13 @@ local function ShowMemberTooltip(owner, fullName)
     GameTooltip:AddDoubleLine(L["Rango"], m.rank or "-", 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine(L["Estado"], m.isOnline and L["En línea"] or addonTable.FormatLastOnline(m.lastOnline or "Desconectado"),
         0.7, 0.7, 0.7, m.isOnline and 0 or 0.6, m.isOnline and 1 or 0.6, m.isOnline and 0 or 0.6)
-    -- Asistencia en las fechas del roster seleccionado
-    local stats = R.GetAttendanceStats(R.GetSelected(), fullName)
+    -- Asistencia en las bandas (pestaña Raid) asociadas al roster seleccionado
+    local stats = addonTable.RaidEvents.GetAttendanceStats(R.GetSelected().name, fullName)
     if stats.percent then
         GameTooltip:AddDoubleLine(L["Asistencia"], stats.percent .. "% (" .. (stats.present + stats.late) .. "/" .. stats.counted .. ")",
             0.7, 0.7, 0.7, 1, 1, 1)
     end
     GameTooltip:Show()
-end
-
--- Modo "Fechas" del roster: lista de fechas de banda y hoja de asistencia.
--- onChanged() se llama tras cada cambio para refrescar el resumen de la vista previa.
-local function BuildRosterDatesPanel(parent, onChanged)
-    local R = addonTable.Roster
-    local panel = CreateFrame("Frame", nil, parent)
-    panel:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -40)
-    panel:SetSize(880, 470)
-    panel:Hide()
-
-    local selectedEventId = nil
-    local currentRoster = nil
-    local RefreshPanel   -- declaración adelantada
-
-    -- ---------------------------------------------------------------------
-    -- Izquierda: alta de fechas y lista
-    -- ---------------------------------------------------------------------
-    local left = CreateBackdropBox(panel, 270, 470, "TOPLEFT", panel, "TOPLEFT", 0, 0)
-
-    local leftTitle = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    leftTitle:SetPoint("TOPLEFT", left, "TOPLEFT", 10, -10)
-    leftTitle:SetText(L["Fechas de banda"])
-
-    local function SmallInput(labelText, width, anchor, x, y)
-        local label = left:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", x, y)
-        label:SetText(labelText)
-        local input = CreateFrame("EditBox", nil, left, "InputBoxTemplate")
-        input:SetSize(width, 20)
-        input:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 5, -2)
-        input:SetAutoFocus(false)
-        input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        return label, input
-    end
-
-    local dateLabel, dateInput = SmallInput(L["Fecha (DD/MM/AAAA)"], 100, leftTitle, 0, -10)
-    local timeLabel, timeInput = SmallInput(L["Hora"], 50, leftTitle, 130, -10)
-    timeInput:SetMaxLetters(5)
-    local noteLabel, noteInput = SmallInput(L["Nota (opcional)"], 240, dateInput, -5, -8)
-    noteInput:SetMaxLetters(40)
-
-    local btnAdd = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
-    btnAdd:SetSize(110, 22)
-    btnAdd:SetPoint("TOPLEFT", noteInput, "BOTTOMLEFT", -5, -8)
-    btnAdd:SetText(L["Añadir fecha"])
-
-    local btnImport = CreateFrame("Button", nil, left, "UIPanelButtonTemplate")
-    btnImport:SetSize(134, 22)
-    btnImport:SetPoint("LEFT", btnAdd, "RIGHT", 6, 0)
-    btnImport:SetText(L["Importar calendario"])
-
-    local listScroll = CreateFrame("ScrollFrame", "GC_RosterDatesScroll", left, "UIPanelScrollFrameTemplate")
-    listScroll:SetPoint("TOPLEFT", btnAdd, "BOTTOMLEFT", 0, -10)
-    listScroll:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -26, 24)
-    local listChild = CreateFrame("Frame")
-    listChild:SetSize(234, 1)
-    listScroll:SetScrollChild(listChild)
-
-    local listHint = left:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    listHint:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT", 10, 8)
-    listHint:SetText(L["Clic: ver asistencia · Clic derecho: eliminar"])
-
-    local function ResetForm()
-        dateInput:SetText(date("%d/%m/%Y"))
-        timeInput:SetText("21:00")
-        noteInput:SetText("")
-    end
-
-    btnAdd:SetScript("OnClick", function()
-        local event, err = R.AddEvent(currentRoster, dateInput:GetText(), timeInput:GetText(), noteInput:GetText())
-        if not event then
-            PrintGC("|cFFFF3333" .. err .. "|r")
-            return
-        end
-        selectedEventId = event.id
-        noteInput:SetText("")
-        RefreshPanel()
-    end)
-
-    -- El calendario carga sus datos de forma asíncrona: se reintenta al llegar CALENDAR_UPDATE_EVENT_LIST
-    local calendarFrame = CreateFrame("Frame")
-    local waitingCalendar = false
-    local function DoImport(silentIfNone)
-        local added = R.ImportCalendarEvents(currentRoster)
-        if added == nil then
-            PrintGC(L["|cFFFF3333El calendario no está disponible.|r"])
-        elseif added > 0 or not silentIfNone then
-            PrintGC(L["Fechas importadas del calendario: |cFFFFD100"] .. added .. "|r.")
-        end
-        RefreshPanel()
-        return added
-    end
-    calendarFrame:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("CALENDAR_UPDATE_EVENT_LIST")
-        if waitingCalendar then
-            waitingCalendar = false
-            DoImport(false)
-        end
-    end)
-    btnImport:SetScript("OnClick", function()
-        if C_Calendar and C_Calendar.OpenCalendar then
-            pcall(C_Calendar.OpenCalendar)
-            local added = DoImport(true)
-            if added == 0 then
-                waitingCalendar = true
-                calendarFrame:RegisterEvent("CALENDAR_UPDATE_EVENT_LIST")
-            end
-        else
-            DoImport(false)
-        end
-    end)
-
-    local eventRows = {}
-    local function AcquireEventRow(index)
-        local row = eventRows[index]
-        if row then return row end
-        row = CreateFrame("Button", nil, listChild)
-        row:SetSize(234, 30)
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetAllPoints()
-        row.bg:SetColorTexture(1, 0.82, 0, 0.15)
-        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
-        row.highlight:SetAllPoints()
-        row.highlight:SetColorTexture(1, 1, 1, 0.08)
-        row.dateFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.dateFs:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -3)
-        row.countFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.countFs:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -3)
-        row.noteFs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.noteFs:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 4, 3)
-        row.noteFs:SetWidth(226)
-        row.noteFs:SetJustifyH("LEFT")
-        row.noteFs:SetWordWrap(false)
-        row:SetScript("OnClick", function(self, button)
-            local event = R.GetEvent(currentRoster, self.eventId)
-            if not event then return end
-            if button == "RightButton" then
-                MenuUtil.CreateContextMenu(self, function(_, root)
-                    root:CreateTitle(R.FormatEventDate(event))
-                    root:CreateButton(L["|cFFFF3333Eliminar fecha|r"], function()
-                        R.DeleteEvent(currentRoster, event)
-                        if selectedEventId == event.id then selectedEventId = nil end
-                        RefreshPanel()
-                    end)
-                end)
-            else
-                selectedEventId = event.id
-                RefreshPanel()
-            end
-        end)
-        eventRows[index] = row
-        return row
-    end
-
-    -- ---------------------------------------------------------------------
-    -- Derecha: hoja de asistencia de la fecha seleccionada
-    -- ---------------------------------------------------------------------
-    local right = CreateBackdropBox(panel, 604, 470, "TOPLEFT", left, "TOPRIGHT", 6, 0)
-
-    local sheetTitle = right:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    sheetTitle:SetPoint("TOPLEFT", right, "TOPLEFT", 10, -10)
-    sheetTitle:SetWidth(584)
-    sheetTitle:SetJustifyH("LEFT")
-    sheetTitle:SetWordWrap(false)
-
-    local function SheetButton(text, width, anchor, onClick)
-        local btn = CreateFrame("Button", nil, right, "UIPanelButtonTemplate")
-        btn:SetSize(width, 22)
-        if anchor then
-            btn:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
-        else
-            btn:SetPoint("TOPLEFT", sheetTitle, "BOTTOMLEFT", 0, -8)
-        end
-        btn:SetText(text)
-        btn:SetScript("OnClick", onClick)
-        return btn
-    end
-
-    local function SelectedEvent()
-        return currentRoster and R.GetEvent(currentRoster, selectedEventId)
-    end
-
-    local btnFromGroup = SheetButton(L["Tomar del grupo actual"], 170, nil, function()
-        local event = SelectedEvent()
-        if not event then return end
-        local present = R.TakeAttendanceFromGroup(currentRoster, event)
-        PrintGC(L["Asistencia tomada del grupo: |cFFFFD100"] .. present .. L["|r integrantes presentes."])
-        RefreshPanel()
-    end)
-    local btnAllPresent = SheetButton(L["Titulares presentes"], 140, btnFromGroup, function()
-        local event = SelectedEvent()
-        if not event then return end
-        R.MarkAllStarters(currentRoster, event, "present")
-        RefreshPanel()
-    end)
-    SheetButton(L["Limpiar marcas"], 120, btnAllPresent, function()
-        local event = SelectedEvent()
-        if not event then return end
-        R.ClearAttendance(event)
-        RefreshPanel()
-    end)
-
-    -- Cabeceras de la tabla
-    local COLS = { name = 6, slot = 170, status = 236, statusWidth = 64, history = 500 }
-    local headerRow = CreateFrame("Frame", nil, right)
-    headerRow:SetSize(584, 16)
-    headerRow:SetPoint("TOPLEFT", btnFromGroup, "BOTTOMLEFT", 0, -10)
-    local function Header(text, x)
-        local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("LEFT", headerRow, "LEFT", x, 0)
-        fs:SetText(text)
-    end
-    Header(L["Integrante"], COLS.name)
-    Header(L["Puesto"], COLS.slot)
-    Header(L["Marca"], COLS.status)
-    Header(L["Historial"], COLS.history)
-
-    local sheetScroll = CreateFrame("ScrollFrame", "GC_RosterSheetScroll", right, "UIPanelScrollFrameTemplate")
-    sheetScroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
-    sheetScroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -26, 28)
-    local sheetChild = CreateFrame("Frame")
-    sheetChild:SetSize(568, 1)
-    sheetScroll:SetScrollChild(sheetChild)
-
-    local sheetSummary = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sheetSummary:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 10, 9)
-
-    local emptyText = right:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    emptyText:SetPoint("CENTER", right, "CENTER", 0, 0)
-
-    local SLOT_SHORT = { tank = L["Tanque"], healer = L["Sanador"], dps = "DPS", bench = L["Suplente"], gone = L["Fuera"] }
-
-    local sheetRows = {}
-    local function AcquireSheetRow(index)
-        local row = sheetRows[index]
-        if row then return row end
-        row = CreateFrame("Frame", nil, sheetChild)
-        row:SetSize(568, 20)
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetAllPoints()
-        row.bg:SetColorTexture(1, 1, 1, 0.05)
-        row.nameFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.nameFs:SetPoint("LEFT", row, "LEFT", COLS.name, 0)
-        row.nameFs:SetWidth(160)
-        row.nameFs:SetJustifyH("LEFT")
-        row.nameFs:SetWordWrap(false)
-        row.slotFs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.slotFs:SetPoint("LEFT", row, "LEFT", COLS.slot, 0)
-        row.historyFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.historyFs:SetPoint("LEFT", row, "LEFT", COLS.history, 0)
-
-        row.statusButtons = {}
-        for i, status in ipairs(R.ATTENDANCE) do
-            local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-            btn:SetSize(COLS.statusWidth - 2, 18)
-            btn:SetPoint("LEFT", row, "LEFT", COLS.status + (i - 1) * COLS.statusWidth, 0)
-            btn.status = status
-            btn:SetScript("OnClick", function(self)
-                local event = SelectedEvent()
-                if not event or not row.fullName then return end
-                R.SetAttendance(event, row.fullName, self.status)
-                RefreshPanel()
-            end)
-            row.statusButtons[status] = btn
-        end
-        sheetRows[index] = row
-        return row
-    end
-
-    local function HistoryText(fullName)
-        local stats = R.GetAttendanceStats(currentRoster, fullName)
-        if not stats.percent then return "|cFF808080-|r" end
-        local color = stats.percent >= 90 and "00FF00" or (stats.percent >= 70 and "FFD100" or "FF3333")
-        return "|cFF" .. color .. stats.percent .. "%|r |cFF808080(" .. (stats.present + stats.late) .. "/" .. stats.counted .. ")|r"
-    end
-
-    local function RefreshSheet()
-        for _, row in ipairs(sheetRows) do row:Hide() end
-        local event = SelectedEvent()
-        if not event then
-            sheetTitle:SetText(L["Asistencia"])
-            emptyText:SetText(L["Añade o selecciona una fecha para pasar lista."])
-            emptyText:Show()
-            sheetSummary:SetText("")
-            sheetChild:SetHeight(1)
-            return
-        end
-        emptyText:Hide()
-        local note = (event.note and event.note ~= "") and ("  |cFFBFBFBF" .. event.note .. "|r") or ""
-        sheetTitle:SetText(L["Asistencia · "] .. R.FormatEventDate(event) .. note)
-
-        local list = R.GetAttendanceList(currentRoster, event)
-        for i, entry in ipairs(list) do
-            local row = AcquireSheetRow(i)
-            row:SetPoint("TOPLEFT", sheetChild, "TOPLEFT", 0, -(i - 1) * 21)
-            row.bg:SetShown(i % 2 == 0)
-            row.fullName = entry.name
-            row.nameFs:SetText(ColoredMemberName(entry.name))
-            row.slotFs:SetText(SLOT_SHORT[entry.slot] or entry.slot)
-            row.historyFs:SetText(HistoryText(entry.name))
-            local current = event.attendance[entry.name]
-            for status, btn in pairs(row.statusButtons) do
-                local label = L[R.ATTENDANCE_LABELS[status]]
-                if current == status then
-                    btn:SetText("|cFF" .. R.ATTENDANCE_COLORS[status] .. label .. "|r")
-                else
-                    btn:SetText("|cFF808080" .. label .. "|r")
-                end
-            end
-            row:Show()
-        end
-        sheetChild:SetHeight(math.max(1, #list * 21))
-
-        local counts = R.GetEventCounts(event)
-        sheetSummary:SetText(string.format(L["|cFF00FF00Presentes %d|r   |cFFFFD100Tarde %d|r   |cFFFF3333Ausentes %d|r   |cFF66B3FFJustificadas %d|r   |cFF808080Sin marcar %d|r"],
-            counts.present, counts.late, counts.absent, counts.excused,
-            math.max(0, #list - counts.present - counts.late - counts.absent - counts.excused)))
-    end
-
-    local function RefreshList()
-        for _, row in ipairs(eventRows) do row:Hide() end
-        local events = R.GetEventsSorted(currentRoster)
-        if selectedEventId and not R.GetEvent(currentRoster, selectedEventId) then selectedEventId = nil end
-        if not selectedEventId and events[1] then selectedEventId = events[1].id end
-
-        for i, event in ipairs(events) do
-            local row = AcquireEventRow(i)
-            row:SetPoint("TOPLEFT", listChild, "TOPLEFT", 0, -(i - 1) * 32)
-            row.eventId = event.id
-            row.bg:SetShown(event.id == selectedEventId)
-            row.dateFs:SetText(R.FormatEventDate(event))
-            local counts = R.GetEventCounts(event)
-            row.countFs:SetText("|cFF00FF00" .. (counts.present + counts.late) .. "|r|cFF808080 / |r|cFFFF3333" .. counts.absent .. "|r")
-            row.noteFs:SetText(event.note or "")
-            row:Show()
-        end
-        listChild:SetHeight(math.max(1, #events * 32))
-    end
-
-    RefreshPanel = function()
-        if not currentRoster then return end
-        RefreshList()
-        RefreshSheet()
-        if onChanged then onChanged() end
-    end
-
-    -- La vista Roster llama a esto al cambiar de roster o de modo
-    function panel.SetRoster(roster)
-        if currentRoster ~= roster then selectedEventId = nil end
-        currentRoster = roster
-        RefreshList()
-        RefreshSheet()
-    end
-
-    ResetForm()
-    return panel
 end
 
 local function BuildRosterView(parent)
@@ -2023,24 +1638,6 @@ local function BuildRosterView(parent)
             end)
         end
     end)
-
-    -- Modos de la vista: composición (fase 1) o fechas y asistencia (fase 2)
-    local btnModeDates = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnModeDates:SetSize(100, 22)
-    btnModeDates:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -11)
-    btnModeDates:SetText(L["Fechas"])
-
-    local btnModeComp = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnModeComp:SetSize(110, 22)
-    btnModeComp:SetPoint("RIGHT", btnModeDates, "LEFT", -6, 0)
-    btnModeComp:SetText(L["Composición"])
-
-    local function SetViewMode(mode)
-        GuildControlDB.rosterData.viewMode = mode
-        Refresh()
-    end
-    btnModeComp:SetScript("OnClick", function() SetViewMode("comp") end)
-    btnModeDates:SetScript("OnClick", function() SetViewMode("dates") end)
 
     dropRoster:SetupMenu(function(_, rootDescription)
         for _, roster in ipairs(R.GetAll()) do
@@ -2685,16 +2282,11 @@ local function BuildRosterView(parent)
         table.insert(lines, table.concat(armorParts, L[" · "]))
         table.insert(lines, "")
         table.insert(lines, L["|cFFFFD100Asistencia|r"])
-        local eventCount = #R.GetEventsSorted(roster)
-        local average = R.GetRosterAttendanceAverage(roster)
-        table.insert(lines, L["Fechas registradas: "] .. eventCount)
+        local average, eventCount = addonTable.RaidEvents.GetRosterAttendance(roster)
+        table.insert(lines, L["Bandas con lista pasada: "] .. eventCount)
         table.insert(lines, L["Media del roster: "] .. (average and (average .. "%") or L["|cFF808080sin datos|r"]))
         return table.concat(lines, "\n")
     end
-
-    local datesPanel = BuildRosterDatesPanel(view, function()
-        if activeTab == "Roster" then SetPreviewText(BuildSummaryText(R.GetSelected())) end
-    end)
 
     -- ---------------------------------------------------------------------
     -- Refresco general
@@ -2740,26 +2332,11 @@ local function BuildRosterView(parent)
         local color = starters == roster.size and "|cFF00FF00" or (starters > roster.size and "|cFFFF7F00" or "|cFFFFD100")
         criteriaStatus:SetText(L["Titulares: "] .. color .. starters .. "/" .. roster.size .. "|r")
 
-        -- Modo: composición o fechas (ocupan la misma zona)
-        local mode = GuildControlDB.rosterData.viewMode == "dates" and "dates" or "comp"
-        local isComp = mode == "comp"
-        criteria:SetShown(isComp)
-        candPanel:SetShown(isComp)
-        compPanel:SetShown(isComp)
-        actionsBar:SetShown(isComp)
-        datesPanel:SetShown(not isComp)
-        btnModeComp:SetEnabled(not isComp)
-        btnModeDates:SetEnabled(isComp)
-
-        if isComp then
-            RefreshBlock(blocks.tank, bySlot.tank, targets.tank)
-            RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
-            RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
-            RefreshBlock(blocks.bench, bySlot.bench, 0)
-            RefreshCandidates(roster)
-        else
-            datesPanel.SetRoster(roster)
-        end
+        RefreshBlock(blocks.tank, bySlot.tank, targets.tank)
+        RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
+        RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
+        RefreshBlock(blocks.bench, bySlot.bench, 0)
+        RefreshCandidates(roster)
 
         if activeTab == "Roster" then SetPreviewText(BuildSummaryText(roster)) end
     end
@@ -3532,7 +3109,7 @@ local function ExpandRosterMessage(template, roster, event, fullName)
         dificultad = R.DifficultyLabel(roster) .. " " .. roster.size,
         fecha = fecha,
         hora = event and event.time or "",
-        nota = event and event.note or "",
+        nota = event and (event.note or event.description) or "",
         hermandad = addonTable.GetDisplayGuildName(),
         nombre = fullName and (string.match(fullName, "^([^-]+)") or fullName) or "",
         rol = slot and L[ROSTER_ROLE_WORDS[slot]] or "",
@@ -3589,8 +3166,16 @@ local function CreateRosterMessageFrame()
     local recipientsText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     recipientsText:SetPoint("TOPLEFT", varsHint, "BOTTOMLEFT", 0, -12)
 
-    local function SelectedEvent(roster)
-        return roster and R.GetEvent(roster, selectedEventId)
+    -- Bandas de la pestaña Raid: las asociadas a este roster o, si no hay, todas las próximas
+    local function RosterEvents(roster)
+        local E = addonTable.RaidEvents
+        local events = E.GetUpcomingForRoster(roster.name)
+        if #events == 0 then events = E.GetUpcomingForRoster(nil) end
+        return events
+    end
+
+    local function SelectedEvent()
+        return selectedEventId and addonTable.RaidEvents.Get(selectedEventId) or nil
     end
 
     -- Integrantes conectados a los que se susurraría (sin mí)
@@ -3621,18 +3206,13 @@ local function CreateRosterMessageFrame()
     local function Refresh()
         local roster = R.GetSelected()
         frame.title:SetText(L["Mensaje para "] .. R.GetDisplayName(roster))
-        local events = R.GetEventsSorted(roster)
-        if selectedEventId ~= false and (not selectedEventId or not R.GetEvent(roster, selectedEventId)) then
-            -- Por defecto, la próxima fecha (o la más reciente si ya pasaron todas)
-            selectedEventId = nil
-            local today = date("%Y-%m-%d")
-            for i = #events, 1, -1 do
-                if events[i].date >= today then selectedEventId = events[i].id break end
-            end
-            if not selectedEventId and events[1] then selectedEventId = events[1].id end
+        if selectedEventId ~= false and not SelectedEvent() then
+            -- Por defecto, la próxima banda
+            local events = RosterEvents(roster)
+            selectedEventId = events[1] and events[1].id or nil
         end
-        local event = SelectedEvent(roster)
-        dropEvent:SetText(event and R.FormatEventDate(event) or L["Sin fecha"])
+        local event = SelectedEvent()
+        dropEvent:SetText(event and (R.FormatEventDate(event) .. L[" · "] .. event.title) or L["Sin fecha"])
         UpdateRecipients()
     end
 
@@ -3640,9 +3220,9 @@ local function CreateRosterMessageFrame()
         local roster = R.GetSelected()
         root:CreateRadio(L["Sin fecha"], function() return not selectedEventId end,
             function() selectedEventId = false; Refresh() end)
-        for _, event in ipairs(R.GetEventsSorted(roster)) do
+        for _, event in ipairs(RosterEvents(roster)) do
             local id = event.id
-            local label = R.FormatEventDate(event) .. ((event.note and event.note ~= "") and (L[" · "] .. event.note) or "")
+            local label = R.FormatEventDate(event) .. L[" · "] .. event.title
             root:CreateRadio(label, function() return selectedEventId == id end,
                 function() selectedEventId = id; Refresh() end)
         end
@@ -3655,7 +3235,7 @@ local function CreateRosterMessageFrame()
     btnGuild:SetText(L["Enviar a la hermandad"])
     btnGuild:SetScript("OnClick", function()
         local roster = R.GetSelected()
-        local msg = ExpandRosterMessage(editor.GetText(), roster, SelectedEvent(roster), nil)
+        local msg = ExpandRosterMessage(editor.GetText(), roster, SelectedEvent(), nil)
         if msg == "" then return end
         if #msg > MAX_CHAT_BYTES then
             PrintGC(L["|cFFFF3333El mensaje supera los "] .. MAX_CHAT_BYTES .. L[" caracteres del chat.|r"])
@@ -3676,7 +3256,7 @@ local function CreateRosterMessageFrame()
     btnWhisper:SetScript("OnClick", function(self)
         if whisperTicker then return end
         local roster = R.GetSelected()
-        local event = SelectedEvent(roster)
+        local event = SelectedEvent()
         local template = editor.GetText()
         local queue = {}
         for _, name in ipairs(Recipients(roster)) do
@@ -4309,31 +3889,28 @@ local function BuildMyRostersView(parent)
         for _, name in ipairs(bySlot.bench) do table.insert(benchNames, NameLine(name, me)) end
         benchCol:SetText(L["|cFFFFD100Suplentes ("] .. #bySlot.bench .. ")|r\n" .. table.concat(benchNames, "   "))
 
-        -- Mis datos: puesto, próximas fechas con mi marca y asistencia
+        -- Mis datos: puesto, próximas bandas (pestaña Raid) con mi respuesta y asistencia
         local SLOT_TEXT = { tank = L["Tanque (titular)"], healer = L["Sanador (titular)"], dps = L["DPS (titular)"], bench = L["Suplente"] }
         local mySlot = R.GetEffectiveMembers(roster, variant)[me]
         local lines = { L["|cFFFFD100Tu puesto|r"], mySlot and SLOT_TEXT[mySlot] or L["|cFF808080No estás en esta composición|r"], "" }
 
-        table.insert(lines, L["|cFFFFD100Próximas fechas|r"])
-        local today = date("%Y-%m-%d")
-        local upcoming = {}
-        for _, event in ipairs(R.GetEventsSorted(roster)) do
-            if event.date >= today then table.insert(upcoming, 1, event) end
-        end
-        if #upcoming == 0 then table.insert(lines, L["|cFF808080Sin fechas próximas|r"]) end
+        local E = addonTable.RaidEvents
+        table.insert(lines, L["|cFFFFD100Próximas bandas|r"])
+        local upcoming = E.GetUpcomingForRoster(roster.name)
+        if #upcoming == 0 then table.insert(lines, L["|cFF808080Sin bandas próximas|r"]) end
         for i = 1, math.min(#upcoming, 6) do
             local event = upcoming[i]
-            local status = event.attendance[me]
-            local mark = status and ("|cFF" .. R.ATTENDANCE_COLORS[status] .. L[R.ATTENDANCE_LABELS[status]] .. "|r") or L["|cFF808080sin marcar|r"]
-            local note = (event.note and event.note ~= "") and (L[" · "] .. event.note) or ""
-            table.insert(lines, R.FormatEventDate(event) .. note .. "  " .. mark)
+            local signup = E.GetMySignup(event)
+            local mark = signup and ("|cFF" .. E.STATUS_COLORS[signup.status] .. L[E.STATUS_LABELS[signup.status]] .. "|r")
+                or L["|cFFFF7F00sin responder|r"]
+            table.insert(lines, R.FormatEventDate(event) .. L[" · "] .. event.title .. "  " .. mark)
         end
 
         table.insert(lines, "")
         table.insert(lines, L["|cFFFFD100Tu asistencia|r"])
-        local stats = R.GetAttendanceStats(roster, me)
+        local stats = E.GetAttendanceStats(roster.name, me)
         if stats.percent then
-            table.insert(lines, stats.percent .. "% (" .. (stats.present + stats.late) .. L[" de "] .. stats.counted .. L[" fechas)"])
+            table.insert(lines, stats.percent .. "% (" .. (stats.present + stats.late) .. L[" de "] .. stats.counted .. L[" bandas)"])
         else
             table.insert(lines, L["|cFF808080Sin datos todavía|r"])
         end
@@ -4372,7 +3949,7 @@ local function BuildSummaryView(parent)
     view:SetAllPoints()
     view:Hide()
 
-    local currentFilter = "achievement"
+    local currentFilter = "guildAchievement"
     local Refresh
 
     -- ---------------------------------------------------------------------
@@ -4397,7 +3974,7 @@ local function BuildSummaryView(parent)
     local previous = nil
     for _, filter in ipairs(N.FILTERS) do
         local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
-        btn:SetSize(80, 20)
+        btn:SetSize(filter.width or 70, 20)
         if previous then
             btn:SetPoint("LEFT", previous, "RIGHT", 4, 0)
         else
@@ -4479,12 +4056,6 @@ local function BuildSummaryView(parent)
             local details = item.achievementId and addonTable.Achievements and addonTable.Achievements.GetDetails(item.achievementId)
             if details then
                 SetPreviewText(header .. BuildAchievementPreviewText(item.achievementId))
-                local id, name = item.achievementId, item.name
-                local mode = (item.kind == "guildAchievement") and "guild" or "player"
-                SetPreviewAction(L["Ir al logro en Logros"], function()
-                    SwitchTab("Logros")
-                    if uiModule.FocusAchievement then uiModule.FocusAchievement(id, mode, name) end
-                end)
             else
                 SetPreviewText(header .. "|cFFFFD100" .. (item.name or "") .. L["|r\n\n|cFF808080El juego no da el detalle de este logro.|r"])
             end
@@ -4543,6 +4114,8 @@ local function BuildSummaryView(parent)
         card.detail:SetWordWrap(false)
         card.date = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         card.date:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -6)
+        card.subtitle = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        card.subtitle:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 12, 9)
 
         -- Tooltip del logro o del objeto, y vista previa al hacer clic
         card:SetScript("OnEnter", function(self)
@@ -4557,28 +4130,50 @@ local function BuildSummaryView(parent)
             end
         end)
         card:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        card:SetScript("OnClick", function(self)
-            if not self.item then return end
-            if IsShiftKeyDown() then ShareNewsItem(self.item) else ShowNewsPreview(self.item) end
+        -- Clic: vista previa · Shift+clic: compartir · Clic derecho: abrir el logro en Blizzard
+        card:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        card:SetScript("OnClick", function(self, button)
+            local item = self.item
+            if not item then return end
+            if button == "RightButton" then
+                if item.achievementId and addonTable.Achievements then
+                    ShowNewsPreview(item)
+                    addonTable.Achievements.OpenAchievement(item.achievementId)
+                end
+            elseif IsShiftKeyDown() then
+                ShareNewsItem(item)
+            else
+                ShowNewsPreview(item)
+            end
         end)
         cards[index] = card
         return card
     end
 
     -- Una tarjeta puede ser noticia o cabecera de semana
-    local function SetupCard(card, item, headerText)
+    -- subtitleText: cabecera grande (la de las últimas altas) con un subtítulo debajo
+    local BIG_HEADER_HEIGHT = 58
+    local function SetupCard(card, item, headerText, subtitleText)
         local isHeader = headerText ~= nil
+        local isBig = isHeader and subtitleText ~= nil
         card.item = item
-        card:SetHeight(isHeader and 24 or (NEWS_CARD_HEIGHT - 4))
+        card:SetHeight(isBig and BIG_HEADER_HEIGHT or (isHeader and 24 or (NEWS_CARD_HEIGHT - 4)))
         card:EnableMouse(not isHeader)
         card.icon:SetShown(not isHeader)
         card.bar:SetShown(not isHeader)
         card.detail:SetShown(not isHeader)
         card.date:SetShown(not isHeader)
+        card.subtitle:SetShown(isBig)
         card.title:ClearAllPoints()
+        card.title:SetFontObject(isBig and "GameFontNormalHuge" or "GameFontHighlight")
         if isHeader then
-            card.bg:SetColorTexture(1, 0.82, 0, 0.08)
-            card.title:SetPoint("LEFT", card, "LEFT", 10, 0)
+            card.bg:SetColorTexture(1, 0.82, 0, isBig and 0.14 or 0.08)
+            if isBig then
+                card.title:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -9)
+                card.subtitle:SetText(subtitleText)
+            else
+                card.title:SetPoint("LEFT", card, "LEFT", 10, 0)
+            end
             card.title:SetPoint("RIGHT", card, "RIGHT", -10, 0)
             card.title:SetText("|cFFFFD100" .. headerText .. "|r")
         else
@@ -4651,11 +4246,11 @@ local function BuildSummaryView(parent)
 
         local raidLines = {}
         for _, entry in ipairs(N.GetUpcomingRaids(4)) do
-            local note = (entry.event.note and entry.event.note ~= "") and (L[" |cFF808080· "] .. entry.event.note .. "|r") or ""
-            table.insert(raidLines, "|cFFFFD100" .. ShortEventDate(entry.event) .. "|r  " .. entry.roster.name .. note)
+            local roster = entry.event.rosterName and (L[" |cFF808080· "] .. entry.event.rosterName .. "|r") or ""
+            table.insert(raidLines, "|cFFFFD100" .. ShortEventDate(entry.event) .. "|r  " .. entry.event.title .. roster)
         end
         raidsBox.text:SetText(#raidLines > 0 and table.concat(raidLines, "\n")
-            or L["|cFF808080No hay bandas programadas. Añádelas en Roster > Fechas.|r"])
+            or L["|cFF808080No hay bandas programadas. Los oficiales las crean en Raid.|r"])
 
         local rosterLines = {}
         for i, r in ipairs(N.GetRosterSummaries()) do
@@ -4688,11 +4283,25 @@ local function BuildSummaryView(parent)
         for key, btn in pairs(filterButtons) do btn:SetEnabled(key ~= currentFilter) end
         for _, card in ipairs(cards) do card:Hide() end
 
-        local feed = N.GetFeed(currentFilter)
         local index, y, lastWeek = 0, 0, nil
+        local feed
+        if currentFilter == "join" then
+            -- Altas: las 5 últimas, bajo una cabecera grande en vez de agrupar por semanas
+            feed = N.GetLatestJoins(5)
+            if #feed > 0 then
+                index = 1
+                local header = AcquireCard(index)
+                header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, 0)
+                SetupCard(header, nil, L["¡Bienvenidos a la hermandad!"], L["Las 5 últimas incorporaciones"])
+                y = BIG_HEADER_HEIGHT + 6
+                lastWeek = false
+            end
+        else
+            feed = N.GetFeed(currentFilter)
+        end
         for _, item in ipairs(feed) do
             local weekKey, weekLabel = N.GetWeek(item.sortKey)
-            if weekKey ~= lastWeek then
+            if lastWeek ~= false and weekKey ~= lastWeek then
                 lastWeek = weekKey
                 index = index + 1
                 local header = AcquireCard(index)
@@ -5093,17 +4702,17 @@ local WARNING_CATEGORIES = {
     },
     {
         key = "lowattendance", label = "Baja asistencia",
-        help = "Titulares de un roster con asistencia por debajo del umbral (con al menos 3 fechas registradas).",
+        help = "Titulares de un roster con asistencia por debajo del umbral (con al menos 3 bandas con lista pasada en Raid).",
         collect = function(s)
             local list = {}
-            local R = addonTable.Roster
+            local E = addonTable.RaidEvents
             for name, rosters in pairs(RosterStarters()) do
                 local m = GuildControlDB.members[name]
                 for _, roster in ipairs(rosters) do
-                    local stats = R.GetAttendanceStats(roster, name)
+                    local stats = E.GetAttendanceStats(roster.name, name)
                     if m and stats.percent and stats.counted >= 3 and stats.percent < s.lowAttendance then
                         table.insert(list, { name = name, data = m, sort = 100 - stats.percent,
-                            detail = roster.name .. ": " .. stats.percent .. "% (" .. (stats.present + stats.late) .. L[" de "] .. stats.counted .. L[" fechas)"] })
+                            detail = roster.name .. ": " .. stats.percent .. "% (" .. (stats.present + stats.late) .. L[" de "] .. stats.counted .. L[" bandas)"] })
                     end
                 end
             end
@@ -5976,11 +5585,12 @@ local function BuildMythicPlusView(parent)
         for _, row in ipairs(rows) do row:Hide() end
         local list = {}
         for fullName, m in pairs(GuildControlDB.members or {}) do
+            local keystone = M.GetKeystone(fullName)
             local pass = (not chkOnline:GetChecked() or m.isOnline)
-                and (not chkKeys:GetChecked() or m.keystone ~= nil)
+                and (not chkKeys:GetChecked() or keystone ~= nil)
                 and (searchQuery == "" or string.find(string.lower(fullName), searchQuery, 1, true))
-                and ((m.mplusScore or 0) > 0 or m.keystone ~= nil)
-            if pass then table.insert(list, { name = fullName, data = m }) end
+                and ((m.mplusScore or 0) > 0 or keystone ~= nil)
+            if pass then table.insert(list, { name = fullName, data = m, keystone = keystone }) end
         end
         table.sort(list, function(a, b)
             local sa, sb = a.data.mplusScore or 0, b.data.mplusScore or 0
@@ -5999,7 +5609,7 @@ local function BuildMythicPlusView(parent)
             row.cells[2]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. (string.match(entry.name, "^([^-]+)") or entry.name) .. "|r" .. dot)
             row.cells[3]:SetText(HasDefinedRole(m) and (RoleIcon(m.role, 12) .. " " .. L[m.role]) or "")
             row.cells[4]:SetText("|cFF" .. M.ScoreColorHex(score) .. score .. "|r")
-            row.cells[5]:SetText(KeystoneText(m.keystone))
+            row.cells[5]:SetText(KeystoneText(entry.keystone))
             row:Show()
         end
         child:SetHeight(math.max(1, #list * MPLUS_ROW_HEIGHT))
@@ -6010,6 +5620,7 @@ local function BuildMythicPlusView(parent)
     view:SetScript("OnShow", function()
         M.RequestData()
         M.UpdateScores()
+        M.RequestKeystones(true)   -- con límite de tiempo: no repite la petición cada vez
         Refresh()
     end)
     containers.views["Míticas+"] = view
@@ -6059,7 +5670,7 @@ local function BuildRaidView(parent)
     view:Hide()
 
     local selectedEventId = nil
-    local mode = "planning"           -- "planning" o "groups"
+    local mode = "planning"           -- "planning", "groups" o "attendance" (solo oficiales)
     local editing = nil               -- nil, "new" o el evento que se edita
     local Refresh
 
@@ -6070,9 +5681,14 @@ local function BuildRaidView(parent)
     title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText(L["Raid"])
 
+    local btnAttendance = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnAttendance:SetSize(110, 22)
+    btnAttendance:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnAttendance:SetText(L["Asistencia"])
+    btnAttendance:SetScript("OnClick", function() mode = "attendance"; editing = nil; Refresh() end)
     local btnGroups = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnGroups:SetSize(130, 22)
-    btnGroups:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnGroups:SetPoint("RIGHT", btnAttendance, "LEFT", -6, 0)
     btnGroups:SetText(L["Vista de grupos"])
     local btnPlanning = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnPlanning:SetSize(130, 22)
@@ -6661,6 +6277,150 @@ local function BuildRaidView(parent)
     end
 
     -- ---------------------------------------------------------------------
+    -- Asistencia: hoja para pasar lista de la banda seleccionada (oficiales)
+    -- ---------------------------------------------------------------------
+    local attPanel = CreateBackdropBox(view, 644, 470, "TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+    attPanel:Hide()
+
+    local attTitle = attPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    attTitle:SetPoint("TOPLEFT", attPanel, "TOPLEFT", 10, -10)
+    attTitle:SetWidth(620)
+    attTitle:SetJustifyH("LEFT")
+    attTitle:SetWordWrap(false)
+
+    local function AttButton(text, width, anchor, onClick)
+        local btn = CreateFrame("Button", nil, attPanel, "UIPanelButtonTemplate")
+        btn:SetSize(width, 22)
+        if anchor then btn:SetPoint("LEFT", anchor, "RIGHT", 6, 0) else btn:SetPoint("TOPLEFT", attTitle, "BOTTOMLEFT", 0, -8) end
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+    local btnFromGroup = AttButton(L["Tomar del grupo actual"], 170, nil, function()
+        local event = SelectedEvent()
+        if not event then return end
+        local present = E.TakeAttendanceFromGroup(event)
+        PrintGC(L["Asistencia tomada del grupo: |cFFFFD100"] .. present .. L["|r integrantes presentes."])
+    end)
+    local btnSignedPresent = AttButton(L["Apuntados presentes"], 150, btnFromGroup, function() E.MarkSignedPresent(SelectedEvent()) end)
+    AttButton(L["Limpiar marcas"], 120, btnSignedPresent, function() E.ClearAttendance(SelectedEvent()) end)
+
+    local ATT_COLS = { name = 6, answer = 150, status = 246, statusWidth = 62, history = 500 }
+    local attHeader = CreateFrame("Frame", nil, attPanel)
+    attHeader:SetSize(610, 16)
+    attHeader:SetPoint("TOPLEFT", btnFromGroup, "BOTTOMLEFT", 0, -10)
+    for _, h in ipairs({ { L["Jugador"], ATT_COLS.name }, { L["Respuesta"], ATT_COLS.answer },
+                         { L["Marca"], ATT_COLS.status }, { L["Historial"], ATT_COLS.history } }) do
+        local fs = attHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("LEFT", attHeader, "LEFT", h[2], 0)
+        fs:SetText(h[1])
+    end
+
+    local attScroll = CreateFrame("ScrollFrame", "GC_RaidAttendanceScroll", attPanel, "UIPanelScrollFrameTemplate")
+    attScroll:SetPoint("TOPLEFT", attHeader, "BOTTOMLEFT", 0, -4)
+    attScroll:SetPoint("BOTTOMRIGHT", attPanel, "BOTTOMRIGHT", -26, 46)
+    local attChild = CreateFrame("Frame")
+    attChild:SetSize(600, 1)
+    attScroll:SetScrollChild(attChild)
+
+    local attSummary = attPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    attSummary:SetPoint("BOTTOMLEFT", attPanel, "BOTTOMLEFT", 10, 26)
+    local attHint = attPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    attHint:SetPoint("BOTTOMLEFT", attPanel, "BOTTOMLEFT", 10, 9)
+    attHint:SetWidth(620)
+    attHint:SetJustifyH("LEFT")
+    attHint:SetText(L["Aparecen los inscritos y los integrantes del roster asociado. La asistencia se envía sola a la hermandad y cuenta en Roster, Mis rosters y Warning."])
+
+    local attEmpty = attPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    attEmpty:SetPoint("CENTER", attPanel, "CENTER", 0, 0)
+    attEmpty:SetText(L["Selecciona una banda para pasar lista."])
+
+    local attRows = {}
+    local function AcquireAttRow(index)
+        local row = attRows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, attChild)
+        row:SetSize(600, 20)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.nameFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.nameFs:SetPoint("LEFT", row, "LEFT", ATT_COLS.name, 0)
+        row.nameFs:SetWidth(140)
+        row.nameFs:SetJustifyH("LEFT")
+        row.nameFs:SetWordWrap(false)
+        row.answerFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.answerFs:SetPoint("LEFT", row, "LEFT", ATT_COLS.answer, 0)
+        row.answerFs:SetWidth(92)
+        row.answerFs:SetJustifyH("LEFT")
+        row.answerFs:SetWordWrap(false)
+        row.historyFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.historyFs:SetPoint("LEFT", row, "LEFT", ATT_COLS.history, 0)
+        row.statusButtons = {}
+        for i, status in ipairs(E.ATTENDANCE) do
+            local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+            btn:SetSize(ATT_COLS.statusWidth - 2, 18)
+            btn:SetPoint("LEFT", row, "LEFT", ATT_COLS.status + (i - 1) * ATT_COLS.statusWidth, 0)
+            btn.status = status
+            btn:SetScript("OnClick", function(self)
+                local event = SelectedEvent()
+                if event and row.fullName then E.SetAttendance(event, row.fullName, self.status) end
+            end)
+            row.statusButtons[status] = btn
+        end
+        attRows[index] = row
+        return row
+    end
+
+    local SLOT_ANSWER = { tank = L["Titular"], healer = L["Titular"], dps = L["Titular"], bench = L["Suplente"] }
+    local function AnswerText(entry)
+        local s = entry.signup
+        if s then return "|cFF" .. E.STATUS_COLORS[s.status] .. L[E.STATUS_LABELS[s.status]] .. "|r" end
+        return "|cFF808080" .. (entry.slot and SLOT_ANSWER[entry.slot] or "-") .. " · " .. L["sin responder"] .. "|r"
+    end
+
+    local function RefreshAttendance(event)
+        for _, row in ipairs(attRows) do row:Hide() end
+        local hasEvent = event ~= nil
+        for _, widget in ipairs({ attTitle, attHeader, attScroll, attSummary }) do widget:SetShown(hasEvent) end
+        attEmpty:SetShown(not hasEvent)
+        if not hasEvent then return end
+
+        attTitle:SetText(L["Asistencia · "] .. RaidEventDateText(event, true) .. L[" · "] .. event.title
+            .. (event.rosterName and ("  |cFF808080(" .. event.rosterName .. ")|r") or ""))
+        local marks = E.GetMarks(event)
+        local list = E.GetAttendanceList(event)
+        for i, entry in ipairs(list) do
+            local row = AcquireAttRow(i)
+            row:SetPoint("TOPLEFT", attChild, "TOPLEFT", 0, -(i - 1) * 21)
+            row.bg:SetShown(i % 2 == 0)
+            row.fullName = entry.name
+            local role = (entry.signup and entry.signup.role) or entry.slot
+            row.nameFs:SetText(((role and role ~= "bench") and (RoleIcon(role, 12) .. " ") or "") .. SignupName(entry.name))
+            row.answerFs:SetText(AnswerText(entry))
+            local stats = E.GetAttendanceStats(event.rosterName, entry.name)
+            if stats.percent then
+                local color = stats.percent >= 90 and "00FF00" or (stats.percent >= 70 and "FFD100" or "FF3333")
+                row.historyFs:SetText("|cFF" .. color .. stats.percent .. "%|r |cFF808080(" .. (stats.present + stats.late) .. "/" .. stats.counted .. ")|r")
+            else
+                row.historyFs:SetText("|cFF808080-|r")
+            end
+            local current = marks[entry.name]
+            for status, btn in pairs(row.statusButtons) do
+                local label = L[E.ATTENDANCE_LABELS[status]]
+                btn:SetText(current == status and ("|cFF" .. E.ATTENDANCE_COLORS[status] .. label .. "|r") or ("|cFF808080" .. label .. "|r"))
+            end
+            row:Show()
+        end
+        attChild:SetHeight(math.max(1, #list * 21))
+
+        local counts = E.GetAttendanceCounts(event)
+        attSummary:SetText(string.format(L["|cFF00FF00Presentes %d|r   |cFFFFD100Tarde %d|r   |cFFFF3333Ausentes %d|r   |cFF66B3FFJustificadas %d|r   |cFF808080Sin marcar %d|r"],
+            counts.present, counts.late, counts.absent, counts.excused,
+            math.max(0, #list - counts.present - counts.late - counts.absent - counts.excused)))
+    end
+
+    -- ---------------------------------------------------------------------
     -- Refresco general
     -- ---------------------------------------------------------------------
     local function RefreshPlanning(event)
@@ -6729,13 +6489,28 @@ local function BuildRaidView(parent)
         if not view:IsShown() then return end
         local isOfficer = IsOfficerProfile()
         btnNew:SetShown(isOfficer)
+        btnAttendance:SetShown(isOfficer)
+        if mode == "attendance" and not isOfficer then mode = "planning" end
         btnPlanning:SetEnabled(mode ~= "planning")
         btnGroups:SetEnabled(mode ~= "groups")
+        btnAttendance:SetEnabled(mode ~= "attendance")
 
-        -- Lista de bandas
-        local events = E.GetUpcoming()
-        if selectedEventId and not E.Get(selectedEventId) then selectedEventId = nil end
-        if not selectedEventId and events[1] then selectedEventId = events[1].id end
+        -- Lista de bandas: las próximas o, al pasar lista, también las de los últimos 14 días
+        local isAttendance = mode == "attendance"
+        local events = isAttendance and E.GetRecent() or E.GetUpcoming()
+        listTitle:SetText(isAttendance and L["Bandas recientes"] or L["Próximas bandas"])
+        local inList = false
+        for _, ev in ipairs(events) do if ev.id == selectedEventId then inList = true end end
+        if not inList then
+            selectedEventId = events[1] and events[1].id or nil
+            if isAttendance then
+                -- Por defecto, la última banda que ya empezó
+                local today = date("%Y-%m-%d")
+                for _, ev in ipairs(events) do
+                    if ev.date <= today then selectedEventId = ev.id break end
+                end
+            end
+        end
         for _, btn in ipairs(eventButtons) do btn:Hide() end
         for i, ev in ipairs(events) do
             if i > 9 then break end
@@ -6757,6 +6532,7 @@ local function BuildRaidView(parent)
         local showForm = mode == "planning" and editing ~= nil and isOfficer
         detail:SetShown(mode == "planning")
         groupsPanel:SetShown(mode == "groups")
+        attPanel:SetShown(isAttendance)
         form:SetShown(showForm)
         if showForm then
             for _, widget in ipairs({ evTitle, evInfo, evDesc, signBar, countsText, tankCol, healerCol, dpsCol, otherText, officerBar, footer, emptyDetail }) do widget:Hide() end
@@ -6767,7 +6543,9 @@ local function BuildRaidView(parent)
             return
         end
         form.loadedFor = nil
-        if mode == "planning" then RefreshPlanning(event) else RefreshGroups(event) end
+        if mode == "planning" then RefreshPlanning(event)
+        elseif mode == "groups" then RefreshGroups(event)
+        else RefreshAttendance(event) end
     end
 
     E.AddListener(function() Refresh() end)
@@ -7535,7 +7313,14 @@ function uiModule.ToggleUI()
     if GC_UI:IsShown() then
         GC_UI:Hide()
     else
-        if IsInGuild() then C_GuildInfo.GuildRoster() end
+        -- Si la lista está vacía (llegó tarde al conectar) se fuerza el escaneo
+        if IsInGuild() then
+            if next(GuildControlDB.members) == nil and addonTable.ForceRosterScan then
+                addonTable.ForceRosterScan()
+            else
+                C_GuildInfo.GuildRoster()
+            end
+        end
         uiModule.ApplyProfile()
         if activeTab == "Miembros" and uiModule.ResetMembersSort then uiModule.ResetMembersSort() end
         if uiModule.RefreshList then uiModule.RefreshList() end
@@ -7543,4 +7328,4 @@ function uiModule.ToggleUI()
         uiModule.UpdateHeader()
         GC_UI:Show()
     end
-end
+end

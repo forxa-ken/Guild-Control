@@ -34,14 +34,16 @@ local ICONS = {
 
 -- Filtros de la pestaña: qué clases de noticia entran en cada uno
 newsModule.FILTERS = {
-    { key = "achievement", label = "Logros" },
+    { key = "guildAchievement", label = "Logros hermandad", width = 120 },
+    { key = "achievement", label = "Logros personajes", width = 120 },
     { key = "boss", label = "Jefes" },
     { key = "loot", label = "Botín" },
     { key = "join", label = "Altas" },
     { key = "leave", label = "Bajas" },
 }
 local FILTER_KINDS = {
-    achievement = { achievement = true, guildAchievement = true },
+    guildAchievement = { guildAchievement = true },
+    achievement = { achievement = true },
     boss = { boss = true },
     loot = { loot = true },
     join = { join = true },
@@ -199,6 +201,29 @@ local function HistoryItems()
     return items
 end
 
+-- Las últimas altas de la hermandad (sin límite de días), más recientes primero
+local LATEST_JOINS = 5
+function newsModule.GetLatestJoins(count)
+    local items = {}
+    for _, log in ipairs(GuildControlDB.history or {}) do
+        if log.action == "ALTA" then
+            local day = log.date and string.sub(log.date, 1, 10) or ""
+            local y, mo, d = string.match(day, "^(%d+)-(%d+)-(%d+)$")
+            table.insert(items, {
+                kind = "join",
+                icon = ICONS.join,
+                title = ShortName(log.name) .. L[" se ha unido a la hermandad"],
+                detail = L["|cFF00FF00Nuevo miembro|r"],
+                dateText = d and (d .. "/" .. mo .. "/" .. y) or "",
+                sortKey = (y or "0000") .. (mo or "00") .. (d or "00") .. string.sub(log.date or "", 12),
+            })
+        end
+    end
+    table.sort(items, function(a, b) return (a.sortKey or "") > (b.sortKey or "") end)
+    while #items > (count or LATEST_JOINS) do table.remove(items) end
+    return items
+end
+
 -- Noticias combinadas, más recientes primero, según el filtro ("all" por defecto)
 function newsModule.GetFeed(filter)
     local feed = {}
@@ -300,18 +325,15 @@ local function VisibleRosters()
 end
 
 -- { {roster, event}, ... } ordenadas por fecha, solo las de hoy en adelante
+-- Próximas bandas de la pestaña Raid: { {event}, ... }, más próximas primero
 function newsModule.GetUpcomingRaids(limit)
-    local R = addonTable.Roster
     local result = {}
-    if not R then return result end
-    local today = date("%Y-%m-%d")
-    for _, roster in ipairs(VisibleRosters()) do
-        for _, event in ipairs(R.GetEventsSorted(roster)) do
-            if event.date >= today then table.insert(result, { roster = roster, event = event }) end
-        end
+    local E = addonTable.RaidEvents
+    if not E then return result end
+    for _, event in ipairs(E.GetUpcomingForRoster(nil)) do
+        table.insert(result, { event = event })
+        if limit and #result >= limit then break end
     end
-    table.sort(result, function(a, b) return (a.event.date .. a.event.time) < (b.event.date .. b.event.time) end)
-    while limit and #result > limit do table.remove(result) end
     return result
 end
 

@@ -14,6 +14,11 @@ local eventsModule = addonTable.RaidEvents
 --   groups = { [Nombre-Reino] = 1..8 }, groupsAt
 -- }
 --
+-- Asistencia (la pasan los oficiales): GuildControlDB.raidAttendance[id] = {
+--   date, time, title, rosterName, at, marks = { [Nombre-Reino] = "present"|"late"|"absent"|"excused" } }
+-- Se guarda aparte porque las bandas se borran a los 14 días y los porcentajes deben seguir.
+-- Viaja junto al evento cuando un oficial lo publica.
+--
 -- Mensajes (prefijo GuildControlEvt, canal GUILD):
 --   D<msgId>:<i>:<total>:<datos>  evento completo troceado (solo de oficiales)
 --   S;id;estado;rol;espec;nota;fecha  inscripción propia (de cualquiera, para sí mismo)
@@ -107,6 +112,15 @@ function eventsModule.GetUpcoming()
         end
     end
     table.sort(list, function(a, b) return (a.date .. a.time) < (b.date .. b.time) end)
+    return list
+end
+
+-- Todas las bandas guardadas (las próximas y las de los últimos 14 días), más recientes primero
+function eventsModule.GetRecent()
+    eventsModule.GetUpcoming()        -- de paso olvida las antiguas
+    local list = {}
+    for _, event in pairs(Store()) do table.insert(list, event) end
+    table.sort(list, function(a, b) return (a.date .. a.time) > (b.date .. b.time) end)
     return list
 end
 
@@ -275,6 +289,250 @@ function eventsModule.AutoGroups(event)
 end
 
 -- =========================================================================
+-- ASISTENCIA
+-- =========================================================================
+eventsModule.ATTENDANCE = { "present", "late", "absent", "excused" }
+eventsModule.ATTENDANCE_LABELS = { present = "Presente", late = "Tarde", absent = "Ausente", excused = "Justif." }
+eventsModule.ATTENDANCE_COLORS = { present = "00FF00", late = "FFD100", absent = "FF3333", excused = "66B3FF" }
+local VALID_ATTENDANCE = { present = true, late = true, absent = true, excused = true }
+
+local function AttendanceStore()
+    if type(GuildControlDB.raidAttendance) ~= "table" then GuildControlDB.raidAttendance = {} end
+    return GuildControlDB.raidAttendance
+end
+
+-- Registro de asistencia de una banda (create = true lo crea al pasar lista)
+local function Record(event, create)
+    local store = AttendanceStore()
+    local rec = store[event.id]
+    if not rec and create then
+        rec = { marks = {}, at = 0 }
+        store[event.id] = rec
+    end
+    if rec then
+        rec.date, rec.time, rec.title, rec.rosterName = event.date, event.time, event.title, event.rosterName
+    end
+    return rec
+end
+
+function eventsModule.GetMarks(event)
+    local rec = event and AttendanceStore()[event.id]
+    return rec and rec.marks or {}
+end
+
+-- La asistencia se publica sola unos segundos después del último cambio
+local attendancePublishTimer = nil
+local function AttendanceChanged(event)
+    local rec = Record(event, true)
+    rec.at = time()
+    if attendancePublishTimer then attendancePublishTimer:Cancel() end
+    attendancePublishTimer = C_Timer.NewTimer(5, function()
+        attendancePublishTimer = nil
+        eventsModule.Publish(event)
+    end)
+    Notify()
+end
+
+-- Un segundo clic en la misma marca la quita
+function eventsModule.SetAttendance(event, fullName, status)
+    if not event or not fullName or not VALID_ATTENDANCE[status] then return end
+    local marks = Record(event, true).marks
+    if marks[fullName] == status then marks[fullName] = nil else marks[fullName] = status end
+    AttendanceChanged(event)
+end
+
+function eventsModule.ClearAttendance(event)
+    if not event then return end
+    wipe(Record(event, true).marks)
+    AttendanceChanged(event)
+end
+
+function eventsModule.GetAttendanceCounts(event)
+    local counts = { present = 0, late = 0, absent = 0, excused = 0 }
+    for _, status in pairs(eventsModule.GetMarks(event)) do
+        if counts[status] then counts[status] = counts[status] + 1 end
+    end
+    return counts
+end
+
+local function FindRoster(name)
+    if not name or not addonTable.Roster then return nil end
+    for _, roster in ipairs(addonTable.Roster.GetAll()) do
+        if roster.name == name then return roster end
+    end
+    return nil
+end
+
+-- Hoja de una banda: inscritos, integrantes del roster asociado y quien ya tenga marca.
+-- { {name, signup, slot}, ... } ordenada por rol
+function eventsModule.GetAttendanceList(event)
+    local list, seen = {}, {}
+    local roster = FindRoster(event.rosterName)
+    local function Add(name)
+        if seen[name] then return end
+        seen[name] = true
+        table.insert(list, { name = name, signup = event.signups[name], slot = roster and roster.members[name] or nil })
+    end
+    for name in pairs(event.signups or {}) do Add(name) end
+    if roster then for name in pairs(roster.members) do Add(name) end end
+    for name in pairs(eventsModule.GetMarks(event)) do Add(name) end
+    local order = { tank = 1, healer = 2, dps = 3, bench = 4 }
+    local function Order(entry)
+        local role = (entry.signup and entry.signup.role) or entry.slot
+        return order[role or ""] or 5
+    end
+    table.sort(list, function(a, b)
+        local oa, ob = Order(a), Order(b)
+        if oa ~= ob then return oa < ob end
+        return a.name < b.name
+    end)
+    return list
+end
+
+-- Nombres (Nombre-Reino) de quienes están ahora en mi grupo o banda
+local function CurrentGroupNames()
+    local names = {}
+    local me = MyName()
+    if me then names[me] = true end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local n = NormalizeName((GetRaidRosterInfo(i)))
+            if n then names[n] = true end
+        end
+    elseif IsInGroup() then
+        for i = 1, GetNumSubgroupMembers() do
+            local name, realm = UnitName("party" .. i)
+            local n = name and NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name)
+            if n then names[n] = true end
+        end
+    end
+    return names
+end
+
+-- Pasa lista según el grupo actual: en el grupo = presente (o tarde si avisó); quien avisó de
+-- que faltaba = justificado; el resto de inscritos y titulares del roster = ausente. La banca
+-- y los suplentes solo se marcan si están en el grupo. Devuelve cuántos están presentes.
+function eventsModule.TakeAttendanceFromGroup(event)
+    if not event then return 0 end
+    local inGroup = CurrentGroupNames()
+    local marks = Record(event, true).marks
+    local present = 0
+    for _, entry in ipairs(eventsModule.GetAttendanceList(event)) do
+        local status = entry.signup and entry.signup.status
+        if inGroup[entry.name] then
+            marks[entry.name] = (status == "late") and "late" or "present"
+            present = present + 1
+        elseif status == "absent" then
+            if marks[entry.name] ~= "absent" then marks[entry.name] = "excused" end
+        elseif status ~= "bench" and entry.slot ~= "bench" and marks[entry.name] ~= "excused" then
+            marks[entry.name] = "absent"
+        end
+    end
+    AttendanceChanged(event)
+    return present
+end
+
+-- Marca como presentes a los apuntados (y como tarde a los que avisaron de que llegaban tarde)
+function eventsModule.MarkSignedPresent(event)
+    if not event then return end
+    local marks = Record(event, true).marks
+    for name, s in pairs(event.signups or {}) do
+        if s.status == "signed" then marks[name] = "present"
+        elseif s.status == "late" then marks[name] = "late" end
+    end
+    AttendanceChanged(event)
+end
+
+-- Asistencia de un jugador en las bandas de un roster (rosterName nil = todas).
+-- percent = (presente + tarde) / (presente + tarde + ausente); las justificadas no cuentan.
+function eventsModule.GetAttendanceStats(rosterName, fullName)
+    local stats = { present = 0, late = 0, absent = 0, excused = 0 }
+    for _, rec in pairs(AttendanceStore()) do
+        if not rosterName or rec.rosterName == rosterName then
+            local status = rec.marks and rec.marks[fullName]
+            if status and stats[status] then stats[status] = stats[status] + 1 end
+        end
+    end
+    local counted = stats.present + stats.late + stats.absent
+    stats.counted = counted
+    stats.percent = counted > 0 and math.floor((stats.present + stats.late) * 100 / counted + 0.5) or nil
+    return stats
+end
+
+-- Media de asistencia de los integrantes de un roster y cuántas bandas tienen lista pasada
+function eventsModule.GetRosterAttendance(roster)
+    local total, n = 0, 0
+    for name in pairs(roster.members or {}) do
+        local stats = eventsModule.GetAttendanceStats(roster.name, name)
+        if stats.percent then
+            total = total + stats.percent
+            n = n + 1
+        end
+    end
+    local events = 0
+    for _, rec in pairs(AttendanceStore()) do
+        if rec.rosterName == roster.name and next(rec.marks or {}) then events = events + 1 end
+    end
+    return n > 0 and math.floor(total / n + 0.5) or nil, events
+end
+
+-- Historial de un jugador en las bandas de un roster: { {date, time, title, status}, ... }, recientes primero
+function eventsModule.GetAttendanceHistory(rosterName, fullName)
+    local list = {}
+    for _, rec in pairs(AttendanceStore()) do
+        if rec.rosterName == rosterName and rec.marks and rec.marks[fullName] then
+            table.insert(list, { date = rec.date, time = rec.time, title = rec.title, status = rec.marks[fullName] })
+        end
+    end
+    table.sort(list, function(a, b) return ((a.date or "") .. (a.time or "")) > ((b.date or "") .. (b.time or "")) end)
+    return list
+end
+
+-- Próximas bandas de un roster (todas si rosterName es nil), más próximas primero
+function eventsModule.GetUpcomingForRoster(rosterName)
+    local list = {}
+    local today = date("%Y-%m-%d")
+    for _, event in ipairs(eventsModule.GetUpcoming()) do
+        if event.date >= today and (not rosterName or event.rosterName == rosterName) then table.insert(list, event) end
+    end
+    return list
+end
+
+-- Al renombrar un roster, sus bandas y su asistencia siguen asociadas
+function eventsModule.RenameRoster(oldName, newName)
+    if not oldName or not newName or oldName == newName then return end
+    for _, event in pairs(Store()) do
+        if event.rosterName == oldName then event.rosterName = newName end
+    end
+    for _, rec in pairs(AttendanceStore()) do
+        if rec.rosterName == oldName then rec.rosterName = newName end
+    end
+end
+
+-- Las fechas con asistencia que antes se pasaban en el Roster se conservan como historial
+function eventsModule.MigrateRosterDates()
+    local data = GuildControlDB.rosterData
+    if type(data) ~= "table" or type(data.rosters) ~= "table" then return end
+    local store = AttendanceStore()
+    for _, roster in pairs(data.rosters) do
+        if type(roster) == "table" and type(roster.events) == "table" then
+            for _, old in pairs(roster.events) do
+                if type(old) == "table" and type(old.attendance) == "table" and next(old.attendance) then
+                    local id = "roster-" .. tostring(roster.id or roster.name) .. "-" .. tostring(old.id)
+                    if not store[id] then
+                        store[id] = { date = old.date, time = old.time, rosterName = roster.name,
+                                      title = (old.note and old.note ~= "") and old.note or roster.name,
+                                      at = 0, marks = old.attendance }
+                    end
+                end
+            end
+            roster.events, roster.nextEventId = nil, nil
+        end
+    end
+    data.viewMode = nil
+end
+
+-- =========================================================================
 -- SINCRONIZACIÓN
 -- =========================================================================
 local sendQueue, sendTicker = {}, nil
@@ -296,7 +554,9 @@ end
 function eventsModule.Publish(event)
     if not event or not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     local R = addonTable.Roster
-    local data = R.SerializeTable({ version = 1, event = event })
+    local rec = AttendanceStore()[event.id]
+    local attendance = (rec and next(rec.marks or {})) and { marks = rec.marks, at = rec.at or 0 } or nil
+    local data = R.SerializeTable({ version = 1, event = event, attendance = attendance })
     local msgId = tostring(math.random(100000, 999999))
     local total = math.ceil(#data / CHUNK_BYTES)
     for i = 1, total do
@@ -382,6 +642,19 @@ local function OnChunk(sender, msg)
     if event then
         local isNew = Store()[event.id] == nil
         MergeEvent(event)
+        -- Asistencia que pasó un oficial (gana la más reciente)
+        local att = payload.attendance
+        if type(att) == "table" and type(att.marks) == "table" then
+            local rec = Record(Store()[event.id], true)
+            local at = tonumber(att.at) or 0
+            if at >= (rec.at or 0) then
+                local marks = {}
+                for name, status in pairs(att.marks) do
+                    if type(name) == "string" and VALID_ATTENDANCE[status] then marks[string.sub(name, 1, 60)] = status end
+                end
+                rec.marks, rec.at = marks, at
+            end
+        end
         if isNew then
             print("|cFF00FFFF[GuildControl]|r " .. L["Nueva banda: "] .. "|cFFFFD100" .. event.title .. L["|r el "]
                 .. string.gsub(event.date, "^(%d+)-(%d+)-(%d+)$", "%3/%2/%1") .. L[" a las "] .. event.time .. L[". Apúntate en Raid."])
@@ -392,7 +665,7 @@ end
 
 local function ScheduleRepublish()
     if republishTimer or not IsOfficer() then return end
-    local events = eventsModule.GetUpcoming()
+    local events = eventsModule.GetRecent()   -- también las pasadas, por su asistencia
     if #events == 0 then return end
     republishTimer = C_Timer.NewTimer(3 + math.random() * 5, function()
         republishTimer = nil

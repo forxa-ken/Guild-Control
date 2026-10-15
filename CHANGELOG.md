@@ -2,6 +2,23 @@
 
 ## Próxima versión
 
+### Raid y Roster
+- La asistencia pasa a la pestaña Raid, en el nuevo modo **Asistencia** (oficiales): se pasa lista de cada banda con sus inscritos y el roster asociado, se envía sola a la hermandad y se guarda aunque la banda se borre. La que ya había en el Roster se conserva.
+- Se quita la vista Fechas del Roster. Las próximas bandas del Resumen, de Mis rosters y del mensaje del roster salen de las bandas de Raid.
+- La categoría Baja asistencia de Warning cuenta las bandas de Raid.
+
+### Resumen y logros
+- Filtros separados para **Logros hermandad** y **Logros personajes**.
+- La vista previa de un logro de personaje indica si ya lo has completado.
+- Clic derecho en un logro lo abre en la ventana de logros del juego, en ese logro (antes solo abría la ventana).
+- Se quita el botón «Ir al logro en Logros».
+- **Altas** muestra las 5 últimas incorporaciones bajo una cabecera de bienvenida.
+- El recuento de logros de hermandad completados ya no se queda corto cuando la interfaz de logros del juego no está cargada.
+
+### Miembros y Míticas+
+- Botón **Actualizar** en Miembros. Si al abrir la ventana la lista está vacía, se pide sola.
+- Las llaves se guardan aunque el jugador aún no figure en la lista, se piden al abrir Míticas+ y caducan con el reinicio semanal.
+
 ### Idiomas
 - El addon está disponible en inglés y en español. Por defecto usa el idioma del juego (español para clientes esES y esMX, inglés para el resto) y se puede elegir en Configuración > Ventana > Idioma (se aplica al recargar).
 - Sistema de traducciones en `Locales/` preparado para añadir más idiomas copiando `enUS.lua`.
@@ -9,6 +26,7 @@
 - `/gct leaves` funciona igual que `/gct bajas`.
 
 ### Correcciones
+- Al conectar, si la lista de la hermandad llegaba vacía, el addon daba de baja a todos los miembros y luego los volvía a dar de alta, con lo que se perdían datos como las llaves. Ahora espera a que llegue la lista completa.
 - El punto verde o gris de los oficiales del Resumen no se mostraba por una ruta de icono mal escrita.
 
 ## 5.0.0 (beta)

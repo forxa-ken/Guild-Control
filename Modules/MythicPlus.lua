@@ -8,15 +8,18 @@ local mplusModule = addonTable.MythicPlus
 --   - Puntuación M+ de cada miembro: viene de la comunidad de hermandad (C_Club,
 --     overallDungeonScore) y se guarda en member.mplusScore.
 --   - Llave de cada miembro: solo de quien usa GuildControl; se envía con el prefijo
---     GuildControlKey ("K;mapID;nivel") y se guarda en member.keystone.
+--     GuildControlKey ("K;mapID;nivel") y se guarda en GuildControlDB.keystones[nombre]
+--     (aparte de members, para no perderla si el miembro aún no está en la lista).
 --   - Afijos de la semana y mejores tiempos propios: API C_MythicPlus / C_ChallengeMode.
 
 local KEY_PREFIX = "GuildControlKey"
 local BROADCAST_COOLDOWN = 15
+local REQUEST_COOLDOWN = 60
 
 local listeners = {}
 local lastBroadcast = -BROADCAST_COOLDOWN
 local lastSentKey = nil
+local lastRequest = -REQUEST_COOLDOWN
 
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     C_ChatInfo.RegisterAddonMessagePrefix(KEY_PREFIX)
@@ -85,12 +88,44 @@ function mplusModule.GetMyKeystone()
     return nil
 end
 
+-- Llaves conocidas por nombre (Nombre-Reino): { mapID, level, at }
+local function KeyStore()
+    if type(GuildControlDB.keystones) ~= "table" then GuildControlDB.keystones = {} end
+    return GuildControlDB.keystones
+end
+
+local function SetKeystone(fullName, mapID, level)
+    local value = (mapID and mapID > 0 and level and level > 0) and { mapID = mapID, level = level, at = time() } or nil
+    KeyStore()[fullName] = value
+    local m = GuildControlDB.members[fullName]
+    if m then m.keystone = value end
+end
+
+-- Momento del último reinicio semanal (las llaves anteriores ya no valen)
+local function LastWeeklyReset()
+    if C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset then
+        local ok, seconds = pcall(C_DateAndTime.GetSecondsUntilWeeklyReset)
+        if ok and type(seconds) == "number" then return time() + seconds - 7 * 86400 end
+    end
+    return time() - 7 * 86400
+end
+
+-- Llave de un miembro, o nil si no se conoce o es de antes del reinicio semanal
+function mplusModule.GetKeystone(fullName)
+    local key = KeyStore()[fullName]
+    if not key then
+        local m = GuildControlDB.members[fullName]
+        key = m and m.keystone
+    end
+    if key and key.at and key.at < LastWeeklyReset() then return nil end
+    return key
+end
+
 local function StoreMyKeystone()
     local me = NormalizeName(UnitName("player"))
-    local m = me and GuildControlDB.members[me]
-    if not m then return end
+    if not me then return end
     local mapID, level = mplusModule.GetMyKeystone()
-    m.keystone = mapID and { mapID = mapID, level = level, at = time() } or nil
+    SetKeystone(me, mapID, level)
 end
 
 function mplusModule.BroadcastKeystone(force)
@@ -102,7 +137,10 @@ function mplusModule.BroadcastKeystone(force)
     C_ChatInfo.SendAddonMessage(KEY_PREFIX, mapID and ("K;" .. mapID .. ";" .. level) or "K;0;0", "GUILD")
 end
 
-function mplusModule.RequestKeystones()
+-- throttled = true: no repite la petición si se hizo hace menos de un minuto (al abrir la vista)
+function mplusModule.RequestKeystones(throttled)
+    if throttled and GetTime() - lastRequest < REQUEST_COOLDOWN then return end
+    lastRequest = GetTime()
     if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         C_ChatInfo.SendAddonMessage(KEY_PREFIX, "Q", "GUILD")
     end
@@ -190,6 +228,11 @@ frame:SetScript("OnEvent", function(_, event, ...)
                 mplusModule.BroadcastKeystone(true)
                 mplusModule.RequestKeystones()
             end)
+            C_Timer.After(45, function()
+                StoreMyKeystone()
+                mplusModule.BroadcastKeystone(false)
+                Notify()
+            end)
         end
         return
     elseif event == "CHALLENGE_MODE_COMPLETED" or event == "BAG_UPDATE_DELAYED" then
@@ -215,10 +258,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     local kind, mapID, level = strsplit(";", msg)
-    local m = GuildControlDB.members[fullSender]
-    if kind == "K" and m then
-        mapID, level = tonumber(mapID), tonumber(level)
-        m.keystone = (mapID and mapID > 0 and level and level > 0) and { mapID = mapID, level = level, at = time() } or nil
+    if kind == "K" then
+        SetKeystone(fullSender, tonumber(mapID), tonumber(level))
         Notify()
     end
 end)

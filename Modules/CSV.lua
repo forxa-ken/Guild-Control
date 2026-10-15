@@ -171,4 +171,4 @@ end
 function csvModule.ShowText(text)
     csvModule.ShowFrame()
     if GC_CSVFrame and GC_CSVFrame.ShowCSV then GC_CSVFrame.ShowCSV(text) end
-end
+end

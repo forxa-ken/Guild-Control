@@ -23,9 +23,10 @@
 
 La pestaña **Resumen** funciona como un tablón de noticias:
 
-- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa. En los logros, la vista previa tiene un botón **Ir al logro en Logros** que abre la sección Logros en ese logro. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
+- **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
+- **Altas**: las 5 últimas incorporaciones a la hermandad bajo la cabecera «¡Bienvenidos a la hermandad!».
 - **Mensaje del día** de la hermandad.
-- **Próximas bandas** de los rosters (los propios si eres oficial, los publicados si eres jugador).
+- **Próximas bandas** creadas en la pestaña Raid.
 - **Rosters** con su dificultad, tamaño y titulares.
 - **Oficiales**: todos los miembros con rango de oficial (el rango mínimo de Mi perfil o el permiso de chat de oficiales del juego), con su rango; conectados en verde.
 
@@ -53,7 +54,8 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 ## 👥 Miembros y chat
 
 - Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**.
-- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
+- **Actualizar** (junto a Sheets / CSV) vuelve a pedir la lista de la hermandad al servidor. Si al abrir la ventana la lista está vacía, se pide sola.
+ y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
@@ -66,15 +68,13 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 - **Criterios**: dificultad (Normal, Heroica o Mítica), tamaño de 10 a 25 (Mítica siempre 20), y número de tanques y sanadores; los DPS son el resto. Los contadores se ponen en verde al completarse.
 - **Candidatos** (izquierda): miembros agrupados por rol (con su icono; quien no tiene rol definido va a "Sin rol definido") con el color de su clase, buscador y filtros de conectados y nivel máximo. Clic para añadirlo al roster en su rol; clic derecho para cambiarle el rol o añadirlo como suplente. **Añadirme** te añade a ti. Colocar a alguien sin rol como tanque, sanador o DPS le define ese rol.
 - **Composición** (centro): columnas de Tanques, Sanadores y DPS, y la banca de suplentes. Clic sobre un integrante para moverlo o quitarlo.
-- **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase) y reparto de armaduras de los titulares.
+- **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase), reparto de armaduras de los titulares y media de asistencia en las bandas de Raid asociadas al roster.
 - **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad (en una ventana donde puedes editar el anuncio antes de enviarlo), exportarlo a CSV y vaciarlo.
 
-- **Fechas** (botón arriba a la derecha, junto a Composición): añade fechas de banda (DD/MM/AAAA, hora y nota) o impórtalas del calendario del juego. Al seleccionar una fecha aparece la hoja de asistencia con Presente, Tarde, Ausente y Justificada por integrante (un segundo clic quita la marca), los botones **Tomar del grupo actual** (marca presentes a los del grupo y ausentes al resto de titulares), **Titulares presentes** y **Limpiar marcas**, y el historial de asistencia de cada uno. Las justificadas no cuentan para el porcentaje.
-
 La columna Roster de Miembros muestra en qué rosters está cada uno.
-La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV del roster la incluye.
-- **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la fecha de banda y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
-- **Compartir**: envía el roster completo (base, jefes, fechas y asistencia) a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
+La vista previa y el tooltip de cada integrante muestran su asistencia (de las bandas de Raid asociadas al roster), y el CSV del roster la incluye.
+- **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la banda (de las creadas en Raid, primero las asociadas al roster) y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
+- **Compartir**: envía el roster completo a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
@@ -84,7 +84,7 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 - **Perfil de jugador**: ve Resumen, Miembros, Logros, Mi perfil, **Mis rosters** y Configuración. En lugar de la barra de anuncios ve su rango, su rol y sus rosters.
 - **Cuándo llega el rol a los oficiales**: los mensajes del addon solo llegan a quien está conectado en ese momento. Si el oficial no lo está, lo recibe más tarde: al entrar pide los roles y le responde el propio jugador (si está conectado) u otro miembro con GuildControl que ya los tenga guardados. Los personajes de la misma cuenta lo ven al instante porque comparten datos.
 - En **Miembros**, la columna Rol muestra el rol de cada uno: icono y nombre, en cian si lo declaró el propio jugador, en blanco si lo fijó un oficial y en naranja con `*` si el oficial puso uno distinto al declarado. Si nadie lo ha definido, queda vacía.
-- **Mis rosters** (solo jugadores): muestra los rosters que publican los oficiales con **Compartir**, en solo lectura y con el jefe seleccionable. Resalta tu nombre e indica tu puesto, las próximas fechas con tu marca de asistencia y tu porcentaje. Al entrar se piden a los oficiales conectados (también con **Actualizar**); si un oficial elimina un roster publicado, desaparece.
+- **Mis rosters** (solo jugadores): muestra los rosters que publican los oficiales con **Compartir**, en solo lectura y con el jefe seleccionable. Resalta tu nombre e indica tu puesto, las próximas bandas de Raid asociadas al roster con tu respuesta y tu porcentaje de asistencia. Al entrar se piden a los oficiales conectados (también con **Actualizar**); si un oficial elimina un roster publicado, desaparece.
 - El perfil solo cambia lo que se ve: los datos de cada cliente son locales y nadie puede modificar los de otro.
 
 ## ⚠️ Warning
@@ -94,7 +94,7 @@ La pestaña **Warning** (oficiales) agrupa los avisos por categorías, cada una 
 - **Inactivos**: sin conectarse desde hace 14 días a 1 año (con o sin alters). Clic derecho para expulsar, con confirmación.
 - **Sin rol declarado**: miembros activos que no han rellenado Mi perfil; **Recordar a los conectados** les envía un susurro.
 - **Alters sin principal**: se declaran alter de alguien que no está en la hermandad.
-- **Baja asistencia**: titulares de roster por debajo del porcentaje elegido (70 % por defecto, con al menos 3 fechas).
+- **Baja asistencia**: titulares de roster por debajo del porcentaje elegido (70 % por defecto, con al menos 3 bandas con lista pasada en Raid).
 - **Titulares inactivos**: titulares de roster que llevan días sin conectarse.
 - **Rangos a revisar**: nivel bajo en un rango de raider o superior, y reclutas que llevan tiempo en la hermandad (posible ascenso).
 - **Nota pública**: vacía o sin el texto obligatorio que configures.
@@ -111,12 +111,12 @@ La pestaña **Profesiones** lista cada profesión con cuántos miembros la tiene
 La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster** es la lista de personas con las que se cuenta; en **Raid** se apuntan quienes quieren ir a cada banda.
 
 - **Planning raid**: los oficiales crean la banda con **Nueva** (título, banda del diario de encuentros, dificultad, tamaño, fecha, hora, descripción y roster asociado) y se publica en la hermandad. Cada jugador responde con **Tanque**, **Sanador** o **DPS** (con su especialización actual), o **Tarde**, **Tentativo**, **Banca** o **Ausente**, y una nota. Se ven los apuntados por rol con el color de su clase y los recuentos. Los oficiales pueden editar, eliminar, **invitar a los apuntados**, **recordar al roster** (susurro a quien no ha respondido) y publicar de nuevo.
-- **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
+- **Asistencia** (oficiales): lista de las bandas próximas y de los últimos 14 días. Para la banda elegida aparecen los inscritos y los integrantes del roster asociado con su respuesta; márcalos como Presente, Tarde, Ausente o Justificada (un segundo clic quita la marca). **Tomar del grupo actual** marca presentes a los del grupo, justificados a quienes avisaron de que faltaban y ausentes al resto; **Apuntados presentes** marca a los apuntados. La asistencia se guarda aparte (no se pierde cuando se borra la banda), se envía sola a la hermandad y cuenta en el Roster, Mis rosters y Warning. Las justificadas no cuentan para el porcentaje.
 - Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
 
 ## 🗝️ Míticas+
 
-La pestaña **Míticas+** clasifica a los miembros por puntuación M+ (de la lista de la hermandad del juego) e incluye la llave de quien usa GuildControl. A la derecha, los afijos de la semana, tu llave y tu puntuación, y tus mejores mazmorras de la temporada. **Pedir llaves** las solicita a los conectados.
+La pestaña **Míticas+** clasifica a los miembros por puntuación M+ (de la lista de la hermandad del juego) e incluye la llave de quien usa GuildControl (no hace falta estar en grupo). Las llaves se piden al entrar en el juego y al abrir la pestaña, se guardan aunque el jugador aún no aparezca en la lista y caducan con el reinicio semanal. A la derecha, los afijos de la semana, tu llave y tu puntuación, y tus mejores mazmorras de la temporada. **Pedir llaves** las solicita a los conectados.
 
 ## ⛔ Lista negra
 

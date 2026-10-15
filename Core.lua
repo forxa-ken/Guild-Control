@@ -127,6 +127,11 @@ function addonTable.InitDB()
 
     -- Fecha (time()) de la última invitación masiva a cada jugador, para no repetirla
     if type(GuildControlDB.inviteHistory) ~= "table" then GuildControlDB.inviteHistory = {} end
+
+    -- Las fechas del Roster pasaron a Raid: su asistencia se conserva como historial
+    if addonTable.RaidEvents and addonTable.RaidEvents.MigrateRosterDates then
+        addonTable.RaidEvents.MigrateRosterDates()
+    end
 end
 
 -- Nombre que muestra el encabezado: el personalizado, el de la hermandad o uno genérico
@@ -226,14 +231,36 @@ local lastExecutionTimestamp = 0
 -- antes de entrar no cuenta como recién conectado (saludo automático)
 local rosterBaselineDone = false
 
+-- Escaneo pendiente: los avisos que llegan durante el throttle no se pierden, se aplazan
+local pendingScanTimer = nil
+local function ScheduleScan(delay)
+    if pendingScanTimer then return end
+    pendingScanTimer = C_Timer.NewTimer(delay, function()
+        pendingScanTimer = nil
+        addonTable.ScanGuildRosterForChanges()
+    end)
+end
+
 function addonTable.ScanGuildRosterForChanges()
     local currentTime = GetTime()
-    if not IsInGuild() or isSyncingRoster or (currentTime - lastExecutionTimestamp < 5) then return end
-    
+    if not IsInGuild() or isSyncingRoster then return end
+    if currentTime - lastExecutionTimestamp < 5 then
+        ScheduleScan(5 - (currentTime - lastExecutionTimestamp) + 0.1)
+        return
+    end
+
+    -- Al conectar, la lista de la hermandad puede llegar vacía o a medias: sin datos no se
+    -- toca nada (antes se purgaba a todos los miembros y se volvían a dar de alta)
+    local numMembers = GetNumGuildMembers()
+    if not numMembers or numMembers == 0 then
+        C_GuildInfo.GuildRoster()
+        ScheduleScan(3)
+        return
+    end
+
     isSyncingRoster = true
     lastExecutionTimestamp = currentTime
 
-    local numMembers = GetNumGuildMembers()
     local currentGuildOnlineMap = {}
 
     for i = 1, numMembers do
@@ -302,8 +329,13 @@ function addonTable.ScanGuildRosterForChanges()
 
     rosterBaselineDone = true
 
+    -- Solo se purga si la lista del juego trae a todos los miembros que dice tener
+    local scanned = 0
+    for _ in pairs(currentGuildOnlineMap) do scanned = scanned + 1 end
+    local rosterComplete = scanned >= numMembers
+
     for existingMember, _ in pairs(GuildControlDB.members) do
-        if not currentGuildOnlineMap[existingMember] then
+        if rosterComplete and not currentGuildOnlineMap[existingMember] then
             addonTable.LogHistoryEvent("BAJA", existingMember, "Purgado: Ya no se encuentra en el servidor oficial")
             GuildControlDB.members[existingMember] = nil
         end
@@ -334,6 +366,16 @@ function addonTable.ScanGuildRosterForChanges()
     end
 
     isSyncingRoster = false
+end
+
+-- Pide la lista al servidor y escanea sin esperar al throttle (botón Actualizar de Miembros)
+function addonTable.ForceRosterScan()
+    if not IsInGuild() then return end
+    C_GuildInfo.GuildRoster()
+    lastExecutionTimestamp = 0
+    addonTable.ScanGuildRosterForChanges()
+    -- La respuesta del servidor llega con GUILD_ROSTER_UPDATE; por si tarda, otro intento
+    ScheduleScan(2)
 end
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
