@@ -1,6 +1,6 @@
 # GuildControl
 
-## Próxima versión
+## 5.0.0-beta3
 
 ### Invitar, configuración y avisos
 - Invitar: el mensaje de reclutamiento se puede **gritar** o publicar en el canal **General**, **Comercio** o **Mundo** (nombres configurables). La invitación masiva ya solo busca con /who.
