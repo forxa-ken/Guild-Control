@@ -126,6 +126,7 @@ local function GuildNewsItems()
                 item.detail = (present and present > 0) and ("Con " .. present .. " miembros de la hermandad") or ("Con " .. who)
             elseif t == NEWS.ITEM_LOOTED or t == NEWS.ITEM_CRAFTED or t == NEWS.ITEM_PURCHASED then
                 item.kind = "loot"
+                item.lootType = (t == NEWS.ITEM_CRAFTED) and "crafted" or ((t == NEWS.ITEM_PURCHASED) and "purchased" or "looted")
                 -- El icono sale del identificador del enlace del objeto
                 item.link = what
                 item.icon = ItemIcon(tonumber(string.match(what, "item:(%d+)"))) or ItemIcon(info.newsID) or ICONS.loot
@@ -176,6 +177,79 @@ function newsModule.GetFeed(filter)
     end
     table.sort(feed, function(a, b) return (a.sortKey or "") > (b.sortKey or "") end)
     return feed
+end
+
+-- =========================================================================
+-- ORIGEN DE UN OBJETO (DIARIO DE ENCUENTROS)
+-- =========================================================================
+-- El juego no dice de dónde salió un objeto de las noticias. Se busca en el diario de
+-- encuentros (EJ_SetSearch, asíncrono): si es botín de una banda o mazmorra, devuelve la
+-- instancia y el jefe. Los vendedores y el botín de mundo no figuran en el diario.
+local sourceCache = {}
+local searchBusy = false
+
+local function ItemIdFromLink(link)
+    return tonumber(string.match(link or "", "item:(%d+)"))
+end
+
+-- Datos básicos del objeto: nivel, tipo y hueco
+function newsModule.GetItemDetails(link)
+    local details = {}
+    if not link then return details end
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if getInfo then
+        local ok, _, _, _, itemLevel, _, itemType, itemSubType, _, equipLoc = pcall(getInfo, link)
+        if ok then
+            details.itemLevel = itemLevel
+            details.type = itemSubType or itemType
+            details.slot = (equipLoc and equipLoc ~= "" and _G[equipLoc]) or nil
+        end
+    end
+    local getLevel = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+    if getLevel then
+        local ok, level = pcall(getLevel, link)
+        if ok and level then details.itemLevel = level end
+    end
+    return details
+end
+
+-- callback(source) con source = { instance, encounter } o false si no figura en el diario
+function newsModule.LookupItemSource(link, callback)
+    local itemID = ItemIdFromLink(link)
+    if not itemID then callback(false) return end
+    if sourceCache[itemID] ~= nil then callback(sourceCache[itemID]) return end
+    if searchBusy or not (EJ_SetSearch and EJ_GetNumSearchResults and EJ_GetSearchResult) then callback(nil) return end
+
+    local name = string.match(link, "%[(.-)%]")
+    if not name or #name < 3 then callback(false) return end
+
+    searchBusy = true
+    pcall(EJ_SetSearch, name)
+    local tries = 0
+    local ticker
+    ticker = C_Timer.NewTicker(0.25, function()
+        tries = tries + 1
+        local finished = not EJ_IsSearchFinished or EJ_IsSearchFinished()
+        if not finished and tries < 16 then return end
+        ticker:Cancel()
+
+        local result = false
+        local okNum, num = pcall(EJ_GetNumSearchResults)
+        for i = 1, (okNum and num or 0) do
+            local ok, _, _, _, instanceID, encounterID, resultLink = pcall(EJ_GetSearchResult, i)
+            if ok and ItemIdFromLink(resultLink) == itemID then
+                local instanceName = instanceID and EJ_GetInstanceInfo and EJ_GetInstanceInfo(instanceID)
+                local encounterName = encounterID and EJ_GetEncounterInfo and EJ_GetEncounterInfo(encounterID)
+                result = { instance = instanceName, encounter = encounterName }
+                break
+            end
+        end
+        if EJ_ClearSearch then pcall(EJ_ClearSearch) end
+        searchBusy = false
+        -- Solo se guarda un resultado definitivo (si la búsqueda no terminó, se reintentará)
+        if result or finished then sourceCache[itemID] = result end
+        callback(result)
+    end)
 end
 
 -- =========================================================================

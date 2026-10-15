@@ -21,7 +21,7 @@
 
 La pestaña **Resumen** funciona como un tablón de noticias:
 
-- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa. En los logros, la vista previa tiene un botón **Ver en la interfaz del juego**. **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
+- **Noticias de la hermandad**, agrupadas por semana: logros de los miembros y de la hermandad, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego), más las altas y bajas de los últimos 30 días. Filtros: Logros, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa. En los logros, la vista previa tiene un botón **Ir al logro en Logros** que abre la sección Logros en ese logro. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** de los rosters (los propios si eres oficial, los publicados si eres jugador).
 - **Rosters** con su dificultad, tamaño y titulares.
@@ -87,11 +87,22 @@ La vista previa y el tooltip de cada integrante muestran su asistencia, y el CSV
 
 ## ⚠️ Warning
 
-La pestaña **Warning** (oficiales) muestra los miembros que llevan mucho tiempo sin conectarse: eliges la antigüedad (de 14 días a 1 año) y si incluyes a los alters. Tabla con nivel, rango, tipo, tiempo sin conectarse y nota pública, exportable a CSV, y clic derecho para expulsar (con confirmación). Debajo, los miembros que están en la lista negra. La caja **Warnings** del encabezado suma ambos.
+La pestaña **Warning** (oficiales) agrupa los avisos por categorías, cada una con su recuento y sus ajustes:
+
+- **Inactivos**: sin conectarse desde hace 14 días a 1 año (con o sin alters). Clic derecho para expulsar, con confirmación.
+- **Sin rol declarado**: miembros activos que no han rellenado Mi perfil; **Recordar a los conectados** les envía un susurro.
+- **Alters sin principal**: se declaran alter de alguien que no está en la hermandad.
+- **Baja asistencia**: titulares de roster por debajo del porcentaje elegido (70 % por defecto, con al menos 3 fechas).
+- **Titulares inactivos**: titulares de roster que llevan días sin conectarse.
+- **Rangos a revisar**: nivel bajo en un rango de raider o superior, y reclutas que llevan tiempo en la hermandad (posible ascenso).
+- **Nota pública**: vacía o sin el texto obligatorio que configures.
+- **Lista negra**: miembros de la hermandad que figuran en ella.
+
+Cada lista se puede exportar a CSV y tiene clic derecho para susurrar o invitar al grupo. La caja **Warnings** del encabezado suma inactivos y lista negra.
 
 ## 🛠️ Profesiones
 
-La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados.
+La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados. Clic en un miembro para susurrarle o invitarlo al grupo.
 
 ## 🗝️ Míticas+
 

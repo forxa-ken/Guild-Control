@@ -1235,6 +1235,12 @@ local function BuildAchievementsView(parent)
         row.bg:SetAllPoints()
         row.bg:SetColorTexture(1, 1, 1, 0.05)
 
+        -- Marca del logro seleccionado (por ejemplo al llegar desde el Resumen)
+        row.selected = row:CreateTexture(nil, "BORDER")
+        row.selected:SetAllPoints()
+        row.selected:SetColorTexture(1, 0.82, 0, 0.18)
+        row.selected:Hide()
+
         row.statusFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.statusFs:SetPoint("LEFT", row, "LEFT", 5, 0)
         row.statusFs:SetWidth(80)
@@ -1394,6 +1400,7 @@ local function BuildAchievementsView(parent)
                         local row = AcquireAchRow(rowIndex)
 
                         row.achId = id
+                        row.selected:SetShown(id == selectedAchievementId)
                         row:ClearAllPoints()
                         row:SetPoint("TOPLEFT", achChild, "TOPLEFT", 0, yOffset)
                         row.bg:SetShown(rowIndex % 2 == 0)
@@ -1411,9 +1418,9 @@ local function BuildAchievementsView(parent)
 
         achChild:SetHeight(math.max(1, rowIndex * 26 + 10))
 
-        -- Si hay un logro seleccionado, mantener la vista previa actualizada
+        -- Si hay un logro seleccionado, mantener la vista previa actualizada (con su botón)
         if selectedAchievementId and activeTab == "Logros" then
-            SetPreviewText(BuildAchievementPreviewText(selectedAchievementId))
+            ShowAchievementPreviewWithButton(selectedAchievementId)
         end
     end
 
@@ -1443,6 +1450,30 @@ local function BuildAchievementsView(parent)
     btnModeGuild:SetScript("OnClick", function() SetAchievementMode("guild") end)
     btnModePlayer:SetScript("OnClick", function() SetAchievementMode("player") end)
     btnModeGuild:SetEnabled(false)
+
+    -- Abre un logro concreto: modo, categoría, filtros limpios, desplazamiento y vista previa.
+    -- Lo usa el Resumen para llevar a la sección Logros al hacer clic en una noticia.
+    uiModule.FocusAchievement = function(id, mode)
+        if not id or not addonTable.Achievements then return end
+        SetAchievementMode(mode or "guild")
+        filterState, filterSeason = "TODOS", false
+        chkSeason:SetChecked(false)
+        searchBox:SetText("")
+        local categoryId = GetAchievementCategory and GetAchievementCategory(id)
+        if categoryId then currentCategoryId = categoryId end
+        selectedAchievementId = id
+        uiModule.RefreshAchievements()
+        UpdateCategorySelection()
+
+        for index, row in ipairs(achRows) do
+            if row:IsShown() and row.achId == id then
+                local maxScroll = achScroll:GetVerticalScrollRange() or 0
+                achScroll:SetVerticalScroll(math.min(maxScroll, math.max(0, (index - 3) * 26)))
+                break
+            end
+        end
+        uiModule.ShowAchievementPreview(id)
+    end
 
     containers.views["Logros"] = view
 end
@@ -4367,12 +4398,64 @@ local function BuildSummaryView(parent)
     emptyText:SetWidth(460)
 
     -- Vista previa de una noticia en el panel derecho (logro u objeto)
+    -- Vista previa de botín: datos del objeto y su origen (banda o mazmorra y jefe, si figura
+    -- en el diario de encuentros). El origen llega de forma asíncrona.
+    local previewedLootItem = nil
+    local function LootPreviewText(item, sourceText)
+        local d = N.GetItemDetails(item.link)
+        local lines = { "|cFFFFD100Botín|r", "", item.link, "" }
+        if d.itemLevel then table.insert(lines, "Nivel de objeto: |cFFFFFFFF" .. d.itemLevel .. "|r") end
+        if d.type or d.slot then
+            table.insert(lines, "Tipo: |cFFFFFFFF" .. table.concat({ d.slot or "", d.type or "" }, d.slot and d.type and " · " or "") .. "|r")
+        end
+        local verb = item.lootType == "crafted" and "Fabricado por" or (item.lootType == "purchased" and "Comprado por" or "Obtenido por")
+        table.insert(lines, verb .. ": |cFFFFFFFF" .. (item.who or "-") .. "|r")
+        table.insert(lines, "Fecha: " .. (item.dateText or "-"))
+        table.insert(lines, "")
+        table.insert(lines, "|cFFFFD100Origen|r")
+        table.insert(lines, sourceText)
+        table.insert(lines, "")
+        table.insert(lines, "|cFF808080Pasa el ratón por la noticia para ver el objeto. Shift+clic para compartirlo en la hermandad.|r")
+        return table.concat(lines, "\n")
+    end
+
+    local function ShowLootPreview(item)
+        previewedLootItem = item
+        if item.lootType == "crafted" then
+            SetPreviewText(LootPreviewText(item, "Fabricado con una profesión."))
+            return
+        elseif item.lootType == "purchased" then
+            SetPreviewText(LootPreviewText(item, "Comprado a un vendedor. El juego no indica a qué PNJ."))
+            return
+        end
+        SetPreviewText(LootPreviewText(item, "|cFF808080Buscando en el diario de encuentros...|r"))
+        N.LookupItemSource(item.link, function(source)
+            if previewedLootItem ~= item or activeTab ~= "Resumen" then return end
+            local text
+            if source then
+                text = "|cFFFFFFFF" .. (source.instance or "Instancia desconocida") .. "|r"
+                    .. (source.encounter and ("\nJefe: |cFFFFFFFF" .. source.encounter .. "|r") or "")
+            elseif source == false then
+                text = "No figura en el diario de encuentros: puede ser botín de mundo, de una misión, de un evento o de un vendedor."
+            else
+                text = "|cFF808080No se pudo consultar el diario de encuentros ahora mismo.|r"
+            end
+            SetPreviewText(LootPreviewText(item, text))
+        end)
+    end
+
     local function ShowNewsPreview(item)
         if item.achievementId then
-            ShowAchievementPreviewWithButton(item.achievementId)
+            -- Detalle del logro y botón que lleva a ese logro dentro de la sección Logros
+            SetPreviewText(BuildAchievementPreviewText(item.achievementId)
+                .. "\n\n|cFF808080Pulsa el botón para ir al detalle del logro en la sección Logros.|r")
+            local id, mode = item.achievementId, (item.kind == "guildAchievement") and "guild" or "player"
+            SetPreviewAction("Ir al logro en Logros", function()
+                SwitchTab("Logros")
+                if uiModule.FocusAchievement then uiModule.FocusAchievement(id, mode) end
+            end)
         elseif item.link then
-            SetPreviewText("|cFFFFD100Botín|r\n\n" .. item.link .. "\n\nObtenido por: |cFFFFFFFF" .. (item.who or "-") .. "|r\n"
-                .. "Fecha: " .. (item.dateText or "-") .. "\n\n|cFF808080Pasa el ratón por la noticia para ver el objeto. Shift+clic para compartirlo en la hermandad.|r")
+            ShowLootPreview(item)
         else
             SetPreviewText("|cFFFFD100" .. (item.title or "") .. "|r\n\n" .. (item.detail or "") .. "\n\nFecha: " .. (item.dateText or "-"))
         end
@@ -4867,34 +4950,12 @@ local function BuildBlacklistView(parent)
 end
 
 -- =========================================================================
--- 8g. VISTA WARNING (MIEMBROS INACTIVOS Y MIEMBROS EN LA LISTA NEGRA)
+-- 8g. VISTA WARNING (AVISOS POR CATEGORÍAS)
 -- =========================================================================
+-- Cada categoría devuelve { {name, data, detail, sort}, ... } (sort mayor = más grave).
 local INACTIVE_OPTIONS = { 14, 30, 60, 90, 180, 365 }
 local WARNING_ROW_HEIGHT = 22
-
--- Miembros que no se conectan desde hace al menos "days" días (más antiguos primero)
-local function GetInactiveMembers(days, includeAlts)
-    local list = {}
-    for fullName, m in pairs(GuildControlDB.members or {}) do
-        local isAlt = m.declared and m.declared.charType == "alt"
-        if not m.isOnline and (m.offlineDays or 0) >= days and (includeAlts or not isAlt) then
-            table.insert(list, { name = fullName, data = m })
-        end
-    end
-    table.sort(list, function(a, b)
-        if (a.data.offlineDays or 0) ~= (b.data.offlineDays or 0) then return (a.data.offlineDays or 0) > (b.data.offlineDays or 0) end
-        return a.name < b.name
-    end)
-    return list
-end
-
--- Total de avisos para la caja "Warnings" del encabezado
-function uiModule.CountWarnings()
-    local settings = GuildControlDB.settings or {}
-    local inactive = #GetInactiveMembers(settings.inactiveDays or 30, settings.inactiveIncludeAlts ~= false)
-    local blacklisted = addonTable.Blacklist and addonTable.Blacklist.CountInGuild() or 0
-    return inactive + blacklisted
-end
+local ACTIVE_DAYS = 14   -- "activo" = se ha conectado en las últimas 2 semanas
 
 local function FormatOfflineDays(days)
     days = days or 0
@@ -4907,95 +4968,437 @@ local function FormatOfflineDays(days)
     return days .. " días"
 end
 
+local function WarningSettings()
+    local s = GuildControlDB.settings
+    s.inactiveDays = s.inactiveDays or 30
+    s.lowAttendance = s.lowAttendance or 70
+    s.starterInactiveDays = s.starterInactiveDays or 7
+    s.reviewRaiderRank = s.reviewRaiderRank or 2
+    s.reviewRecruitDays = s.reviewRecruitDays or 30
+    s.noteRequired = s.noteRequired or ""
+    return s
+end
+
+local function IsAlt(m) return m.declared and m.declared.charType == "alt" end
+local function ShortOf(name) return string.match(name or "", "^([^-]+)") or name end
+
+-- Fecha (time) del alta más reciente de cada miembro según el historial del addon
+local function JoinTimes()
+    local result = {}
+    for _, log in ipairs(GuildControlDB.history or {}) do
+        if log.action == "ALTA" and log.name and not result[log.name] then
+            local y, mo, d = string.match(log.date or "", "^(%d+)-(%d+)-(%d+)")
+            if y then result[log.name] = time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 }) end
+        end
+    end
+    return result
+end
+
+-- Titulares de los rosters (base): { [nombre] = { "Roster 1", ... } }
+local function RosterStarters()
+    local result = {}
+    local R = addonTable.Roster
+    if not R then return result end
+    for _, roster in ipairs(R.GetAll()) do
+        for name, slot in pairs(roster.members) do
+            if slot ~= "bench" then
+                result[name] = result[name] or {}
+                table.insert(result[name], roster)
+            end
+        end
+    end
+    return result
+end
+
+local WARNING_CATEGORIES = {
+    {
+        key = "inactive", label = "Inactivos",
+        help = "Miembros que llevan mucho tiempo sin conectarse. Clic derecho: expulsar.",
+        collect = function(s)
+            local list = {}
+            for name, m in pairs(GuildControlDB.members or {}) do
+                if not m.isOnline and (m.offlineDays or 0) >= s.inactiveDays and (s.inactiveIncludeAlts ~= false or not IsAlt(m)) then
+                    table.insert(list, { name = name, data = m, detail = "Sin conectarse: " .. FormatOfflineDays(m.offlineDays), sort = m.offlineDays or 0 })
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "norole", label = "Sin rol declarado",
+        help = "Miembros activos (últimos " .. ACTIVE_DAYS .. " días) que no han declarado su rol en Mi perfil. Puedes enviarles un recordatorio.",
+        collect = function()
+            local list = {}
+            for name, m in pairs(GuildControlDB.members or {}) do
+                if not (m.declared and m.declared.main) and (m.isOnline or (m.offlineDays or 0) <= ACTIVE_DAYS) then
+                    local detail = HasDefinedRole(m) and ("Rol puesto por un oficial: " .. m.role) or "Sin rol"
+                    table.insert(list, { name = name, data = m, detail = detail, sort = m.isOnline and 1 or 0 })
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "orphanalts", label = "Alters sin principal",
+        help = "Personajes que se declaran alter de alguien que no está en la hermandad.",
+        collect = function()
+            local shortNames = {}
+            for name in pairs(GuildControlDB.members or {}) do shortNames[string.lower(ShortOf(name))] = true end
+            local list = {}
+            for name, m in pairs(GuildControlDB.members or {}) do
+                if IsAlt(m) then
+                    local mainName = m.declared.mainName
+                    local found = mainName and (GuildControlDB.members[mainName] or shortNames[string.lower(ShortOf(mainName))])
+                    if not found then
+                        table.insert(list, { name = name, data = m, detail = "Dice ser alter de " .. (mainName or "(sin indicar)") .. ", que no está en la hermandad", sort = 0 })
+                    end
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "lowattendance", label = "Baja asistencia",
+        help = "Titulares de un roster con asistencia por debajo del umbral (con al menos 3 fechas registradas).",
+        collect = function(s)
+            local list = {}
+            local R = addonTable.Roster
+            for name, rosters in pairs(RosterStarters()) do
+                local m = GuildControlDB.members[name]
+                for _, roster in ipairs(rosters) do
+                    local stats = R.GetAttendanceStats(roster, name)
+                    if m and stats.percent and stats.counted >= 3 and stats.percent < s.lowAttendance then
+                        table.insert(list, { name = name, data = m, sort = 100 - stats.percent,
+                            detail = roster.name .. ": " .. stats.percent .. "% (" .. (stats.present + stats.late) .. " de " .. stats.counted .. " fechas)" })
+                    end
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "inactivestarters", label = "Titulares inactivos",
+        help = "Titulares de un roster que llevan días sin conectarse.",
+        collect = function(s)
+            local list = {}
+            for name, rosters in pairs(RosterStarters()) do
+                local m = GuildControlDB.members[name]
+                if m and not m.isOnline and (m.offlineDays or 0) >= s.starterInactiveDays then
+                    local names = {}
+                    for _, roster in ipairs(rosters) do table.insert(names, roster.name) end
+                    table.insert(list, { name = name, data = m, sort = m.offlineDays or 0,
+                        detail = table.concat(names, ", ") .. " · sin conectarse: " .. FormatOfflineDays(m.offlineDays) })
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "ranks", label = "Rangos a revisar",
+        help = "Nivel bajo en un rango de raider o superior, y reclutas que llevan tiempo en la hermandad (posible ascenso).",
+        collect = function(s)
+            local list = {}
+            local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or nil
+            local numRanks = GuildControlGetNumRanks and GuildControlGetNumRanks() or 0
+            local lowestRank = numRanks > 0 and (numRanks - 1) or nil
+            local joins = JoinTimes()
+            for name, m in pairs(GuildControlDB.members or {}) do
+                if maxLevel and m.rankIndex and m.rankIndex <= s.reviewRaiderRank and (tonumber(m.level) or 0) < maxLevel then
+                    table.insert(list, { name = name, data = m, sort = maxLevel - (tonumber(m.level) or 0),
+                        detail = "Nivel " .. (m.level or "?") .. " con rango " .. (m.rank or "?") .. " (por encima del rango de raider)" })
+                elseif lowestRank and m.rankIndex == lowestRank and joins[name] then
+                    local days = math.floor((time() - joins[name]) / 86400)
+                    if days >= s.reviewRecruitDays and (m.isOnline or (m.offlineDays or 0) <= ACTIVE_DAYS) then
+                        table.insert(list, { name = name, data = m, sort = days,
+                            detail = days .. " días en la hermandad con rango " .. (m.rank or "?") .. ": revisar ascenso" })
+                    end
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "notes", label = "Nota pública",
+        help = "Notas públicas vacías o que no contienen el texto obligatorio configurado.",
+        collect = function(s)
+            local list = {}
+            local required = string.lower(strtrim(s.noteRequired or ""))
+            for name, m in pairs(GuildControlDB.members or {}) do
+                local note = strtrim(m.publicNote or "")
+                if note == "" then
+                    table.insert(list, { name = name, data = m, detail = "Nota pública vacía", sort = 1 })
+                elseif required ~= "" and not string.find(string.lower(note), required, 1, true) then
+                    table.insert(list, { name = name, data = m, detail = "Nota sin \"" .. s.noteRequired .. "\": " .. note, sort = 0 })
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "blacklist", label = "Lista negra",
+        help = "Miembros de la hermandad que están en la lista negra.",
+        collect = function()
+            local list = {}
+            local B = addonTable.Blacklist
+            for name, m in pairs(GuildControlDB.members or {}) do
+                local entry = B and B.Get(name)
+                if entry then
+                    table.insert(list, { name = name, data = m, sort = 0,
+                        detail = B.GetReasonLabel(entry.reason) .. ((entry.note and entry.note ~= "") and (": " .. entry.note) or "") })
+                end
+            end
+            return list
+        end,
+    },
+}
+
+local function CollectCategory(category)
+    local list = category.collect(WarningSettings())
+    table.sort(list, function(a, b)
+        if a.sort ~= b.sort then return a.sort > b.sort end
+        return a.name < b.name
+    end)
+    return list
+end
+
+-- Total de avisos para la caja "Warnings" del encabezado: inactivos + lista negra
+function uiModule.CountWarnings()
+    local total = 0
+    for _, category in ipairs(WARNING_CATEGORIES) do
+        if category.key == "inactive" or category.key == "blacklist" then total = total + #category.collect(WarningSettings()) end
+    end
+    return total
+end
+
 local function BuildWarningView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
     view:Hide()
-    local settings = function() return GuildControlDB.settings end
+    local selectedKey = "inactive"
     local Refresh
+    local currentList = {}
 
-    local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
-    title:SetText("Warnings")
+    -- Izquierda: categorías con su recuento
+    local catBox = CreateBackdropBox(view, 200, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
+    local catTitle = catBox:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    catTitle:SetPoint("TOPLEFT", catBox, "TOPLEFT", 12, -12)
+    catTitle:SetText("Warnings")
 
-    local subtitle = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    subtitle:SetPoint("LEFT", title, "RIGHT", 14, 0)
-    subtitle:SetText("Miembros que llevan mucho tiempo sin conectarse y miembros que están en la lista negra.")
+    local catButtons = {}
+    for i, category in ipairs(WARNING_CATEGORIES) do
+        local btn = CreateFrame("Button", nil, catBox)
+        btn:SetSize(184, 26)
+        btn:SetPoint("TOPLEFT", catBox, "TOPLEFT", 8, -40 - (i - 1) * 30)
+        btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+        btn.bg:SetAllPoints()
+        btn.bg:SetColorTexture(0.8, 0.2, 0.2, 0.35)
+        btn.highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+        btn.highlight:SetAllPoints()
+        btn.highlight:SetColorTexture(1, 1, 1, 0.08)
+        btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        btn.text:SetPoint("LEFT", btn, "LEFT", 8, 0)
+        btn.text:SetText(category.label)
+        btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        btn.count:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
+        btn:SetScript("OnClick", function()
+            selectedKey = category.key
+            Refresh()
+        end)
+        catButtons[category.key] = btn
+    end
 
-    -- Controles: antigüedad, alters, recuento y exportar
-    local daysLabel = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    daysLabel:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -46)
-    daysLabel:SetText("Sin conectarse desde hace al menos:")
+    -- Derecha: ayuda, ajustes de la categoría, tabla y acciones
+    local right = CreateBackdropBox(view, 674, 500, "TOPLEFT", catBox, "TOPRIGHT", 6, 0)
+    local helpText = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    helpText:SetPoint("TOPLEFT", right, "TOPLEFT", 14, -12)
+    helpText:SetPoint("RIGHT", right, "RIGHT", -14, 0)
+    helpText:SetJustifyH("LEFT")
 
-    local dropDays = CreateFrame("DropdownButton", "GC_WarningDays", view, "WowStyle1DropdownTemplate")
-    dropDays:SetPoint("LEFT", daysLabel, "RIGHT", 10, 0)
-    dropDays:SetWidth(110)
-    dropDays:SetupMenu(function(_, root)
-        for _, days in ipairs(INACTIVE_OPTIONS) do
-            root:CreateRadio(FormatOfflineDays(days), function() return (settings().inactiveDays or 30) == days end,
-                function()
-                    settings().inactiveDays = days
-                    Refresh()
-                    if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
-                end)
+    -- Fila de ajustes: cada categoría muestra los suyos
+    local settingsRow = CreateFrame("Frame", nil, right)
+    settingsRow:SetSize(646, 26)
+    settingsRow:SetPoint("TOPLEFT", right, "TOPLEFT", 12, -32)
+    local controlsByKey = {}
+
+    local function NumberControl(key, labelText, settingKey, minValue, maxValue, suffix)
+        local holder = CreateFrame("Frame", nil, settingsRow)
+        holder:SetAllPoints()
+        local label = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", holder, "LEFT", 0, 0)
+        label:SetText(labelText)
+        local input = CreateFrame("EditBox", nil, holder, "InputBoxTemplate")
+        input:SetSize(44, 20)
+        input:SetPoint("LEFT", label, "RIGHT", 10, 0)
+        input:SetAutoFocus(false)
+        input:SetNumeric(true)
+        input:SetMaxLetters(4)
+        input:SetJustifyH("CENTER")
+        local suffixText = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        suffixText:SetPoint("LEFT", input, "RIGHT", 6, 0)
+        suffixText:SetText(suffix or "")
+        local function Save(self)
+            local value = tonumber(self:GetText())
+            if value then WarningSettings()[settingKey] = math.min(maxValue, math.max(minValue, value)) end
+            self:SetText(tostring(WarningSettings()[settingKey]))
+            self:ClearFocus()
+            Refresh()
+            if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
         end
-    end)
+        input:SetScript("OnEnterPressed", Save)
+        input:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(WarningSettings()[settingKey])) end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        holder.Load = function() input:SetText(tostring(WarningSettings()[settingKey])) end
+        holder.input = input
+        controlsByKey[key] = controlsByKey[key] or {}
+        table.insert(controlsByKey[key], holder)
+        return holder, input
+    end
 
-    local chkAlts = CreateFrame("CheckButton", "GC_WarningIncludeAlts", view, "UICheckButtonTemplate")
-    chkAlts:SetSize(24, 24)
-    chkAlts:SetPoint("LEFT", dropDays, "RIGHT", 16, 0)
-    _G[chkAlts:GetName() .. "Text"]:SetText("Incluir alters")
-    chkAlts:SetScript("OnClick", function(self)
-        settings().inactiveIncludeAlts = self:GetChecked() and true or false
-        Refresh()
-        if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
-    end)
+    -- Inactivos: antigüedad e inclusión de alters
+    do
+        local holder = CreateFrame("Frame", nil, settingsRow)
+        holder:SetAllPoints()
+        local label = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", holder, "LEFT", 0, 0)
+        label:SetText("Sin conectarse desde hace al menos:")
+        local drop = CreateFrame("DropdownButton", "GC_WarningDays", holder, "WowStyle1DropdownTemplate")
+        drop:SetPoint("LEFT", label, "RIGHT", 10, 0)
+        drop:SetWidth(110)
+        drop:SetupMenu(function(_, root)
+            for _, days in ipairs(INACTIVE_OPTIONS) do
+                root:CreateRadio(FormatOfflineDays(days), function() return WarningSettings().inactiveDays == days end,
+                    function()
+                        WarningSettings().inactiveDays = days
+                        Refresh()
+                        if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+                    end)
+            end
+        end)
+        local chkAlts = CreateFrame("CheckButton", "GC_WarningIncludeAlts", holder, "UICheckButtonTemplate")
+        chkAlts:SetSize(24, 24)
+        chkAlts:SetPoint("LEFT", drop, "RIGHT", 16, 0)
+        _G[chkAlts:GetName() .. "Text"]:SetText("Incluir alters")
+        chkAlts:SetScript("OnClick", function(self)
+            WarningSettings().inactiveIncludeAlts = self:GetChecked() and true or false
+            Refresh()
+            if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
+        end)
+        holder.Load = function()
+            drop:SetText(FormatOfflineDays(WarningSettings().inactiveDays))
+            chkAlts:SetChecked(WarningSettings().inactiveIncludeAlts ~= false)
+        end
+        controlsByKey.inactive = { holder }
+    end
 
-    local btnExport = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnExport:SetSize(120, 22)
-    btnExport:SetPoint("TOPRIGHT", view, "TOPRIGHT", -12, -42)
-    btnExport:SetText("Exportar CSV")
+    NumberControl("lowattendance", "Avisar por debajo de:", "lowAttendance", 1, 100, "% de asistencia")
+    NumberControl("inactivestarters", "Titulares sin conectarse desde hace al menos:", "starterInactiveDays", 1, 365, "días")
 
-    local countText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    countText:SetPoint("RIGHT", btnExport, "LEFT", -12, 0)
+    -- Rangos: rango de raider (dropdown) y días como recluta
+    do
+        local holder = CreateFrame("Frame", nil, settingsRow)
+        holder:SetAllPoints()
+        local label = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", holder, "LEFT", 0, 0)
+        label:SetText("Rango de raider o superior:")
+        local drop = CreateFrame("DropdownButton", "GC_WarningRaiderRank", holder, "WowStyle1DropdownTemplate")
+        drop:SetPoint("LEFT", label, "RIGHT", 8, 0)
+        drop:SetWidth(130)
+        drop:SetupMenu(function(_, root)
+            for _, rank in ipairs(addonTable.Profiles and addonTable.Profiles.GetGuildRanks() or {}) do
+                local index = rank.index
+                root:CreateRadio(rank.name, function() return WarningSettings().reviewRaiderRank == index end,
+                    function() WarningSettings().reviewRaiderRank = index; Refresh() end)
+            end
+        end)
+        local daysLabel = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        daysLabel:SetPoint("LEFT", drop, "RIGHT", 14, 0)
+        daysLabel:SetText("Recluta desde hace:")
+        local input = CreateFrame("EditBox", nil, holder, "InputBoxTemplate")
+        input:SetSize(40, 20)
+        input:SetPoint("LEFT", daysLabel, "RIGHT", 8, 0)
+        input:SetAutoFocus(false)
+        input:SetNumeric(true)
+        input:SetMaxLetters(3)
+        input:SetJustifyH("CENTER")
+        input:SetScript("OnEnterPressed", function(self)
+            local value = tonumber(self:GetText())
+            if value then WarningSettings().reviewRecruitDays = math.max(1, value) end
+            self:ClearFocus()
+            Refresh()
+        end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        local suffix = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        suffix:SetPoint("LEFT", input, "RIGHT", 6, 0)
+        suffix:SetText("días")
+        holder.Load = function()
+            local s = WarningSettings()
+            drop:SetText("Rango " .. s.reviewRaiderRank)
+            for _, rank in ipairs(addonTable.Profiles and addonTable.Profiles.GetGuildRanks() or {}) do
+                if rank.index == s.reviewRaiderRank then drop:SetText(rank.name) end
+            end
+            input:SetText(tostring(s.reviewRecruitDays))
+        end
+        controlsByKey.ranks = { holder }
+    end
 
-    -- Tabla de inactivos
+    -- Nota pública: texto obligatorio (opcional)
+    do
+        local holder = CreateFrame("Frame", nil, settingsRow)
+        holder:SetAllPoints()
+        local label = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", holder, "LEFT", 0, 0)
+        label:SetText("La nota debe contener (opcional):")
+        local input = CreateFrame("EditBox", nil, holder, "InputBoxTemplate")
+        input:SetSize(160, 20)
+        input:SetPoint("LEFT", label, "RIGHT", 10, 0)
+        input:SetAutoFocus(false)
+        input:SetMaxLetters(30)
+        input:SetScript("OnEnterPressed", function(self)
+            WarningSettings().noteRequired = strtrim(self:GetText() or "")
+            self:ClearFocus()
+            Refresh()
+        end)
+        input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        local hint = holder:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        hint:SetPoint("LEFT", input, "RIGHT", 10, 0)
+        hint:SetText("Ej.: \"Main\" o \"ilvl\". Enter para aplicar.")
+        holder.Load = function() input:SetText(WarningSettings().noteRequired or "") end
+        controlsByKey.notes = { holder }
+    end
+
+    -- Tabla
     local COLS = {
-        { title = "Personaje",       x = 8,   w = 170 },
-        { title = "Nivel",           x = 182, w = 40 },
-        { title = "Rango",           x = 226, w = 100 },
-        { title = "Tipo",            x = 330, w = 50 },
-        { title = "Sin conectarse",  x = 384, w = 100 },
-        { title = "Nota pública",    x = 488, w = 356 },
+        { title = "Personaje", x = 8,   w = 170 },
+        { title = "Nivel",     x = 182, w = 40 },
+        { title = "Rango",     x = 226, w = 90 },
+        { title = "Detalle",   x = 320, w = 320 },
     }
-
-    local listBox = CreateBackdropBox(view, 880, 340, "TOPLEFT", view, "TOPLEFT", 10, -70)
-    local headerRow = CreateFrame("Frame", nil, listBox)
-    headerRow:SetSize(850, 18)
-    headerRow:SetPoint("TOPLEFT", listBox, "TOPLEFT", 6, -8)
+    local headerRow = CreateFrame("Frame", nil, right)
+    headerRow:SetSize(640, 18)
+    headerRow:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -66)
     for _, col in ipairs(COLS) do
         local fs = headerRow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         fs:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
         fs:SetText(col.title)
     end
 
-    local scroll = CreateFrame("ScrollFrame", "GC_WarningScroll", listBox, "UIPanelScrollFrameTemplate")
+    local scroll = CreateFrame("ScrollFrame", "GC_WarningScroll", right, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
-    scroll:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -28, 8)
+    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 40)
     local child = CreateFrame("Frame")
-    child:SetSize(846, 1)
+    child:SetSize(636, 1)
     scroll:SetScrollChild(child)
 
-    local emptyText = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    emptyText:SetPoint("CENTER", listBox, "CENTER", 0, 0)
-    emptyText:SetText("Nadie lleva tanto tiempo sin conectarse.")
+    local emptyText = right:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", right, "CENTER", 0, 0)
+    emptyText:SetText("Nada que revisar en esta categoría.")
 
     local rows = {}
     local function AcquireRow(index)
         local row = rows[index]
         if row then return row end
         row = CreateFrame("Button", nil, child)
-        row:SetSize(846, WARNING_ROW_HEIGHT - 2)
+        row:SetSize(636, WARNING_ROW_HEIGHT - 2)
         row:RegisterForClicks("RightButtonUp")
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
@@ -5012,93 +5415,128 @@ local function BuildWarningView(parent)
             fs:SetWordWrap(false)
             row.cells[i] = fs
         end
-        -- Clic derecho: expulsar (con confirmación en un submenú)
+        row:SetScript("OnEnter", function(self)
+            if not self.detail then return end
+            GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+            GameTooltip:SetText(self.fullName or "", 1, 0.82, 0)
+            GameTooltip:AddLine(self.detail, 1, 1, 1, true)
+            GameTooltip:AddLine("Clic derecho: opciones", 0.5, 0.5, 0.5)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        -- Clic derecho: susurrar, invitar al grupo y, en inactivos, expulsar (con confirmación)
         row:SetScript("OnClick", function(self)
             local name = self.fullName
             if not name then return end
             MenuUtil.CreateContextMenu(self, function(_, root)
                 root:CreateTitle(name)
-                if CanGuildRemove and not CanGuildRemove() then
-                    root:CreateButton("|cFF808080Tu rango no puede expulsar|r", function() end)
-                    return
+                root:CreateButton("Susurrar", function() WhisperTo(name) end)
+                root:CreateButton("Invitar al grupo", function() InviteToGroup(name) end)
+                if selectedKey == "inactive" and not (CanGuildRemove and not CanGuildRemove()) then
+                    local kick = root:CreateButton("|cFFFF3333Expulsar de la hermandad...|r")
+                    kick:CreateButton("Sí, expulsar a " .. name, function()
+                        if C_GuildInfo and C_GuildInfo.RemoveFromGuild then
+                            C_GuildInfo.RemoveFromGuild(name)
+                        elseif GuildUninvite then
+                            GuildUninvite(name)
+                        end
+                        PrintGC("Expulsando a |cFFFFD100" .. name .. "|r de la hermandad.")
+                    end)
                 end
-                local kick = root:CreateButton("|cFFFF3333Expulsar de la hermandad...|r")
-                kick:CreateButton("Sí, expulsar a " .. name, function()
-                    if C_GuildInfo and C_GuildInfo.RemoveFromGuild then
-                        C_GuildInfo.RemoveFromGuild(name)
-                    elseif GuildUninvite then
-                        GuildUninvite(name)
-                    end
-                    PrintGC("Expulsando a |cFFFFD100" .. name .. "|r de la hermandad.")
-                end)
             end)
         end)
         rows[index] = row
         return row
     end
 
-    -- Miembros que figuran en la lista negra
-    local blackBox = CreateBackdropBox(view, 880, 92, "TOPLEFT", listBox, "BOTTOMLEFT", 0, -6)
-    local blackTitle = blackBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    blackTitle:SetPoint("TOPLEFT", blackBox, "TOPLEFT", 12, -10)
-    local blackText = blackBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    blackText:SetPoint("TOPLEFT", blackTitle, "BOTTOMLEFT", 0, -6)
-    blackText:SetPoint("RIGHT", blackBox, "RIGHT", -12, 0)
-    blackText:SetJustifyH("LEFT")
-    blackText:SetJustifyV("TOP")
-    blackText:SetMaxLines(3)
-
-    local currentList = {}
+    -- Acciones
+    local btnExport = CreateFrame("Button", nil, right, "UIPanelButtonTemplate")
+    btnExport:SetSize(120, 22)
+    btnExport:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 12, 10)
+    btnExport:SetText("Exportar CSV")
     btnExport:SetScript("OnClick", function()
-        local lines = { "Personaje,Nivel,Rango,Tipo,DiasSinConectarse,NotaPublica" }
+        local lines = { "Personaje,Nivel,Rango,Detalle" }
         for _, entry in ipairs(currentList) do
-            local m = entry.data
-            local charType = m.declared and m.declared.charType or ""
-            table.insert(lines, string.format("%s,%s,%s,%s,%d,%s", entry.name, tostring(m.level or ""), m.rank or "",
-                charType, m.offlineDays or 0, string.gsub(m.publicNote or "", ",", " ")))
+            table.insert(lines, string.format("%s,%s,%s,%s", entry.name, tostring(entry.data.level or ""),
+                entry.data.rank or "", (string.gsub(entry.detail or "", ",", " "))))
         end
         if addonTable.CSV and addonTable.CSV.ShowText then addonTable.CSV.ShowText(table.concat(lines, "\n")) end
     end)
 
+    -- Recordatorio por susurro (solo en "Sin rol declarado", a los conectados)
+    local reminderTicker = nil
+    local btnRemind = CreateFrame("Button", nil, right, "UIPanelButtonTemplate")
+    btnRemind:SetSize(230, 22)
+    btnRemind:SetPoint("LEFT", btnExport, "RIGHT", 8, 0)
+    btnRemind:SetText("Recordar a los conectados")
+    btnRemind:SetScript("OnClick", function(self)
+        if reminderTicker then return end
+        local queue = {}
+        local me = UnitName("player")
+        for _, entry in ipairs(currentList) do
+            if entry.data.isOnline and ShortOf(entry.name) ~= me then table.insert(queue, entry.name) end
+        end
+        if #queue == 0 then
+            PrintGC("No hay nadie conectado sin rol declarado.")
+            return
+        end
+        self:Disable()
+        local total = #queue
+        reminderTicker = C_Timer.NewTicker(0.5, function()
+            local name = table.remove(queue, 1)
+            if name then
+                SendWhisper(name, "¡Hola " .. ShortOf(name) .. "! Cuando puedas, indica tu rol y especialización en GuildControl > Mi perfil. ¡Gracias!")
+            end
+            if #queue == 0 then
+                reminderTicker:Cancel()
+                reminderTicker = nil
+                self:Enable()
+                PrintGC("Recordatorios enviados: |cFFFFD100" .. total .. "|r.")
+            end
+        end)
+    end)
+
+    local countText = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -14, 15)
+
     Refresh = function()
         if not view:IsShown() then return end
-        local days = settings().inactiveDays or 30
-        dropDays:SetText(FormatOfflineDays(days))
-        chkAlts:SetChecked(settings().inactiveIncludeAlts ~= false)
+        local selected
+        for _, category in ipairs(WARNING_CATEGORIES) do
+            local count = #category.collect(WarningSettings())
+            local btn = catButtons[category.key]
+            btn.count:SetText(count > 0 and ("|cFFFF7F7F" .. count .. "|r") or "|cFF808080 0|r")
+            btn.bg:SetShown(category.key == selectedKey)
+            if category.key == selectedKey then selected = category end
+        end
+
+        helpText:SetText(selected.help)
+        for key, holders in pairs(controlsByKey) do
+            for _, holder in ipairs(holders) do
+                holder:SetShown(key == selectedKey)
+                if key == selectedKey and holder.Load then holder.Load() end
+            end
+        end
+        btnRemind:SetShown(selectedKey == "norole")
 
         for _, row in ipairs(rows) do row:Hide() end
-        currentList = GetInactiveMembers(days, settings().inactiveIncludeAlts ~= false)
+        currentList = CollectCategory(selected)
         for i, entry in ipairs(currentList) do
             local m = entry.data
             local row = AcquireRow(i)
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * WARNING_ROW_HEIGHT)
             row.bg:SetShown(i % 2 == 0)
-            row.fullName = entry.name
-            local offline = m.offlineDays or 0
-            local color = offline >= 180 and "FF3333" or (offline >= 60 and "FF7F00" or "FFD100")
-            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r")
+            row.fullName, row.detail = entry.name, entry.detail
+            local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
+            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r" .. dot)
             row.cells[2]:SetText(tostring(m.level or ""))
             row.cells[3]:SetText(m.rank or "")
-            row.cells[4]:SetText(m.declared and (m.declared.charType == "alt" and "Alter" or (m.declared.charType == "main" and "Main" or "")) or "")
-            row.cells[5]:SetText("|cFF" .. color .. FormatOfflineDays(offline) .. "|r")
-            row.cells[6]:SetText(m.publicNote or "")
+            row.cells[4]:SetText(entry.detail or "")
             row:Show()
         end
         child:SetHeight(math.max(1, #currentList * WARNING_ROW_HEIGHT))
         emptyText:SetShown(#currentList == 0)
-        countText:SetText("|cFFFFD100" .. #currentList .. "|r miembros inactivos   ·   Clic derecho: expulsar")
-
-        -- Lista negra dentro de la hermandad
-        local names = {}
-        for fullName in pairs(GuildControlDB.members or {}) do
-            local entry = addonTable.Blacklist and addonTable.Blacklist.Get(fullName)
-            if entry then
-                table.insert(names, "|cFFFF3333" .. fullName .. "|r |cFF808080(" .. addonTable.Blacklist.GetReasonLabel(entry.reason) .. ")|r")
-            end
-        end
-        table.sort(names)
-        blackTitle:SetText("En la lista negra y dentro de la hermandad (" .. #names .. ")")
-        blackText:SetText(#names > 0 and table.concat(names, "   ·   ") or "|cFF808080Nadie de la lista negra está en la hermandad.|r")
+        countText:SetText("|cFFFFD100" .. #currentList .. "|r personajes")
     end
 
     view:SetScript("OnShow", Refresh)
@@ -5230,7 +5668,7 @@ local function BuildProfessionsView(parent)
 
     local scroll = CreateFrame("ScrollFrame", "GC_ProfsScroll", right, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
-    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 10)
+    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 22)
     local child = CreateFrame("Frame")
     child:SetSize(636, 1)
     scroll:SetScrollChild(child)
@@ -5240,12 +5678,24 @@ local function BuildProfessionsView(parent)
     emptyText:SetWidth(560)
     emptyText:SetText("Todavía no hay profesiones registradas. Se rellenan al escanear la hermandad.")
 
+    local rowHint = right:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    rowHint:SetPoint("BOTTOMLEFT", right, "BOTTOMLEFT", 14, 2)
+    rowHint:SetText("Clic en un miembro: susurrar o invitar al grupo")
+
     local rows = {}
     local function AcquireRow(index)
         local row = rows[index]
         if row then return row end
-        row = CreateFrame("Frame", nil, child)
+        row = CreateFrame("Button", nil, child)
         row:SetSize(636, PROF_ROW_HEIGHT - 2)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+        row.highlight:SetAllPoints()
+        row.highlight:SetColorTexture(1, 1, 1, 0.08)
+        -- Clic: susurrar o invitar al grupo (mismo menú que en Miembros)
+        row:SetScript("OnClick", function(self)
+            if self.fullName then ShowPlayerMenu(self, self.fullName) end
+        end)
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
         row.bg:SetColorTexture(1, 1, 1, 0.05)
@@ -5315,6 +5765,7 @@ local function BuildProfessionsView(parent)
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * PROF_ROW_HEIGHT)
             row.bg:SetShown(i % 2 == 0)
             local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
+            row.fullName = entry.name
             row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r" .. dot)
             row.cells[2]:SetText(entry.skill and tostring(entry.skill) or "|cFF808080-|r")
             local other = entry.other
