@@ -285,9 +285,11 @@ local function ScheduleWelcome(who)
     who = string.match(who, "|Hplayer:([^|:]+)") or string.match(who, "%[(.-)%]") or who
     local name = ShortName(who)
     if IsMe(name) then return end
+    -- Sin bienvenida en este cliente, el saludo automático sigue funcionando para él (salvo
+    -- que otro cliente le dé la bienvenida: llega "W:nombre" y entonces se le aparta)
+    if not GetSettings().welcomeNew or pendingWelcomes[name] then return end
     newMembers[name] = true
     MarkGreeted(name)   -- el saludo automático no se le aplica
-    if not GetSettings().welcomeNew or pendingWelcomes[name] then return end
     pendingWelcomes[name] = C_Timer.NewTimer(3 + math.random() * GREET_DELAY_JITTER, function()
         pendingWelcomes[name] = nil
         if not IsInGuild() or not GetSettings().welcomeNew then return end
@@ -374,6 +376,7 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         if prefix == "GuildControlGreet" and channel == "GUILD" and msg and not IsMe(sender) then
             local welcomed = string.match(msg, "^W:(.+)$")
             if welcomed then
+                newMembers[welcomed] = true
                 CancelWelcome(welcomed)
                 MarkGreeted(welcomed)
             else
