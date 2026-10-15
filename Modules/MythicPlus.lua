@@ -41,7 +41,14 @@ end
 -- =========================================================================
 -- PUNTUACIÓN DE LOS MIEMBROS (C_Club)
 -- =========================================================================
-function mplusModule.UpdateScores()
+-- Recorre C_Club como mucho una vez por minuto (force = true al abrir la pestaña, si han
+-- pasado 10 s): lo llama Core en cada escaneo de la lista
+local SCORE_COOLDOWN, SCORE_FORCED_COOLDOWN = 60, 10
+local lastScoreUpdate = -SCORE_COOLDOWN
+function mplusModule.UpdateScores(force)
+    local elapsed = GetTime() - lastScoreUpdate
+    if elapsed < (force and SCORE_FORCED_COOLDOWN or SCORE_COOLDOWN) then return false end
+    lastScoreUpdate = GetTime()
     if not (C_Club and C_Club.GetGuildClubId and C_Club.GetClubMembers and C_Club.GetMemberInfo) then return false end
     local clubId = C_Club.GetGuildClubId()
     if not clubId then return false end

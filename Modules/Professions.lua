@@ -17,6 +17,10 @@ local TRADESKILL_QUERY_COOLDOWN = 60   -- segundos entre peticiones QueryGuildTr
 local BROADCAST_COOLDOWN = 10          -- segundos mínimos entre respuestas a GuildControlReq
 
 local lastTradeSkillQuery = -TRADESKILL_QUERY_COOLDOWN
+-- Las fuentes de toda la hermandad (C_Club y lista de profesiones) se recorren como mucho
+-- una vez por minuto: GUILD_ROSTER_UPDATE llega muy a menudo y cada vuelta crea tablas
+local CLUB_SCAN_COOLDOWN = 60
+local lastClubScan = -CLUB_SCAN_COOLDOWN
 local lastBroadcast = -BROADCAST_COOLDOWN
 
 local profFrame = CreateFrame("Frame")
@@ -423,8 +427,11 @@ function profModule.Scan()
         QueryGuildTradeSkill()
     end
 
-    profModule.ParseGuildTradeSkills()
-    ApplyClubProfessions()
+    if now - lastClubScan >= CLUB_SCAN_COOLDOWN then
+        lastClubScan = now
+        profModule.ParseGuildTradeSkills()
+        ApplyClubProfessions()
+    end
 
     -- Las profesiones propias siempre tienen prioridad
     ApplyMyProfessions()

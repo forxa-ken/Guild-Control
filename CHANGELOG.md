@@ -3,6 +3,10 @@
 ## Próxima versión
 
 ### Novedades de esta tanda
+- Pestaña **Favoritos**: gestión de favoritos (susurrar, invitar, quitar, añadir por nombre) y contenedores separados con los amigos de Battle.net (Real ID) y los amigos BattleTag.
+- Roster: cada rol (tanques, sanadores, DPS y suplentes) se dibuja como un contenedor de su color. Se quita **Añadirme**.
+- Raid: botón **Ver roster** con los integrantes del roster asociado y su respuesta.
+- Rendimiento: menos memoria y sin picos de FPS. Las profesiones y las puntuaciones de Míticas+ de toda la hermandad se recorren como mucho una vez por minuto, el índice de logros del Resumen se construye poco a poco y las noticias del juego se guardan en caché.
 - **Favoritos**: clic derecho en un miembro para añadirlo; aviso en el chat, en pantalla y con sonido cuando se conecta, y filtro Favoritos en Miembros.
 - **Cambiar rango** desde la vista previa de un miembro (con confirmación y según los permisos de tu rango).
 - Los **rosters se sincronizan en tiempo real** entre clientes, como las bandas de Raid: sin importar a mano y borrándose en todos.

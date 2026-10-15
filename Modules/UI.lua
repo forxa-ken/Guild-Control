@@ -22,7 +22,7 @@ local containers = {
 local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información detallada."
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Míticas+", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -783,6 +783,7 @@ local function ShowPlayerMenu(owner, name)
             rootDescription:CreateButton(F.IsFavorite(name) and L["Quitar de favoritos"] or L["Añadir a favoritos"], function()
                 F.Toggle(name)
                 if uiModule.RefreshList then uiModule.RefreshList() end
+                if uiModule.RefreshFavorites then uiModule.RefreshFavorites() end
             end)
         end
     end)
@@ -1897,35 +1898,6 @@ local function BuildRosterView(parent)
     candTitle:SetPoint("TOPLEFT", candPanel, "TOPLEFT", 10, -8)
     candTitle:SetText(L["Candidatos"])
 
-    -- Añadir mi propio personaje (busca su clave en la lista de la hermandad del addon)
-    local btnAddMe = CreateFrame("Button", nil, candPanel, "UIPanelButtonTemplate")
-    btnAddMe:SetSize(90, 20)
-    btnAddMe:SetPoint("TOPRIGHT", candPanel, "TOPRIGHT", -8, -6)
-    btnAddMe:SetText(L["Añadirme"])
-    btnAddMe:SetScript("OnClick", function()
-        local myName = UnitName("player")
-        local key = addonTable.Profiles and addonTable.Profiles.GetMyFullName()
-        if not (key and GuildControlDB.members[key]) then
-            key = nil
-            local prefix = string.lower(myName .. "-")
-            for fullName in pairs(GuildControlDB.members) do
-                if string.sub(string.lower(fullName), 1, #prefix) == prefix then key = fullName break end
-            end
-        end
-        if not key then
-            PrintGC(L["|cFFFF3333Tu personaje no está en la lista de la hermandad del addon. Abre la ventana de hermandad del juego para actualizarla e inténtalo de nuevo.|r"])
-            if IsInGuild() then C_GuildInfo.GuildRoster() end
-            return
-        end
-        local roster = R.GetSelected()
-        if R.GetEffectiveMembers(roster)[key] then
-            PrintGC(L["Ya estás en este roster."])
-            return
-        end
-        R.AddMember(roster, key)
-        Refresh()
-    end)
-
     local candSearch = CreateFrame("EditBox", nil, candPanel, "InputBoxTemplate")
     candSearch:SetSize(200, 20)
     candSearch:SetPoint("TOPLEFT", candTitle, "BOTTOMLEFT", 4, -6)
@@ -2191,31 +2163,39 @@ local function BuildRosterView(parent)
     -- se gestiona en Raid. Los controles de jefes quedan ocultos.
     for _, widget in ipairs({ dropVariant, variantInput, btnAddVariant, btnDeleteVariant, variantDiffText }) do widget:Hide() end
 
-    -- Cada bloque muestra sus integrantes en una cuadrícula de "cols" columnas
+    -- Cada rol es un contenedor con borde, fondo y franja de cabecera de su color; sus
+    -- integrantes se colocan dentro en una cuadrícula de "cols" columnas
+    local BLOCK_COLORS = {
+        tank = { 0.25, 0.5, 1 }, healer = { 0.25, 0.85, 0.35 }, dps = { 0.95, 0.3, 0.3 }, bench = { 0.6, 0.6, 0.6 },
+    }
+    local BLOCK_HEADER = 24
     local blocks = {}
     local function CreateBlock(slot, x, y, width, height, cols)
-        local block = CreateFrame("Frame", nil, compPanel)
-        block:SetPoint("TOPLEFT", compPanel, "TOPLEFT", x, y)
-        block:SetSize(width, height)
+        local color = BLOCK_COLORS[slot]
+        local block = CreateBackdropBox(compPanel, width, height, "TOPLEFT", compPanel, "TOPLEFT", x, y)
+        block:SetBackdropBorderColor(color[1], color[2], color[3], 0.9)
+        block.tint = block:CreateTexture(nil, "BACKGROUND", nil, 1)
+        block.tint:SetPoint("TOPLEFT", block, "TOPLEFT", 3, -3)
+        block.tint:SetPoint("BOTTOMRIGHT", block, "BOTTOMRIGHT", -3, 3)
+        block.tint:SetColorTexture(color[1], color[2], color[3], 0.07)
+        block.header = block:CreateTexture(nil, "ARTWORK")
+        block.header:SetPoint("TOPLEFT", block, "TOPLEFT", 3, -3)
+        block.header:SetPoint("TOPRIGHT", block, "TOPRIGHT", -3, -3)
+        block.header:SetHeight(BLOCK_HEADER - 3)
+        block.header:SetColorTexture(color[1], color[2], color[3], 0.25)
         block.slot, block.cols, block.rows = slot, cols, {}
         block.title = block:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        block.title:SetPoint("TOPLEFT", block, "TOPLEFT", 0, 0)
+        block.title:SetPoint("LEFT", block.header, "LEFT", 6, 0)
         block.more = block:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        block.more:SetPoint("BOTTOMRIGHT", block, "BOTTOMRIGHT", 0, 0)
+        block.more:SetPoint("BOTTOMRIGHT", block, "BOTTOMRIGHT", -8, 6)
         blocks[slot] = block
         return block
     end
 
-    CreateBlock("tank", 12, -10, 140, 236, 1)
-    CreateBlock("healer", 160, -10, 150, 236, 1)
-    CreateBlock("dps", 318, -10, 316, 236, 2)
-    CreateBlock("bench", 12, -256, 622, 108, 4)
-
-    local divider = compPanel:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(1, 1, 1, 0.12)
-    divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", compPanel, "TOPLEFT", 10, -250)
-    divider:SetPoint("TOPRIGHT", compPanel, "TOPRIGHT", -10, -250)
+    CreateBlock("tank", 8, -8, 150, 238, 1)
+    CreateBlock("healer", 164, -8, 150, 238, 1)
+    CreateBlock("dps", 320, -8, 316, 238, 2)
+    CreateBlock("bench", 8, -252, 628, 114, 4)
 
     local function AcquireSlotRow(block, index)
         local row = block.rows[index]
@@ -2271,15 +2251,15 @@ local function BuildRosterView(parent)
         end
 
         for _, row in ipairs(block.rows) do row:Hide() end
-        local colWidth = math.floor(block:GetWidth() / block.cols)
-        local maxRows = math.floor((block:GetHeight() - 34) / ROSTER_ROW_HEIGHT)
+        local colWidth = math.floor((block:GetWidth() - 12) / block.cols)
+        local maxRows = math.floor((block:GetHeight() - BLOCK_HEADER - 22) / ROSTER_ROW_HEIGHT)
         local capacity = maxRows * block.cols
         for i, name in ipairs(names) do
             if i > capacity then break end
             local row = AcquireSlotRow(block, i)
             local col, line = (i - 1) % block.cols, math.floor((i - 1) / block.cols)
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", block, "TOPLEFT", col * colWidth, -18 - line * ROSTER_ROW_HEIGHT)
+            row:SetPoint("TOPLEFT", block, "TOPLEFT", 6 + col * colWidth, -BLOCK_HEADER - 4 - line * ROSTER_ROW_HEIGHT)
             row:SetWidth(colWidth - 4)
             row.fullName = name
             local m = GuildControlDB.members[name] or {}
@@ -5756,7 +5736,7 @@ local function BuildMythicPlusView(parent)
     M.AddListener(function() Refresh() end)
     view:SetScript("OnShow", function()
         M.RequestData()
-        M.UpdateScores()
+        M.UpdateScores(true)
         M.RequestKeystones(true)   -- con límite de tiempo: no repite la petición cada vez
         Refresh()
     end)
@@ -5894,13 +5874,62 @@ local function BuildRaidView(parent)
     evTitle:SetWordWrap(false)
     local evInfo = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     evInfo:SetPoint("TOPLEFT", evTitle, "BOTTOMLEFT", 0, -6)
-    evInfo:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
+    evInfo:SetPoint("RIGHT", detail, "RIGHT", -206, 0)
     evInfo:SetJustifyH("LEFT")
     local evDesc = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     evDesc:SetPoint("TOPLEFT", evInfo, "BOTTOMLEFT", 0, -4)
     evDesc:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
     evDesc:SetJustifyH("LEFT")
     evDesc:SetMaxLines(2)
+
+    -- Roster asociado: lo propio (oficiales) o el publicado (jugadores)
+    local function FindRosterByName(name)
+        if not name then return nil end
+        for _, roster in ipairs(R.GetAll()) do
+            if roster.name == name then return roster end
+        end
+        for _, item in ipairs(R.GetSharedRosters()) do
+            if item.roster.name == name then return item.roster end
+        end
+        return nil
+    end
+
+    -- Vista previa del roster asociado: sus integrantes por rol y qué ha respondido cada uno
+    local function ShowRosterPreview(event)
+        local roster = event and FindRosterByName(event.rosterName)
+        if not roster then
+            SetPreviewText(L["|cFF808080Esta banda no tiene un roster asociado o no lo tienes.|r"])
+            return
+        end
+        local lines = { "|cFFFFD100" .. roster.name .. "|r", R.DifficultyLabel(roster) .. L[" · "] .. roster.size .. L[" jugadores"], "" }
+        local bySlot = R.GetMembersBySlot(roster)
+        local answered, total = 0, 0
+        for _, slot in ipairs(R.SLOTS) do
+            local names = bySlot[slot] or {}
+            table.insert(lines, (slot ~= "bench" and (RoleIcon(slot, 14) .. " ") or "") .. "|cFFFFD100" .. L[R.SLOT_LABELS[slot]] .. " (" .. #names .. ")|r")
+            for _, name in ipairs(names) do
+                total = total + 1
+                local signup = event.signups[name]
+                local mark
+                if signup then
+                    answered = answered + 1
+                    mark = "|cFF" .. E.STATUS_COLORS[signup.status] .. L[E.STATUS_LABELS[signup.status]] .. "|r"
+                else
+                    mark = L["|cFFFF7F00sin responder|r"]
+                end
+                table.insert(lines, "  " .. SignupName(name) .. "  " .. mark)
+            end
+            table.insert(lines, "")
+        end
+        table.insert(lines, L["Han respondido: |cFFFFD100"] .. answered .. "/" .. total .. "|r")
+        SetPreviewText(table.concat(lines, "\n"))
+    end
+
+    local btnRosterPreview = CreateFrame("Button", nil, detail, "UIPanelButtonTemplate")
+    btnRosterPreview:SetSize(186, 22)
+    btnRosterPreview:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -14, -36)
+    btnRosterPreview:SetText(L["Ver roster"])
+    btnRosterPreview:SetScript("OnClick", function() ShowRosterPreview(SelectedEvent()) end)
 
     -- Acciones de oficial: editar, eliminar, invitar y recordar
     local officerBar = CreateFrame("Frame", nil, detail)
@@ -6562,6 +6591,7 @@ local function BuildRaidView(parent)
     -- ---------------------------------------------------------------------
     local function RefreshPlanning(event)
         local isOfficer = IsOfficerProfile()
+        btnRosterPreview:SetShown(event ~= nil and event.rosterName ~= nil)
         officerBar:SetShown(isOfficer and event ~= nil)
         footer:SetShown(event ~= nil)
         for _, btn in ipairs({ btnInvite, btnRemind, btnRepublish }) do btn:SetShown(isOfficer) end
@@ -6672,7 +6702,7 @@ local function BuildRaidView(parent)
         attPanel:SetShown(isAttendance)
         form:SetShown(showForm)
         if showForm then
-            for _, widget in ipairs({ evTitle, evInfo, evDesc, signBar, countsText, tankCol, healerCol, dpsCol, otherText, officerBar, footer, emptyDetail }) do widget:Hide() end
+            for _, widget in ipairs({ evTitle, evInfo, evDesc, signBar, countsText, tankCol, healerCol, dpsCol, otherText, officerBar, footer, emptyDetail, btnRosterPreview }) do widget:Hide() end
             if not form.loadedFor or form.loadedFor ~= editing then
                 form.loadedFor = editing
                 LoadForm()
@@ -6688,6 +6718,302 @@ local function BuildRaidView(parent)
     E.AddListener(function() Refresh() end)
     view:SetScript("OnShow", Refresh)
     containers.views["Raid"] = view
+end
+
+-- =========================================================================
+-- 8k. VISTA FAVORITOS (CONSUME MODULES/FAVORITES.LUA Y LA LISTA DE AMIGOS DE BATTLE.NET)
+-- =========================================================================
+local FAV_ROW_HEIGHT = 24
+
+-- Amigos de Battle.net: { {accountName, battleTag, isBattleTagFriend, online, character, realm, inWoW, gameAccountID, info}, ... }
+local function GetBattleNetFriends()
+    local list = {}
+    if not (BNGetNumFriends and C_BattleNet and C_BattleNet.GetFriendAccountInfo) then return list end
+    local total = BNGetNumFriends() or 0
+    for i = 1, total do
+        local ok, account = pcall(C_BattleNet.GetFriendAccountInfo, i)
+        if ok and account then
+            local game = account.gameAccountInfo or {}
+            local inWoW = game.isOnline and game.clientProgram == BNET_CLIENT_WOW
+                and (not game.wowProjectID or game.wowProjectID == WOW_PROJECT_ID)
+            table.insert(list, {
+                accountName = account.accountName,
+                battleTag = account.battleTag,
+                isBattleTagFriend = account.isBattleTagFriend,
+                online = game.isOnline and true or false,
+                character = inWoW and game.characterName or nil,
+                realm = inWoW and game.realmName or nil,
+                area = game.areaName,
+                className = game.className,
+                level = game.characterLevel,
+                inWoW = inWoW,
+                gameAccountID = game.gameAccountID,
+                program = game.clientProgram,
+                isAFK = account.isAFK or game.isGameAFK,
+                isDND = account.isDND or game.isGameBusy,
+            })
+        end
+    end
+    return list
+end
+
+local function BuildFavoritesView(parent)
+    local F = addonTable.Favorites
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+    local Refresh
+
+    -- Botoncito de acción de una fila
+    local function RowButton(row, text, width, anchor)
+        local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        btn:SetSize(width, 20)
+        if anchor then btn:SetPoint("RIGHT", anchor, "LEFT", -3, 0) else btn:SetPoint("RIGHT", row, "RIGHT", -2, 0) end
+        btn:SetText(text)
+        btn:GetFontString():SetFontObject("GameFontHighlightSmall")
+        return btn
+    end
+
+    -- Caja con título, scroll y filas reutilizables
+    local function ListBox(width, height, point, relativeTo, relativePoint, x, y, titleText)
+        local box = CreateBackdropBox(view, width, height, point, relativeTo, relativePoint, x, y)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10)
+        box.title:SetText(titleText)
+        box.scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+        box.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -32)
+        box.scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -28, 8)
+        box.child = CreateFrame("Frame")
+        box.child:SetSize(width - 40, 1)
+        box.scroll:SetScrollChild(box.child)
+        box.empty = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        box.empty:SetPoint("TOPLEFT", box, "TOPLEFT", 14, -40)
+        box.empty:SetWidth(width - 30)
+        box.empty:SetJustifyH("LEFT")
+        box.rows = {}
+        return box
+    end
+
+    local function AcquireRow(box, index, buttons)
+        local row = box.rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, box.child)
+        row:SetSize(box.child:GetWidth(), FAV_ROW_HEIGHT)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.05)
+        row.buttons = {}
+        local anchor = nil
+        for i = #buttons, 1, -1 do
+            local b = buttons[i]
+            local btn = RowButton(row, b.text, b.width, anchor)
+            btn.key = b.key
+            row.buttons[b.key] = btn
+            anchor = btn
+        end
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.text:SetPoint("RIGHT", anchor or row, anchor and "LEFT" or "RIGHT", -4, 0)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        box.rows[index] = row
+        return row
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Izquierda: favoritos de la hermandad
+    -- ---------------------------------------------------------------------
+    local favBox = ListBox(440, 500, "TOPLEFT", view, "TOPLEFT", 10, -10, L["Favoritos de la hermandad"])
+    favBox.scroll:SetPoint("BOTTOMRIGHT", favBox, "BOTTOMRIGHT", -28, 64)
+
+    local addLabel = favBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    addLabel:SetPoint("BOTTOMLEFT", favBox, "BOTTOMLEFT", 14, 40)
+    addLabel:SetText(L["Añadir miembro de la hermandad:"])
+    local addInput = CreateFrame("EditBox", nil, favBox, "InputBoxTemplate")
+    addInput:SetSize(220, 20)
+    addInput:SetPoint("BOTTOMLEFT", favBox, "BOTTOMLEFT", 18, 14)
+    addInput:SetAutoFocus(false)
+    addInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local btnAdd = CreateFrame("Button", nil, favBox, "UIPanelButtonTemplate")
+    btnAdd:SetSize(90, 22)
+    btnAdd:SetPoint("LEFT", addInput, "RIGHT", 8, 0)
+    btnAdd:SetText(L["Añadir"])
+    local function AddTyped()
+        local text = strtrim(addInput:GetText() or "")
+        if text == "" then return end
+        local wanted = string.lower(text)
+        local found = nil
+        for fullName in pairs(GuildControlDB.members) do
+            local lower = string.lower(fullName)
+            if lower == wanted or string.lower(string.match(fullName, "^([^-]+)") or "") == wanted then found = fullName break end
+        end
+        if not found then
+            PrintGC(L["|cFFFF3333No está en la hermandad: |r"] .. text)
+            return
+        end
+        if not F.IsFavorite(found) then F.Toggle(found) end
+        addInput:SetText("")
+        addInput:ClearFocus()
+        Refresh()
+    end
+    btnAdd:SetScript("OnClick", AddTyped)
+    addInput:SetScript("OnEnterPressed", AddTyped)
+
+    local FAV_BUTTONS = {
+        { key = "whisper", text = L["Susurrar"], width = 66 },
+        { key = "invite", text = L["Invitar"], width = 58 },
+        { key = "remove", text = L["Quitar"], width = 54 },
+    }
+
+    -- ---------------------------------------------------------------------
+    -- Derecha: amigos de Battle.net (Real ID) y amigos BattleTag, por separado
+    -- ---------------------------------------------------------------------
+    local realIdBox = ListBox(434, 246, "TOPLEFT", favBox, "TOPRIGHT", 6, 0, L["Amigos de Battle.net (Real ID)"])
+    local tagBox = ListBox(434, 248, "TOPLEFT", realIdBox, "BOTTOMLEFT", 0, -6, L["Amigos BattleTag"])
+    local BNET_BUTTONS = {
+        { key = "whisper", text = L["Susurrar"], width = 66 },
+        { key = "invite", text = L["Invitar"], width = 58 },
+    }
+
+    local function BNetWhisper(friend)
+        local target = friend.accountName or friend.battleTag
+        if not target then return end
+        if ChatFrameUtil and ChatFrameUtil.SendBNetTell then
+            ChatFrameUtil.SendBNetTell(target)
+        elseif ChatFrame_SendBNetTell then
+            ChatFrame_SendBNetTell(target)
+        end
+    end
+
+    local function BNetInvite(friend)
+        if not friend.inWoW then return end
+        if friend.character and friend.realm and friend.realm ~= "" then
+            InviteToGroup(friend.character .. "-" .. string.gsub(friend.realm, "%s+", ""))
+        elseif friend.gameAccountID and BNInviteFriend then
+            BNInviteFriend(friend.gameAccountID)
+        end
+    end
+
+    local function FriendText(friend)
+        local name = friend.accountName or friend.battleTag or "?"
+        if not friend.online then return "|cFF808080" .. name .. "|r" end
+        local status = ""
+        if friend.isAFK then status = L[" |cFFFFD100(ausente)|r"] elseif friend.isDND then status = L[" |cFFFF3333(ocupado)|r"] end
+        local where
+        if friend.inWoW then
+            where = "|cFFFFFFFF" .. (friend.character or "") .. "|r" .. (friend.level and (" |cFF808080" .. friend.level .. "|r") or "")
+                .. ((friend.area and friend.area ~= "") and (" |cFF808080· " .. friend.area .. "|r") or "")
+        else
+            where = "|cFF808080" .. (friend.program or L["En línea"]) .. "|r"
+        end
+        return "|cFF82C5FF" .. name .. "|r" .. status .. "  " .. where
+    end
+
+    local function FillFriends(box, friends)
+        for _, row in ipairs(box.rows) do row:Hide() end
+        local online = 0
+        for i, friend in ipairs(friends) do
+            local row = AcquireRow(box, i, BNET_BUTTONS)
+            row:SetPoint("TOPLEFT", box.child, "TOPLEFT", 0, -(i - 1) * (FAV_ROW_HEIGHT + 2))
+            row.bg:SetShown(i % 2 == 0)
+            row.text:SetText(FriendText(friend))
+            row.buttons.whisper:SetEnabled(friend.online)
+            row.buttons.whisper:SetScript("OnClick", function() BNetWhisper(friend) end)
+            row.buttons.invite:SetEnabled(friend.inWoW == true)
+            row.buttons.invite:SetScript("OnClick", function() BNetInvite(friend) end)
+            row:Show()
+            if friend.online then online = online + 1 end
+        end
+        box.child:SetHeight(math.max(1, #friends * (FAV_ROW_HEIGHT + 2)))
+        box.empty:SetShown(#friends == 0)
+        return online
+    end
+
+    Refresh = function()
+        if not view:IsShown() then return end
+
+        -- Favoritos: conectados primero
+        local favorites = {}
+        for _, fullName in ipairs(F.GetAll()) do
+            table.insert(favorites, { name = fullName, data = GuildControlDB.members[fullName] })
+        end
+        table.sort(favorites, function(a, b)
+            local oa, ob = a.data and a.data.isOnline or false, b.data and b.data.isOnline or false
+            if oa ~= ob then return oa end
+            return a.name < b.name
+        end)
+        for _, row in ipairs(favBox.rows) do row:Hide() end
+        for i, entry in ipairs(favorites) do
+            local row = AcquireRow(favBox, i, FAV_BUTTONS)
+            row:SetPoint("TOPLEFT", favBox.child, "TOPLEFT", 0, -(i - 1) * (FAV_ROW_HEIGHT + 2))
+            row.bg:SetShown(i % 2 == 0)
+            local m = entry.data
+            local short = string.match(entry.name, "^([^-]+)") or entry.name
+            local text
+            if not m then
+                text = "|cFF808080" .. short .. L[" (ya no está en la hermandad)"] .. "|r"
+            elseif m.isOnline then
+                text = "|TInterface\\COMMON\\Indicator-Green:12:12|t |cFF" .. addonTable.GetClassColorHex(m.class) .. short .. "|r"
+                    .. ((m.zone and m.zone ~= "") and (" |cFF808080· " .. m.zone .. "|r") or "")
+            else
+                text = "|TInterface\\COMMON\\Indicator-Gray:12:12|t |cFF808080" .. short .. " · "
+                    .. (addonTable.FormatLastOnline(m.lastOnline) or "") .. "|r"
+            end
+            row.text:SetText(text)
+            local online = m and m.isOnline
+            row.buttons.whisper:SetEnabled(online == true)
+            row.buttons.whisper:SetScript("OnClick", function() WhisperTo(entry.name) end)
+            row.buttons.invite:SetEnabled(online == true)
+            row.buttons.invite:SetScript("OnClick", function() InviteToGroup(entry.name) end)
+            row.buttons.remove:SetScript("OnClick", function()
+                F.Toggle(entry.name)
+                Refresh()
+                if uiModule.RefreshList then uiModule.RefreshList() end
+            end)
+            row:Show()
+        end
+        favBox.child:SetHeight(math.max(1, #favorites * (FAV_ROW_HEIGHT + 2)))
+        favBox.empty:SetShown(#favorites == 0)
+        favBox.empty:SetText(L["Todavía no tienes favoritos. Añádelos aquí abajo o con clic derecho en Miembros; te avisa cuando se conectan."])
+
+        -- Amigos de Battle.net: conectados primero, separados en Real ID y BattleTag
+        local realId, tags = {}, {}
+        for _, friend in ipairs(GetBattleNetFriends()) do
+            table.insert(friend.isBattleTagFriend and tags or realId, friend)
+        end
+        local function ByOnline(a, b)
+            if a.online ~= b.online then return a.online end
+            if (a.inWoW or false) ~= (b.inWoW or false) then return a.inWoW or false end
+            return tostring(a.battleTag or "") < tostring(b.battleTag or "")
+        end
+        table.sort(realId, ByOnline)
+        table.sort(tags, ByOnline)
+        local onlineReal = FillFriends(realIdBox, realId)
+        local onlineTags = FillFriends(tagBox, tags)
+        realIdBox.title:SetText(L["Amigos de Battle.net (Real ID)"] .. " |cFF808080(" .. onlineReal .. "/" .. #realId .. ")|r")
+        tagBox.title:SetText(L["Amigos BattleTag"] .. " |cFF808080(" .. onlineTags .. "/" .. #tags .. ")|r")
+        realIdBox.empty:SetText(L["No tienes amigos con Real ID."])
+        tagBox.empty:SetText(L["No tienes amigos por BattleTag."])
+    end
+
+    -- La lista de amigos cambia a menudo: se refresca como mucho una vez por segundo
+    local refreshPending = false
+    local bnetFrame = CreateFrame("Frame")
+    for _, event in ipairs({ "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE" }) do
+        pcall(bnetFrame.RegisterEvent, bnetFrame, event)
+    end
+    bnetFrame:SetScript("OnEvent", function()
+        if refreshPending or not view:IsShown() then return end
+        refreshPending = true
+        C_Timer.After(1, function()
+            refreshPending = false
+            Refresh()
+        end)
+    end)
+
+    view:SetScript("OnShow", Refresh)
+    uiModule.RefreshFavorites = Refresh
+    containers.views["Favoritos"] = view
 end
 
 -- =========================================================================
@@ -7276,6 +7602,7 @@ function uiModule.CreateUI()
     containers.mainContent = mainContent
 
     BuildMembersView(mainContent)
+    BuildFavoritesView(mainContent)
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
     BuildMyRostersView(mainContent)

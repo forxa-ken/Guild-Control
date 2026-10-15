@@ -96,30 +96,54 @@ local function NewsDate(info)
     return string.format("%02d/%02d", day, month), string.format("%04d%02d%02d", year, month, day)
 end
 
--- Índice nombre -> id de todos los logros (de hermandad y de personaje). Se construye una
--- sola vez, la primera vez que hace falta.
+-- Índice nombre -> id de todos los logros (de hermandad y de personaje). Son miles de
+-- llamadas al juego: se construye poco a poco, una categoría por fotograma, la primera vez
+-- que hace falta. Mientras tanto devuelve nil y, al terminar, refresca las noticias.
 local achievementNameIndex = nil
+local indexBuilding = false
+local function BuildAchievementIndex()
+    if indexBuilding then return end
+    indexBuilding = true
+    local pending = {}
+    if GetGuildCategoryList then for _, id in ipairs(GetGuildCategoryList() or {}) do table.insert(pending, id) end end
+    if GetCategoryList then for _, id in ipairs(GetCategoryList() or {}) do table.insert(pending, id) end end
+    local index, position = {}, 1
+    local ticker
+    ticker = C_Timer.NewTicker(0, function()
+        local categoryId = pending[position]
+        if not categoryId then
+            ticker:Cancel()
+            achievementNameIndex = index
+            newsModule.InvalidateCache()
+            return
+        end
+        position = position + 1
+        local num = GetCategoryNumAchievements(categoryId, true) or 0
+        for i = 1, num do
+            local id, achName = GetAchievementInfo(categoryId, i)
+            if id and achName and not index[achName] then index[achName] = id end
+        end
+    end)
+end
+
 function newsModule.FindAchievementByName(name)
     if not name or name == "" then return nil end
     if not achievementNameIndex then
-        achievementNameIndex = {}
-        local lists = {}
-        if GetGuildCategoryList then table.insert(lists, GetGuildCategoryList()) end
-        if GetCategoryList then table.insert(lists, GetCategoryList()) end
-        for _, categories in ipairs(lists) do
-            for _, categoryId in ipairs(categories or {}) do
-                local num = GetCategoryNumAchievements(categoryId, true) or 0
-                for i = 1, num do
-                    local id, achName = GetAchievementInfo(categoryId, i)
-                    if id and achName and not achievementNameIndex[achName] then achievementNameIndex[achName] = id end
-                end
-            end
-        end
+        BuildAchievementIndex()
+        return nil
     end
     return achievementNameIndex[name]
 end
 
-local function GuildNewsItems()
+-- Las noticias del juego se leen una vez y se guardan hasta GUILD_NEWS_UPDATE (cada refresco
+-- del Resumen las pedía varias veces)
+local cachedNews = nil
+function newsModule.InvalidateCache()
+    cachedNews = nil
+    Notify()
+end
+
+local function ReadGuildNews()
     local items = {}
     local getInfo = C_GuildInfo and C_GuildInfo.GetGuildNewsInfo
     local num = GetNumGuildNews and GetNumGuildNews() or 0
@@ -178,6 +202,11 @@ local function GuildNewsItems()
         end
     end
     return items
+end
+
+local function GuildNewsItems()
+    if not cachedNews then cachedNews = ReadGuildNews() end
+    return cachedNews
 end
 
 local function HistoryItems()
@@ -556,7 +585,10 @@ frame:RegisterEvent("ENCOUNTER_END")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
-    if event == "ENCOUNTER_END" then
+    if event == "GUILD_NEWS_UPDATE" then
+        cachedNews = nil
+        Notify()
+    elseif event == "ENCOUNTER_END" then
         OnEncounterEnd(...)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, msg, channel, sender = ...

@@ -57,10 +57,18 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 - Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**, y para **añadirlo a favoritos** o quitarlo. El botón **Favoritos** filtra la lista (con estrella junto al nombre) y, cuando un favorito se conecta, se avisa en el chat, en el centro de la pantalla y con un sonido.
 - **Cambiar rango**: en la vista previa de un miembro aparece un desplegable para ascenderlo o degradarlo si tu rango tiene ese permiso (solo a miembros y rangos por debajo del tuyo). Pide confirmación.
 - **Actualizar** (junto a Sheets / CSV) vuelve a pedir la lista de la hermandad al servidor. Si al abrir la ventana la lista está vacía, se pide sola.
+- Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
  y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat de hermandad**, con campo para escribir. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos. Haz clic en el nombre de alguien para abrir una pestaña solo con su conversación (clic derecho en la pestaña la cierra).
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
+
+## ⭐ Favoritos
+
+La pestaña **Favoritos** (debajo de Miembros) reúne:
+
+- **Favoritos de la hermandad**: conectados primero, con su zona o su última conexión, y botones para **susurrar**, **invitar al grupo** o **quitar**. Se añaden escribiendo el nombre abajo o con clic derecho en Miembros. Cuando uno se conecta, el addon avisa en el chat, en pantalla y con un sonido.
+- **Amigos de Battle.net (Real ID)** y **Amigos BattleTag**, en contenedores separados: conectados primero, con el personaje y la zona si están en WoW, y botones para susurrar (Battle.net) e invitar al grupo (si están jugando a WoW).
 
 ## 🛡️ Roster de banda
 
@@ -68,8 +76,8 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 
 - **Arriba**: selector de roster, nombre editable (Enter para guardar), botón **Banda** para elegir una banda del diario de encuentros del juego (el roster toma su nombre) y botones **Nuevo**, **Duplicar** y **Eliminar** (pide un segundo clic).
 - **Criterios**: dificultad (Normal, Heroica o Mítica), tamaño de 10 a 25 (Mítica siempre 20), y número de tanques y sanadores; los DPS son el resto. Los contadores se ponen en verde al completarse.
-- **Candidatos** (izquierda): miembros agrupados por rol (con su icono; quien no tiene rol definido va a "Sin rol definido") con el color de su clase, buscador y filtros de conectados y nivel máximo. Clic para añadirlo al roster en su rol; clic derecho para cambiarle el rol o añadirlo como suplente. **Añadirme** te añade a ti. Colocar a alguien sin rol como tanque, sanador o DPS le define ese rol.
-- **Composición** (centro): columnas de Tanques, Sanadores y DPS, y la banca de suplentes. Clic sobre un integrante para moverlo o quitarlo.
+- **Candidatos** (izquierda): miembros agrupados por rol (con su icono; quien no tiene rol definido va a "Sin rol definido") con el color de su clase, buscador y filtros de conectados y nivel máximo. Clic para añadirlo al roster en su rol; clic derecho para cambiarle el rol o añadirlo como suplente. Colocar a alguien sin rol como tanque, sanador o DPS le define ese rol.
+- **Composición** (centro): un contenedor por rol (Tanques en azul, Sanadores en verde, DPS en rojo y Suplentes en gris) con sus integrantes dentro. Clic sobre un integrante para moverlo o quitarlo.
 - **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase), reparto de armaduras de los titulares y media de asistencia en las bandas de Raid asociadas al roster.
 - **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad (en una ventana donde puedes editar el anuncio antes de enviarlo), exportarlo a CSV y vaciarlo.
 
@@ -113,6 +121,8 @@ La pestaña **Profesiones** lista cada profesión con cuántos miembros la tiene
 La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster** es la lista de personas con las que se cuenta; en **Raid** se apuntan quienes quieren ir a cada banda.
 
 - **Planning raid**: los oficiales crean la banda con **Nueva** (título, banda del diario de encuentros, dificultad, tamaño, fecha, hora, descripción y roster asociado) y se publica en la hermandad. Cada jugador responde con **Tanque**, **Sanador** o **DPS** (con su especialización actual), o **Tarde**, **Tentativo**, **Banca** o **Ausente**, y una nota. Se ven los apuntados por rol con el color de su clase y los recuentos. Los oficiales pueden editar, eliminar, **invitar a los apuntados**, **recordar al roster** (susurro a quien no ha respondido) y publicar de nuevo.
+- **Ver roster** (en el detalle de una banda con roster asociado): muestra en la vista previa los integrantes del roster por rol y qué ha respondido cada uno.
+- **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
 - **Asistencia** (oficiales): lista de las bandas próximas y de los últimos 14 días. Para la banda elegida aparecen los inscritos y los integrantes del roster asociado con su respuesta; márcalos como Presente, Tarde, Ausente o Justificada (un segundo clic quita la marca). **Tomar del grupo actual** marca presentes a los del grupo, justificados a quienes avisaron de que faltaban y ausentes al resto; **Apuntados presentes** marca a los apuntados. La asistencia se guarda aparte (no se pierde cuando se borra la banda), se envía sola a la hermandad y cuenta en el Roster, Mis rosters y Warning. Las justificadas no cuentan para el porcentaje.
 - Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
 
