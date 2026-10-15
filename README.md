@@ -55,7 +55,7 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 ## 👥 Miembros y chat
 
 - Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**, y para **añadirlo a favoritos** o quitarlo. El botón **Favoritos** filtra la lista (con estrella junto al nombre) y, cuando un favorito se conecta, se avisa en el chat, en el centro de la pantalla y con un sonido.
-- **Cambiar rango**: en la vista previa de un miembro aparece un desplegable para ascenderlo o degradarlo si tu rango tiene ese permiso (solo a miembros y rangos por debajo del tuyo). Pide confirmación.
+- **Cambiar rango**: en la vista previa de un miembro aparece un desplegable para ascenderlo o degradarlo si tu rango tiene ese permiso (solo a miembros y rangos por debajo del tuyo). Eliges el rango y pulsas el botón **Ascender a...** o **Degradar a...**, que ejecuta /gpromote o /gdemote como si lo escribieras tú (no funciona en combate).
 - **Actualizar** (junto a Sheets / CSV) vuelve a pedir la lista de la hermandad al servidor. Si al abrir la ventana la lista está vacía, se pide sola.
 - Busca por nombre, clase, rango, rol, profesión o roster y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
  y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
