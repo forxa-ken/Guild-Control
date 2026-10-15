@@ -8184,27 +8184,65 @@ local function BuildConfigView(parent)
 end
 
 -- =========================================================================
--- 10. PANEL DE CHAT DE HERMANDAD (CONTRAÍBLE, DEBAJO DE LA VENTANA)
+-- 10. PANEL DE CHAT (HERMANDAD, SUSURROS, BANDA Y GRUPO; CONTRAÍBLE, DEBAJO DE LA VENTANA)
 -- =========================================================================
 local CHAT_EXPANDED_HEIGHT, CHAT_COLLAPSED_HEIGHT = 190, 30
-local CHAT_MAX_PERSON_TABS = 6
-local CHAT_GENERAL_TAB = "General"
+local CHAT_MAX_PERSON_TABS = 4
+
+-- Pestañas fijas: "all" muestra todo; el resto, un canal. Las de persona usan el nombre corto.
+local CHAT_CHANNEL_TABS = {
+    { key = "all", label = "Todo" },
+    { key = "guild", label = "Hermandad" },
+    { key = "whisper", label = "Susurros" },
+    { key = "raid", label = "Banda" },
+    { key = "party", label = "Grupo" },
+}
+local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true }
+-- Color y etiqueta de cada canal (como en el chat del juego)
+local CHAT_CHANNEL_STYLE = {
+    guild = { color = "40FF40", tag = "H" }, whisper = { color = "FF80FF", tag = "S" },
+    raid = { color = "FF7F00", tag = "B" }, party = { color = "AAAAFF", tag = "G" },
+    instance = { color = "FF7F00", tag = "M" },
+}
+
+local function ChatEntryTime(entry)
+    if not entry.at then return entry.time or "" end
+    if date("%Y%m%d", entry.at) == date("%Y%m%d") then return date("%H:%M", entry.at) end
+    return date("%d/%m %H:%M", entry.at)
+end
 
 -- El nombre es un enlace de jugador: clic izquierdo abre su pestaña, clic derecho el menú del juego
 local function FormatChatLine(entry)
-    local hex = entry.class and addonTable.GetClassColorHex(entry.class) or "40FF40"
+    local style = CHAT_CHANNEL_STYLE[entry.channel or "guild"] or CHAT_CHANNEL_STYLE.guild
+    local hex = entry.class and addonTable.GetClassColorHex(entry.class) or style.color
     local linkName = entry.fullName or entry.sender
-    return "|cFF808080[" .. entry.time .. "]|r |Hplayer:" .. linkName .. "|h|cFF" .. hex .. "[" .. entry.sender .. "]|r|h: " .. entry.text
+    local who = "|Hplayer:" .. linkName .. "|h|cFF" .. hex .. "[" .. entry.sender .. "]|r|h"
+    if entry.channel == "whisper" then
+        if entry.dir == "out" then
+            who = L["A "] .. "|Hplayer:" .. (entry.target or "?") .. "|h[" .. (entry.target or "?") .. "]|h"
+        else
+            who = L["De "] .. who
+        end
+    end
+    return "|cFF808080[" .. ChatEntryTime(entry) .. "]|r |cFF" .. style.color .. "[" .. L[style.tag] .. "]|r " .. who
+        .. ": |cFF" .. style.color .. entry.text .. "|r"
 end
 
--- Un mensaje pertenece a la conversación con "person" si lo escribe esa persona
--- o si lo escribo yo y la menciona
+-- Conversación con "person": lo que escribe, los susurros con ella y lo mío que la menciona
 local function EntryMatchesPerson(entry, person)
     if entry.sender == person then return true end
-    if entry.sender == UnitName("player") then
+    if entry.channel == "whisper" and entry.dir == "out" and entry.target == person then return true end
+    if entry.sender == UnitName("player") and entry.text then
         return string.find(string.lower(entry.text), string.lower(person), 1, true) ~= nil
     end
     return false
+end
+
+local function EntryMatchesTab(entry, tabName)
+    if tabName == "all" then return true end
+    if tabName == "party" then return entry.channel == "party" or entry.channel == "instance" end
+    if CHAT_CHANNEL_KEYS[tabName] then return (entry.channel or "guild") == tabName end
+    return EntryMatchesPerson(entry, tabName)
 end
 
 local function BuildChatPanel(parent)
@@ -8214,18 +8252,21 @@ local function BuildChatPanel(parent)
 
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -9)
-    title:SetText(L["Chat de hermandad"])
+    title:SetText(L["Chat"])
 
     local unreadText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    unreadText:SetPoint("LEFT", title, "RIGHT", 10, 0)
+    unreadText:SetPoint("LEFT", title, "RIGHT", 8, 0)
 
     local btnToggle = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btnToggle:SetSize(90, 20)
     btnToggle:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -5)
 
-    local tabHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    tabHint:SetPoint("RIGHT", btnToggle, "LEFT", -12, 0)
-    tabHint:SetText(L["Clic en un nombre: conversación con esa persona"])
+    -- Borrar el historial guardado (con segundo clic de confirmación)
+    local clearArmedUntil = 0
+    local btnClear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    btnClear:SetSize(80, 20)
+    btnClear:SetPoint("RIGHT", btnToggle, "LEFT", -6, 0)
+    btnClear:SetText(L["Limpiar"])
 
     local messagesFrame = CreateFrame("ScrollingMessageFrame", nil, panel)
     messagesFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -32)
@@ -8233,15 +8274,22 @@ local function BuildChatPanel(parent)
     messagesFrame:SetFontObject(ChatFontNormal)
     messagesFrame:SetJustifyH("LEFT")
     messagesFrame:SetFading(false)
-    messagesFrame:SetMaxLines(200)
+    messagesFrame:SetMaxLines(500)
     messagesFrame:SetHyperlinksEnabled(true)
     messagesFrame:EnableMouseWheel(true)
     messagesFrame:SetScript("OnMouseWheel", function(self, delta)
         if delta > 0 then self:ScrollUp() else self:ScrollDown() end
     end)
 
+    -- Destino del mensaje según la pestaña activa
+    local targetText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    targetText:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 14)
+    targetText:SetWidth(150)
+    targetText:SetJustifyH("LEFT")
+    targetText:SetWordWrap(false)
+
     local input = CreateFrame("EditBox", "GC_GuildChatInput", panel, "InputBoxTemplate")
-    input:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 20, 10)
+    input:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 172, 10)
     input:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -110, 10)
     input:SetHeight(20)
     input:SetAutoFocus(false)
@@ -8252,20 +8300,11 @@ local function BuildChatPanel(parent)
     btnSend:SetPoint("LEFT", input, "RIGHT", 8, 0)
     btnSend:SetText(L["Enviar"])
 
-    local function SendInput()
-        if addonTable.GuildChat then addonTable.GuildChat.Send(input:GetText()) end
-        input:SetText("")
-        input:ClearFocus()
-    end
-    input:SetScript("OnEnterPressed", SendInput)
-    input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    btnSend:SetScript("OnClick", SendInput)
-
     -- ---------------------------------------------------------------------
-    -- Pestañas: "General" + una por persona (nombre corto)
+    -- Pestañas: las de canal y una por persona (nombre corto)
     -- ---------------------------------------------------------------------
     local tabs = {}            -- lista ordenada de { name, button, unread }
-    local activeTabName = CHAT_GENERAL_TAB
+    local activeTabName = "all"
     local unread = 0           -- mensajes nuevos con el panel contraído
     local SelectTab            -- declaración adelantada
 
@@ -8275,28 +8314,70 @@ local function BuildChatPanel(parent)
         end
     end
 
-    local function EntryMatchesTab(entry, tabName)
-        return tabName == CHAT_GENERAL_TAB or EntryMatchesPerson(entry, tabName)
+    -- Último interlocutor de susurros (para responder desde la pestaña Susurros)
+    local function LastWhisperPartner()
+        local list = addonTable.GuildChat and addonTable.GuildChat.GetMessages() or {}
+        for i = #list, 1, -1 do
+            local entry = list[i]
+            if entry.channel == "whisper" then return entry.dir == "out" and entry.target or entry.sender end
+        end
+        return nil
     end
+
+    -- Canal y destinatario al escribir: pestaña de persona = susurro a esa persona
+    local function SendTarget()
+        if activeTabName == "all" or activeTabName == "guild" then return "guild", nil end
+        if activeTabName == "raid" then return "raid", nil end
+        if activeTabName == "party" then return "party", nil end
+        if activeTabName == "whisper" then return "whisper", LastWhisperPartner() end
+        return "whisper", activeTabName
+    end
+
+    local function UpdateTargetText()
+        local channel, target = SendTarget()
+        local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"] }
+        if channel == "whisper" then
+            targetText:SetText(target and ("|cFFFF80FF" .. L["Susurro a "] .. target .. ":|r") or L["|cFF808080Sin destinatario|r"])
+        else
+            local style = CHAT_CHANNEL_STYLE[channel]
+            targetText:SetText("|cFF" .. style.color .. labels[channel] .. ":|r")
+        end
+    end
+
+    local function SendInput()
+        local channel, target = SendTarget()
+        local text = input:GetText()
+        if addonTable.GuildChat and strtrim(text or "") ~= "" then
+            if not addonTable.GuildChat.Send(text, channel, target) then
+                PrintGC(L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o no hay destinatario).|r"])
+                return
+            end
+        end
+        input:SetText("")
+        input:ClearFocus()
+    end
+    input:SetScript("OnEnterPressed", SendInput)
+    input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    btnSend:SetScript("OnClick", SendInput)
 
     local function LayoutTabs()
         local previous = nil
+        local collapsed = GuildControlDB.settings.chatCollapsed
         for _, tab in ipairs(tabs) do
             tab.button:ClearAllPoints()
             if previous then
-                tab.button:SetPoint("LEFT", previous, "RIGHT", 4, 0)
+                tab.button:SetPoint("LEFT", previous, "RIGHT", 3, 0)
             else
-                tab.button:SetPoint("TOPLEFT", panel, "TOPLEFT", 170, -5)
+                tab.button:SetPoint("TOPLEFT", panel, "TOPLEFT", 110, -5)
             end
-            local label = tab.name == CHAT_GENERAL_TAB and L[tab.name] or tab.name
+            local label = tab.label or tab.name
             if tab.unread > 0 then label = label .. " |cFF00FF00(" .. tab.unread .. ")|r" end
             tab.button:SetText(label)
             tab.button:SetEnabled(tab.name ~= activeTabName)
-            tab.button:SetShown(not GuildControlDB.settings.chatCollapsed)
+            tab.button:SetShown(not collapsed)
             previous = tab.button
         end
-        -- Con muchas pestañas la ayuda no cabe
-        tabHint:SetShown(not GuildControlDB.settings.chatCollapsed and #tabs <= 3)
+        UpdateTargetText()
     end
 
     local function RenderMessages()
@@ -8304,42 +8385,44 @@ local function BuildChatPanel(parent)
         if not addonTable.GuildChat then return end
         for _, entry in ipairs(addonTable.GuildChat.GetMessages()) do
             if EntryMatchesTab(entry, activeTabName) then
-                messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+                messagesFrame:AddMessage(FormatChatLine(entry))
             end
         end
     end
 
     local function CloseTab(name)
         local tab, index = FindTab(name)
-        if not tab or name == CHAT_GENERAL_TAB then return end
+        if not tab or CHAT_CHANNEL_KEYS[name] then return end
         tab.button:Hide()
         table.remove(tabs, index)
         if activeTabName == name then
-            SelectTab(CHAT_GENERAL_TAB)
+            SelectTab("all")
         else
             LayoutTabs()
         end
     end
 
-    local function CreateTab(name)
+    local function CreateTab(name, label)
+        local isChannel = CHAT_CHANNEL_KEYS[name]
         local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        button:SetSize(name == CHAT_GENERAL_TAB and 80 or 120, 20)
+        button:SetSize(isChannel and 78 or 110, 20)
         button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         button:SetScript("OnClick", function(_, mouseButton)
             if mouseButton == "RightButton" then CloseTab(name) else SelectTab(name) end
         end)
 
-        if name ~= CHAT_GENERAL_TAB then
+        if not isChannel then
             button:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 GameTooltip:SetText(L["Conversación con "] .. name, 1, 1, 1)
+                GameTooltip:AddLine(L["Lo que escribas aquí se le envía por susurro."], 0.7, 0.7, 0.7)
                 GameTooltip:AddLine(L["Clic derecho: cerrar pestaña"], 0.7, 0.7, 0.7)
                 GameTooltip:Show()
             end)
             button:SetScript("OnLeave", function() GameTooltip:Hide() end)
         end
 
-        local tab = { name = name, button = button, unread = 0 }
+        local tab = { name = name, label = label, button = button, unread = 0 }
         table.insert(tabs, tab)
         return tab
     end
@@ -8348,10 +8431,10 @@ local function BuildChatPanel(parent)
         local tab = FindTab(name)
         if not tab then
             -- Si ya hay demasiadas pestañas de personas, se cierra la más antigua
-            if #tabs - 1 >= CHAT_MAX_PERSON_TABS then
-                local oldest = tabs[2]
+            if #tabs - #CHAT_CHANNEL_TABS >= CHAT_MAX_PERSON_TABS then
+                local oldest = tabs[#CHAT_CHANNEL_TABS + 1]
                 oldest.button:Hide()
-                table.remove(tabs, 2)
+                table.remove(tabs, #CHAT_CHANNEL_TABS + 1)
             end
             tab = CreateTab(name)
         end
@@ -8373,13 +8456,27 @@ local function BuildChatPanel(parent)
         SetItemRef(link, text, button)
     end)
 
+    btnClear:SetScript("OnClick", function(self)
+        if GetTime() < clearArmedUntil then
+            clearArmedUntil = 0
+            self:SetText(L["Limpiar"])
+            if addonTable.GuildChat then addonTable.GuildChat.Clear() end
+            RenderMessages()
+        else
+            clearArmedUntil = GetTime() + 4
+            self:SetText(L["|cFFFF3333¿Seguro?|r"])
+            C_Timer.After(4, function() if GetTime() >= clearArmedUntil then self:SetText(L["Limpiar"]) end end)
+        end
+    end)
+
     local function ApplyCollapsed()
         local collapsed = GuildControlDB.settings.chatCollapsed
         panel:SetHeight(collapsed and CHAT_COLLAPSED_HEIGHT or CHAT_EXPANDED_HEIGHT)
         messagesFrame:SetShown(not collapsed)
         input:SetShown(not collapsed)
         btnSend:SetShown(not collapsed)
-        tabHint:SetShown(not collapsed)
+        targetText:SetShown(not collapsed)
+        btnClear:SetShown(not collapsed)
         btnToggle:SetText(collapsed and L["Expandir"] or L["Contraer"])
         if not collapsed then unread = 0 end
         unreadText:SetText(unread > 0 and ("|cFF00FF00(" .. unread .. L[" nuevos)|r"]) or "")
@@ -8393,22 +8490,23 @@ local function BuildChatPanel(parent)
         ApplyCollapsed()
     end)
 
-    CreateTab(CHAT_GENERAL_TAB)
+    for _, channelTab in ipairs(CHAT_CHANNEL_TABS) do CreateTab(channelTab.key, L[channelTab.label]) end
 
     -- Mensajes nuevos: a la pestaña activa si le corresponden; en las demás suman como no leídos
     if addonTable.GuildChat then
         addonTable.GuildChat.SetListener(function(entry)
             if EntryMatchesTab(entry, activeTabName) then
-                messagesFrame:AddMessage(FormatChatLine(entry), 0.25, 1, 0.25)
+                messagesFrame:AddMessage(FormatChatLine(entry))
             end
             local changed = false
             for _, tab in ipairs(tabs) do
-                if tab.name ~= activeTabName and tab.name ~= CHAT_GENERAL_TAB and EntryMatchesPerson(entry, tab.name) then
+                if tab.name ~= activeTabName and tab.name ~= "all" and EntryMatchesTab(entry, tab.name) then
                     tab.unread = tab.unread + 1
                     changed = true
                 end
             end
             if changed then LayoutTabs() end
+            if entry.channel == "whisper" and activeTabName == "whisper" then UpdateTargetText() end
             if GuildControlDB.settings.chatCollapsed then
                 unread = unread + 1
                 unreadText:SetText("|cFF00FF00(" .. unread .. L[" nuevos)|r"])

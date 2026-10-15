@@ -707,15 +707,12 @@ L["|cFFFFD100Palabras de saludo|r"] = "|cFFFFD100Greeting words|r"
 L["Separadas por comas; el mensaje debe empezar por una. Vacío = lista por defecto."] = "Comma-separated; the message must start with one of them. Empty = default list."
 
 -- Guild chat
-L["Chat de hermandad"] = "Guild chat"
-L["Clic en un nombre: conversación con esa persona"] = "Click a name: conversation with that person"
 L["Enviar"] = "Send"
 L["Conversación con "] = "Conversation with "
 L["Clic derecho: cerrar pestaña"] = "Right-click: close tab"
 L["Expandir"] = "Expand"
 L["Contraer"] = "Collapse"
 L[" nuevos)|r"] = " new)|r"
-L["General"] = "General"
 
 -- Leaves window
 L["Historial de bajas"] = "Leave history"
@@ -932,5 +929,23 @@ L[" (+1, tirada "] = " (+1, roll "
 L[" (off-spec, tirada "] = " (off-spec, roll "
 L[" Ya había ganado "] = " Had already won "
 L[" objeto(s) en esta banda."] = " item(s) in this raid."
+
+-- Chat panel (guild, whispers, raid and party)
+L["Chat"] = "Chat"
+L["Limpiar"] = "Clear"
+L["Todo"] = "All"
+L["Susurros"] = "Whispers"
+L["Grupo"] = "Party"
+L["H"] = "G"
+L["S"] = "W"
+L["B"] = "R"
+L["G"] = "P"
+L["M"] = "I"
+L["A "] = "To "
+L["De "] = "From "
+L["Susurro a "] = "Whisper to "
+L["|cFF808080Sin destinatario|r"] = "|cFF808080No recipient|r"
+L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o no hay destinatario).|r"] = "|cFFFF3333You can't write to that channel right now (not in a raid or group, or no recipient).|r"
+L["Lo que escribas aquí se le envía por susurro."] = "Whatever you type here is whispered to them."
 
 addonTable.RegisterLocale("enUS", "English", L)

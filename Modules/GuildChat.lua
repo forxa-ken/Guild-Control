@@ -4,8 +4,9 @@ local L = addonTable.L
 addonTable.GuildChat = {}
 local chatModule = addonTable.GuildChat
 
--- Guarda los últimos mensajes del chat de hermandad para el panel de la UI y
--- responde automáticamente al saludo de quien ACABA de conectarse.
+-- Guarda los mensajes de hermandad, susurros, banda y grupo/mazmorra para el panel de chat de
+-- la UI (GuildControlDB.chatLog, así sobreviven a /reload) y responde automáticamente al
+-- saludo de quien ACABA de conectarse (solo en el chat de hermandad).
 --
 -- Regla del saludo automático: solo se responde si quien saluda
 --   1. se conectó hace poco (aviso "X se ha conectado" o cambio en el roster),
@@ -13,7 +14,7 @@ local chatModule = addonTable.GuildChat
 --      saludado desde esa conexión.
 -- Así no se saluda a quien lleva rato conectado y contesta a otro recién llegado.
 
-local MAX_MESSAGES = 200
+local MAX_MESSAGES = 500
 local DEFAULT_GREET_COOLDOWN_MIN = 30   -- no volver a saludar a la misma persona (configurable)
 local DEFAULT_LOGIN_WINDOW_MIN = 5      -- minutos tras conectarse en los que se le considera recién llegado
 local GREET_GLOBAL_COOLDOWN = 20        -- como mucho un saludo automático cada 20 s
@@ -25,7 +26,14 @@ local GREET_MAX_LENGTH = 40             -- mensajes más largos no se consideran
 chatModule.DEFAULT_GREET_WORDS = "hola, holaa, holi, holis, ola, buenas, buenass, wenas, nas, buenos dias, "
     .. "buen dia, buenas tardes, buenas noches, nas noches, wenas noches, saludos, que tal, hey, hello, hi"
 
-local messages = {}      -- { {time, sender, fullName, class, text}, ... } (más antiguo primero)
+-- Historial persistente: { {at, channel, dir, sender, fullName, class, text, target}, ... }
+-- (más antiguo primero). channel = "guild"|"whisper"|"raid"|"party"|"instance";
+-- en los susurros dir = "in" (recibido) o "out" (enviado, target = destinatario)
+local function Messages()
+    if not GuildControlDB then return {} end
+    if type(GuildControlDB.chatLog) ~= "table" then GuildControlDB.chatLog = {} end
+    return GuildControlDB.chatLog
+end
 local listener = nil     -- función que la UI registra para recibir mensajes nuevos
 
 local loginTimes = {}         -- [nombre corto] = GetTime() de su última conexión vista en esta sesión
@@ -35,6 +43,14 @@ local pendingGreets = {}      -- [nombre corto] = timer pendiente
 
 local chatFrame = CreateFrame("Frame")
 chatFrame:RegisterEvent("CHAT_MSG_GUILD")
+-- Otros canales que se guardan en el historial (canal del panel para cada evento)
+local CHANNEL_EVENTS = {
+    CHAT_MSG_WHISPER = "whisper", CHAT_MSG_WHISPER_INFORM = "whisper",
+    CHAT_MSG_RAID = "raid", CHAT_MSG_RAID_LEADER = "raid", CHAT_MSG_RAID_WARNING = "raid",
+    CHAT_MSG_PARTY = "party", CHAT_MSG_PARTY_LEADER = "party",
+    CHAT_MSG_INSTANCE_CHAT = "instance", CHAT_MSG_INSTANCE_CHAT_LEADER = "instance",
+}
+for event in pairs(CHANNEL_EVENTS) do chatFrame:RegisterEvent(event) end
 chatFrame:RegisterEvent("CHAT_MSG_ADDON")
 chatFrame:RegisterEvent("CHAT_MSG_SYSTEM")
 
@@ -121,28 +137,54 @@ local OFFLINE_PATTERN = FormatToPattern(ERR_FRIEND_OFFLINE_S)
 -- MENSAJES PARA EL PANEL
 -- =========================================================================
 function chatModule.GetMessages()
-    return messages
+    return Messages()
+end
+
+function chatModule.Clear()
+    wipe(Messages())
 end
 
 function chatModule.SetListener(fn)
     listener = fn
 end
 
-function chatModule.Send(text)
+-- Envía al canal indicado: "guild", "raid", "party", "instance" o "whisper" (con target)
+function chatModule.Send(text, channel, target)
     text = strtrim(text or "")
-    if text == "" or not IsInGuild() then return end
-    SendGuild(text)
+    if text == "" then return false end
+    channel = channel or "guild"
+    local chatType
+    if channel == "guild" then
+        if not IsInGuild() then return false end
+        chatType = "GUILD"
+    elseif channel == "raid" then
+        chatType = IsInRaid() and "RAID" or nil
+    elseif channel == "party" or channel == "instance" then
+        if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then chatType = "INSTANCE_CHAT"
+        elseif IsInGroup() then chatType = "PARTY" end
+    elseif channel == "whisper" and target and target ~= "" then
+        chatType = "WHISPER"
+    end
+    if not chatType then return false end
+    if C_ChatInfo and C_ChatInfo.SendChatMessage then
+        C_ChatInfo.SendChatMessage(text, chatType, nil, chatType == "WHISPER" and target or nil)
+    else
+        SendChatMessage(text, chatType, nil, chatType == "WHISPER" and target or nil)
+    end
+    return true
 end
 
-local function AddMessage(sender, text, guid)
+local function AddMessage(sender, text, guid, channel, dir, target)
     local class = nil
     if guid and guid ~= "" and GetPlayerInfoByGUID then
         local ok, _, englishClass = pcall(GetPlayerInfoByGUID, guid)
         if ok then class = englishClass end
     end
-    local entry = { time = date("%H:%M"), sender = ShortName(sender), fullName = sender, class = class, text = text }
-    table.insert(messages, entry)
-    if #messages > MAX_MESSAGES then table.remove(messages, 1) end
+    local entry = { at = time(), channel = channel or "guild", dir = dir, sender = ShortName(sender), fullName = sender,
+                    class = class, text = text, target = target and ShortName(target) or nil }
+    local list = Messages()
+    table.insert(list, entry)
+    while #list > MAX_MESSAGES do table.remove(list, 1) end
     if listener then listener(entry) end
 end
 
@@ -230,7 +272,7 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         -- En contenido restringido los argumentos pueden ser secretos: no se pueden leer
         if IsSecret(text) or IsSecret(sender) or not text or not sender then return end
 
-        AddMessage(sender, text, not IsSecret(guid) and guid or nil)
+        AddMessage(sender, text, not IsSecret(guid) and guid or nil, "guild")
 
         local name = ShortName(sender)
 
@@ -253,6 +295,17 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         -- Solo se responde al saludo de quien acaba de conectarse; "hola Pepe" no es un saludo nuevo
         if not IsMe(sender) and not answeredSomeone and IsGreeting(text) then
             ScheduleGreet(sender)
+        end
+    elseif CHANNEL_EVENTS[event] then
+        local text, otherName = ...
+        local guid = select(12, ...)
+        if IsSecret(text) or IsSecret(otherName) or not text or not otherName then return end
+        guid = not IsSecret(guid) and guid or nil
+        if event == "CHAT_MSG_WHISPER_INFORM" then
+            -- Susurro enviado: el remitente soy yo y otherName es el destinatario
+            AddMessage(UnitName("player"), text, UnitGUID("player"), "whisper", "out", otherName)
+        else
+            AddMessage(otherName, text, guid, CHANNEL_EVENTS[event], event == "CHAT_MSG_WHISPER" and "in" or nil)
         end
     elseif event == "CHAT_MSG_SYSTEM" then
         local text = ...

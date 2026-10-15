@@ -2,6 +2,10 @@
 
 ## Próxima versión
 
+### Chat
+- El chat se guarda: el historial (500 mensajes) sobrevive a `/reload` y a cerrar el juego, y se puede limpiar.
+- Ahora incluye susurros, chat de banda (y avisos) y de grupo o mazmorra, con pestañas por canal y por persona. Se escribe en el canal de la pestaña activa.
+
 ### Botín
 - Nueva pestaña **Botín** con el sistema **+1**: los objetos de la banda aparecen solos, las tiradas se hacen desde el addon (Necesidad, Off-spec o Pasar con su /roll), gana quien tenga menos +1 y luego la tirada más alta, se avisa de quién ya ganó en la banda, y se guardan los +1 y el historial. El DKP queda para más adelante.
 
