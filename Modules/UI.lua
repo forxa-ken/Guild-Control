@@ -411,25 +411,23 @@ local function GuildRosterIndex(fullName)
     return nil
 end
 
--- Cambia el rango (índices desde 0, 0 = el más alto). Usa SetGuildMemberRank y, si no
--- existe, asciende o degrada paso a paso.
-local function ChangeGuildRank(fullName, currentRank, targetRank)
-    local index = GuildRosterIndex(fullName)
-    if not index then return false end
-    local ok = false
-    if SetGuildMemberRank then
-        ok = pcall(SetGuildMemberRank, index, targetRank + 1)
-    else
-        local promote = (C_GuildInfo and C_GuildInfo.Promote) or GuildPromote
-        local demote = (C_GuildInfo and C_GuildInfo.Demote) or GuildDemote
-        local step = targetRank < currentRank and promote or demote
-        if step then
-            ok = true
-            for _ = 1, math.abs(currentRank - targetRank) do ok = pcall(step, fullName) and ok end
-        end
-    end
+-- Cambia el rango (índices desde 0, 0 = el más alto) paso a paso con C_GuildInfo.Promote y
+-- C_GuildInfo.Demote, como /gpromote y /gdemote. SetGuildMemberRank no sirve: está protegida
+-- y solo la puede usar la interfaz de Blizzard. El resultado se comprueba con la lista de la
+-- hermandad a los 2 s y se pasa a onDone(true|false).
+local function ChangeGuildRank(fullName, currentRank, targetRank, onDone)
+    local promote = (C_GuildInfo and C_GuildInfo.Promote) or GuildPromote
+    local demote = (C_GuildInfo and C_GuildInfo.Demote) or GuildDemote
+    local step = targetRank < currentRank and promote or demote
+    if not step then onDone(false) return end
+    local name = Ambiguate(fullName, "guild")
+    for _ = 1, math.abs(currentRank - targetRank) do pcall(step, name) end
     C_GuildInfo.GuildRoster()
-    return ok
+    C_Timer.After(2, function()
+        local index = GuildRosterIndex(fullName)
+        local rankIndex = index and select(3, GetGuildRosterInfo(index))
+        onDone(rankIndex == targetRank)
+    end)
 end
 
 -- Muestra el desplegable si tu rango puede ascender o degradar a ese miembro: solo a
@@ -456,11 +454,13 @@ local function ShowPreviewRankChanger(fullName, data)
                 local verb = target < memberRank and L["¿Ascender a "] or L["¿Degradar a "]
                 StaticPopup_Show("GUILDCONTROL_CONFIRM_RANK", verb .. short .. L[" al rango "] .. rank.name .. "?", nil, {
                     fn = function()
-                        if ChangeGuildRank(fullName, memberRank, target) then
-                            print("|cFF00FFFF[GuildControl]|r " .. L["Rango de |cFFFFD100"] .. short .. L["|r cambiado a |cFFFFD100"] .. rank.name .. "|r.")
-                        else
-                            print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se pudo cambiar el rango.|r"])
-                        end
+                        ChangeGuildRank(fullName, memberRank, target, function(ok)
+                            if ok then
+                                print("|cFF00FFFF[GuildControl]|r " .. L["Rango de |cFFFFD100"] .. short .. L["|r cambiado a |cFFFFD100"] .. rank.name .. "|r.")
+                            else
+                                print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se pudo cambiar el rango. Prueba desde la ventana de hermandad del juego.|r"])
+                            end
+                        end)
                     end,
                 })
             end)
