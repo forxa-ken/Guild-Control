@@ -99,3 +99,33 @@ Gestión completa de la hermandad: miembros, roster, bandas con inscripciones al
 Lo que se comparte entre jugadores (roles, rosters, bandas, llaves) solo llega a quien también tiene GuildControl instalado.
 
 Comandos: `/gct` (o `/gctc`), `/gct csv`, `/gct bajas`.
+
+---
+
+## Summary (English)
+
+Complete guild management: members, roster, Raid-Helper style raid sign-ups, achievements, professions, Mythic+, warnings and blacklist.
+
+## Description (English)
+
+**GuildControl** brings everything your guild needs to stay organized into a single window (`/gct`). The in-game interface is in **Spanish**.
+
+**For every member**
+- **Overview**: guild news (achievements, boss kills, loot with its source, members joining and leaving), message of the day, upcoming raids and officers.
+- **My profile**: set your role, specialization and off-spec, focus (PvE, PvP or Social) and whether it's your main or an alt. Officers receive it automatically.
+- **Raid**: sign up for the raids your officers schedule as tank, healer or DPS, or mark yourself as late, tentative or absent. Check your group.
+- **Mythic+**: guild ranking by score, guildmates' keystones, affixes and your best dungeons.
+- **Professions**: who has each profession and at what skill level, so you can ask for a craft.
+- Collapsible **guild chat** with per-person tabs.
+
+**For officers**
+- **Roster** with composition targets, class utility coverage, dates, attendance and sharing.
+- Raid-Helper style **Raid**: create the raid, see who signs up, sort the groups and apply them to your raid with one click.
+- **Warning**: inactive members, members without a role, alts without a main, low attendance, ranks to review and public notes.
+- **Blacklist** with alerts when someone on it joins the guild or your group, and invites to them blocked.
+- **Recruitment** of new members, single or mass, with editable messages.
+- Recurring announcements and CSV export for Google Sheets.
+
+Shared data (roles, rosters, raids, keystones) only reaches players who also have GuildControl installed.
+
+Commands: `/gct` (or `/gctc`), `/gct csv`, `/gct bajas`.
