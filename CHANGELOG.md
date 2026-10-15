@@ -8,7 +8,6 @@
 - Raid: botón **Ver roster** con los integrantes del roster asociado y su respuesta.
 - Rendimiento: menos memoria y sin picos de FPS. Las profesiones y las puntuaciones de Míticas+ de toda la hermandad se recorren como mucho una vez por minuto, el índice de logros del Resumen se construye poco a poco y las noticias del juego se guardan en caché.
 - **Favoritos**: clic derecho en un miembro para añadirlo; aviso en el chat, en pantalla y con sonido cuando se conecta, y filtro Favoritos en Miembros.
-- **Cambiar rango** desde la vista previa de un miembro (con confirmación y según los permisos de tu rango).
 - Los **rosters se sincronizan en tiempo real** entre clientes, como las bandas de Raid: sin importar a mano y borrándose en todos.
 - Resumen: los filtros sin noticias no se muestran y **Jefes** incluye los de mazmorra y de banda que derrota la hermandad (registrados por el addon).
 - La caja **Warnings** del encabezado solo la ven los oficiales y con un clic abre Warning.

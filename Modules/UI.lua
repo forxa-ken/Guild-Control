@@ -366,18 +366,11 @@ end
 -- =========================================================================
 -- 3. CAMBIO DE PESTAÑAS Y NAVEGACIÓN
 -- =========================================================================
--- keepRankRow = true: se vuelve a dibujar el mismo miembro y se conserva el cambio de rango
-local previewKeepRankRow = false
 local function SetPreviewText(text)
     if containers.preview and containers.preview.infoText then
         containers.preview.infoText:SetText(text or L[PREVIEW_DEFAULT_TEXT])
         -- Cada vista previa nueva empieza sin botón de acción
         if containers.preview.actionButton then containers.preview.actionButton:Hide() end
-        if containers.preview.rankRow and not InCombatLockdown() and not previewKeepRankRow then
-            containers.preview.rankRow:Hide()
-            containers.preview.rankRow.forName = nil
-            containers.preview.infoText:SetPoint("BOTTOMRIGHT", containers.preview, "BOTTOMRIGHT", -15, 44)
-        end
     end
 end
 
@@ -388,83 +381,6 @@ local function SetPreviewAction(label, onClick)
     btn:SetText(label)
     btn:SetScript("OnClick", onClick)
     btn:Show()
-end
-
--- =========================================================================
--- CAMBIO DE RANGO DESDE LA VISTA PREVIA
--- =========================================================================
--- Ascender y degradar son funciones protegidas: el código de un addon no puede llamarlas
--- (ni SetGuildMemberRank ni C_GuildInfo.Promote/Demote). Lo que sí está permitido es un
--- botón seguro que ejecuta una macro con /gpromote o /gdemote, como si lo escribiera el
--- jugador: el desplegable elige el rango y el botón "Aplicar" lanza la macro.
-
--- Posición del miembro en la lista de la hermandad del juego (para comprobar su rango)
-local function GuildRosterIndex(fullName)
-    local wanted = string.gsub(fullName or "", "%s+", "")
-    for i = 1, GetNumGuildMembers() do
-        local name = GetGuildRosterInfo(i)
-        if name and string.gsub(name, "%s+", "") == wanted then return i end
-    end
-    return nil
-end
-
--- Prepara el botón seguro con la macro para pasar de currentRank a targetRank
--- (índices desde 0, 0 = el más alto); fuera de combate, que es cuando se puede tocar
-local function PrepareRankMacro(button, fullName, currentRank, targetRank)
-    if InCombatLockdown() then return false end
-    local command = targetRank < currentRank and "/gpromote " or "/gdemote "
-    local name = Ambiguate(fullName, "guild")
-    local lines = {}
-    for _ = 1, math.abs(currentRank - targetRank) do table.insert(lines, command .. name) end
-    button:SetAttribute("type", "macro")
-    button:SetAttribute("macrotext", table.concat(lines, "\n"))
-    return true
-end
-
--- Muestra el desplegable si tu rango puede ascender o degradar a ese miembro: solo a
--- miembros por debajo de ti y hacia rangos por debajo del tuyo
-local function ShowPreviewRankChanger(fullName, data)
-    local preview = containers.preview
-    local row = preview and preview.rankRow
-    if not row or not IsInGuild() or InCombatLockdown() then return end
-    local _, _, myRank = GetGuildInfo("player")
-    local memberRank = data and data.rankIndex
-    local canPromote = CanGuildPromote and CanGuildPromote()
-    local canDemote = CanGuildDemote and CanGuildDemote()
-    local me = addonTable.Profiles and addonTable.Profiles.NormalizeName(UnitName("player"))
-    if not myRank or not memberRank or memberRank <= myRank or fullName == me or not (canPromote or canDemote) then return end
-
-    -- Al refrescarse la lista se vuelve a llamar: si es el mismo miembro con el mismo rango se
-    -- conserva lo elegido (para no esconder el botón Aplicar mientras se va a pulsar)
-    if row:IsShown() and row.forName == fullName and row.forRank == memberRank then return end
-    row.forName, row.forRank = fullName, memberRank
-    local short = string.match(fullName, "^([^-]+)") or fullName
-    local apply = row.apply
-    apply:Hide()
-    row.selectedRank = nil
-    row.dropdown:SetupMenu(function(_, root)
-        for _, rank in ipairs(addonTable.Profiles.GetGuildRanks()) do
-            local target = rank.index
-            local allowed = target > myRank and target ~= memberRank
-                and ((target < memberRank and canPromote) or (target > memberRank and canDemote))
-            local label = (target == memberRank) and ("|cFFFFD100" .. rank.name .. "|r") or rank.name
-            local button = root:CreateRadio(label, function() return target == (row.selectedRank or memberRank) end, function()
-                if not PrepareRankMacro(apply, fullName, memberRank, target) then
-                    print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se puede cambiar el rango en combate.|r"])
-                    return
-                end
-                row.selectedRank = target
-                row.dropdown:SetText(rank.name)
-                apply:SetText((target < memberRank and L["Ascender a "] or L["Degradar a "]) .. rank.name)
-                apply.check = { fullName = fullName, short = short, target = target, rankName = rank.name }
-                apply:Show()
-            end)
-            if not allowed and button and button.SetEnabled then button:SetEnabled(false) end
-        end
-    end)
-    row.dropdown:SetText(data.rank or "")
-    row:Show()
-    preview.infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 90)
 end
 
 local function SwitchTab(tabName)
@@ -581,43 +497,6 @@ local function BuildPreviewPanel(parent)
     actionButton:SetPoint("BOTTOM", preview, "BOTTOM", 0, 14)
     actionButton:Hide()
     preview.actionButton = actionButton
-
-    -- Cambio de rango del miembro seleccionado (ShowPreviewRankChanger decide si se ve)
-    local rankRow = CreateFrame("Frame", nil, preview)
-    rankRow:SetSize(190, 72)
-    rankRow:SetPoint("BOTTOM", preview, "BOTTOM", 0, 10)
-    rankRow:Hide()
-    rankRow.label = rankRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    rankRow.label:SetPoint("TOPLEFT", rankRow, "TOPLEFT", 0, 0)
-    rankRow.label:SetText(L["Cambiar rango:"])
-    rankRow.dropdown = CreateFrame("DropdownButton", "GC_PreviewRankSelect", rankRow, "WowStyle1DropdownTemplate")
-    rankRow.dropdown:SetPoint("TOPLEFT", rankRow.label, "BOTTOMLEFT", 0, -4)
-    rankRow.dropdown:SetWidth(190)
-    -- Botón seguro: ejecuta /gpromote o /gdemote como lo haría el jugador
-    rankRow.apply = CreateFrame("Button", "GC_PreviewRankApply", rankRow, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-    rankRow.apply:SetSize(190, 22)
-    rankRow.apply:SetPoint("BOTTOMLEFT", rankRow, "BOTTOMLEFT", 0, 0)
-    rankRow.apply:RegisterForClicks("AnyUp", "AnyDown")
-    rankRow.apply:SetAttribute("useOnKeyDown", false)
-    rankRow.apply:Hide()
-    -- Después de la macro se comprueba en la lista de la hermandad si el rango cambió
-    rankRow.apply:HookScript("PostClick", function(self, _, down)
-        if down then return end
-        local check = self.check
-        if not check then return end
-        if not InCombatLockdown() then self:Hide() end
-        C_GuildInfo.GuildRoster()
-        C_Timer.After(2, function()
-            local index = GuildRosterIndex(check.fullName)
-            local rankIndex = index and select(3, GetGuildRosterInfo(index))
-            if rankIndex == check.target then
-                print("|cFF00FFFF[GuildControl]|r " .. L["Rango de |cFFFFD100"] .. check.short .. L["|r cambiado a |cFFFFD100"] .. check.rankName .. "|r.")
-            else
-                print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se pudo cambiar el rango. Prueba desde la ventana de hermandad del juego.|r"])
-            end
-        end)
-    end)
-    preview.rankRow = rankRow
     containers.preview = preview
 end
 
@@ -1111,7 +990,6 @@ local function BuildMembersView(parent)
 
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
-        previewKeepRankRow = (selectedFullName == fullName)
         selectedFullName = fullName
         SetPreviewText(
             "|cFFFFD100" .. fullName .. "|r\n\n" ..
@@ -1130,8 +1008,6 @@ local function BuildMembersView(parent)
             L["Estado: "] .. (data.isOnline and L["|cFF00FF00En línea|r"] or ("|cFF888888" .. addonTable.FormatLastOnline(data.lastOnline or "Desconectado") .. "|r")) .. "\n" ..
             BuildExpansionText(fullName)
         )
-        previewKeepRankRow = false
-        ShowPreviewRankChanger(fullName, data)
     end
 
     -- Pool de filas: se reutilizan en cada refresco
