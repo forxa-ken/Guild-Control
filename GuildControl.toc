@@ -26,4 +26,5 @@ Modules\MythicPlus.lua
 Modules\RaidEvents.lua
 Modules\GuildConfig.lua
 Modules\Loot.lua
+Modules\RaidTools.lua
 Modules\UI.lua

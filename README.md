@@ -14,6 +14,7 @@
 - **`Modules/Favorites.lua`**: Personajes favoritos y aviso cuando se conectan.
 - **`Modules/GuildConfig.lua`**: Discord e icono de la hermandad que definen los oficiales y se comparten con todos.
 - **`Modules/Loot.lua`**: Reparto de botín con el sistema +1: tiradas desde el addon, +1 y historial.
+- **`Modules/RaidTools.lua`**: Herramientas de banda: comprobación de listos, cuenta atrás de pull, marcas en el objetivo y buff check (buffos, frascos, comida, runas y pociones).
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
@@ -137,6 +138,8 @@ La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster**
 - **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
 - **Asistencia** (oficiales): lista de las bandas próximas y de los últimos 14 días. Para la banda elegida aparecen los inscritos y los integrantes del roster asociado con su respuesta; márcalos como Presente, Tarde, Ausente o Justificada (un segundo clic quita la marca). **Tomar del grupo actual** marca presentes a los del grupo, justificados a quienes avisaron de que faltaban y ausentes al resto; **Apuntados presentes** marca a los apuntados. La asistencia se guarda aparte (no se pierde cuando se borra la banda), se envía sola a la hermandad y cuenta en el Roster, Mis rosters y Warning. Las justificadas no cuentan para el porcentaje.
 - Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
+- **Modo minimalista** (botón junto al título de Raid o `/gct mini`): cambia la ventana por un panel pequeño para la banda con **Listos** (comprobación de listos), **Pull 10**, **Pull 5**, **Cancelar** (cuenta atrás del juego; en banda hace falta ser líder o ayudante), las **8 marcas** y quitar marca para tu objetivo, **Buff check**, **Buffos** y **Modo normal**. Se puede mover y recuerda dónde estaba; si lo dejas activo, vuelve al entrar en el juego. `/gct` también vuelve al modo normal.
+- **Buff check** (en Raid o en el modo minimalista): abre GuildControl en modo normal en Raid con la **ventana de buffos** de la banda. Cada integrante sale con su grupo, los **buffos de banda** que le faltan (solo los que alguien del grupo puede dar: Intelecto Arcano, Entereza, Grito de batalla, Marca de lo Salvaje, Bendición del bronce y Furia del cielo), **frasco**, **comida** y **runa** (de sus auras) y las **pociones** que lleva. Las pociones y el resto de las bolsas solo se ven de quien usa GuildControl (al pasar el ratón por la fila). En combate o fuera de alcance los buffos no se pueden leer. El botón **Buffos** del modo minimalista abre la misma ventana sin salir de él.
 
 ## 💰 Botín (sistema +1)
 
@@ -192,5 +195,6 @@ Las variables de los mensajes (`{nombre}`, `{hermandad}`, `{fecha}`, `{hora}`, `
 - `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.
 - `/gct csv` - Abre directamente el panel de exportación a Google Sheets / CSV.
 - `/gct bajas` (o `/gct leaves`) - Abre el historial de bajas y salidas de la hermandad.
+- `/gct mini` - Activa el modo minimalista de banda.
 
 Todos los comandos funcionan también con el alias `/gctc` (por ejemplo, `/gctc csv`).

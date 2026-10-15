@@ -6084,6 +6084,25 @@ local function BuildRaidView(parent)
     title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText(L["Raid"])
 
+    -- Herramientas para la banda: panel minimalista y buff check
+    local btnMini = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnMini:SetSize(130, 22)
+    btnMini:SetPoint("LEFT", title, "RIGHT", 20, 0)
+    btnMini:SetText(L["Modo minimalista"])
+    btnMini:SetScript("OnClick", function() if uiModule.EnterMiniMode then uiModule.EnterMiniMode() end end)
+    btnMini:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Modo minimalista"], 1, 1, 1)
+        GameTooltip:AddLine(L["Cambia la ventana por un panel pequeño para la banda: listos, pull, marcas y buff check."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnMini:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local btnBuffCheck = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnBuffCheck:SetSize(100, 22)
+    btnBuffCheck:SetPoint("LEFT", btnMini, "RIGHT", 6, 0)
+    btnBuffCheck:SetText(L["Buff check"])
+    btnBuffCheck:SetScript("OnClick", function() if uiModule.BuffCheck then uiModule.BuffCheck() end end)
+
     local btnAttendance = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnAttendance:SetSize(110, 22)
     btnAttendance:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
@@ -8900,6 +8919,11 @@ end
 function uiModule.ToggleUI()
     addonTable.InitDB()
     if not GC_UI then uiModule.CreateUI() end
+    -- En modo minimalista, /gct vuelve al modo normal
+    if uiModule.IsMiniMode and uiModule.IsMiniMode() then
+        uiModule.ExitMiniMode()
+        return
+    end
     if GC_UI:IsShown() then
         GC_UI:Hide()
     else
@@ -8919,3 +8943,415 @@ function uiModule.ToggleUI()
         GC_UI:Show()
     end
 end
+
+
+-- =========================================================================
+-- 11. MODO MINIMALISTA DE BANDA Y VENTANA DE BUFFOS (CONSUME MODULES/RAIDTOOLS.LUA)
+-- =========================================================================
+-- El modo minimalista sustituye a la ventana principal por un panel pequeño con lo que se usa
+-- durante la banda: listos, pull 10/5, cancelar pull, marcas en el objetivo, buff check, la
+-- ventana de buffos y volver al modo normal. settings.raidMini recuerda si estaba activo y
+-- settings.raidMiniPos dónde estaba.
+local raidMiniFrame = nil
+local buffFrame = nil
+
+local READY_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local NOT_READY_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+local UNKNOWN_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Waiting"
+
+-- Botón pequeño con letra pequeña y una ayuda al pasar el ratón
+local function MiniButton(parent, text, width, tooltipTitle, tooltipText, onClick)
+    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    btn:SetSize(width, 22)
+    btn:SetNormalFontObject("GameFontNormalSmall")
+    btn:SetHighlightFontObject("GameFontHighlightSmall")
+    btn:SetDisabledFontObject("GameFontDisableSmall")
+    btn:SetText(text)
+    btn:SetScript("OnClick", onClick)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(tooltipTitle or text, 1, 1, 1)
+        if tooltipText then GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true) end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return btn
+end
+
+-- -------------------------------------------------------------------------
+-- Ventana de buffos
+-- -------------------------------------------------------------------------
+local BUFF_COLS = { name = 10, group = 162, buffs = 194, flask = 342, food = 404, rune = 466, potions = 528 }
+local BUFF_ROW_HEIGHT = 20
+
+local function CreateBuffFrame()
+    local T = addonTable.RaidTools
+    local frame = CreateFrame("Frame", "GuildControlBuffFrame", UIParent, "BasicFrameTemplateWithInset")
+    frame:SetSize(640, 440)
+    frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetToplevel(true)
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:Hide()
+    tinsert(UISpecialFrames, "GuildControlBuffFrame")
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+    frame.title:SetText(L["Buff check de la banda"])
+
+    local summary = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    summary:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -32)
+    summary:SetPoint("RIGHT", frame, "RIGHT", -120, 0)
+    summary:SetJustifyH("LEFT")
+    summary:SetWordWrap(false)
+
+    local btnRefresh = MiniButton(frame, L["Actualizar"], 100, L["Actualizar"],
+        L["Vuelve a leer los buffos y pide a quien usa GuildControl lo que lleva en las bolsas."],
+        function() T.RequestReports() end)
+    btnRefresh:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -28)
+
+    -- Cabecera de columnas
+    local header = CreateFrame("Frame", nil, frame)
+    header:SetSize(600, 16)
+    header:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -56)
+    for _, col in ipairs({
+        { L["Jugador"], BUFF_COLS.name }, { L["Gr."], BUFF_COLS.group }, { L["Buffos de banda"], BUFF_COLS.buffs },
+        { L["Frasco"], BUFF_COLS.flask }, { L["Comida"], BUFF_COLS.food }, { L["Runa"], BUFF_COLS.rune },
+        { L["Pociones"], BUFF_COLS.potions },
+    }) do
+        local fs = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("LEFT", header, "LEFT", col[2], 0)
+        fs:SetText(col[1])
+    end
+
+    local listBox = CreateBackdropBox(frame, 620, 316, "TOPLEFT", frame, "TOPLEFT", 10, -74)
+    local scroll = CreateFrame("ScrollFrame", nil, listBox, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", listBox, "TOPLEFT", 4, -4)
+    scroll:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -26, 4)
+    local child = CreateFrame("Frame")
+    child:SetSize(590, 1)
+    scroll:SetScrollChild(child)
+
+    local empty = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    empty:SetPoint("CENTER")
+    empty:SetText(L["No estás en un grupo."])
+
+    local note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    note:SetPoint("TOPLEFT", listBox, "BOTTOMLEFT", 4, -6)
+    note:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
+    note:SetJustifyH("LEFT")
+    note:SetText(L["Los buffos se leen de cada jugador (no en combate ni fuera de alcance). Las pociones solo se ven de quien usa GuildControl. Los buffos de banda solo cuentan si alguien del grupo puede darlos."])
+
+    local rows = {}
+    local function StatusIcon(row, key)
+        local tex = row:CreateTexture(nil, "ARTWORK")
+        tex:SetSize(16, 16)
+        tex:SetPoint("LEFT", row, "LEFT", BUFF_COLS[key] + 10, 0)
+        return tex
+    end
+    local function AcquireRow(index)
+        local row = rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, child)
+        row:SetSize(590, BUFF_ROW_HEIGHT)
+        row:EnableMouse(true)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("LEFT", row, "LEFT", BUFF_COLS.name, 0)
+        row.name:SetWidth(148)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.group = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.group:SetPoint("LEFT", row, "LEFT", BUFF_COLS.group + 4, 0)
+        row.buffIcons = {}
+        for i = 1, #T.RAID_BUFFS do
+            local icon = row:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(18, 18)
+            icon:SetPoint("LEFT", row, "LEFT", BUFF_COLS.buffs + (i - 1) * 21, 0)
+            row.buffIcons[i] = icon
+        end
+        row.flask = StatusIcon(row, "flask")
+        row.food = StatusIcon(row, "food")
+        row.rune = StatusIcon(row, "rune")
+        row.potions = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.potions:SetPoint("LEFT", row, "LEFT", BUFF_COLS.potions + 14, 0)
+        row:SetScript("OnEnter", function(self)
+            local m = self.member
+            if not m then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(m.short, 1, 1, 1)
+            for _, key in ipairs(self.available or {}) do
+                local name = T.GetBuffInfo(key)
+                local has = m.scan and m.scan.buffs[key]
+                GameTooltip:AddDoubleLine(name, has and L["|cFF00FF00Sí|r"] or L["|cFFFF3333Falta|r"])
+            end
+            if m.report then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(L["En las bolsas:"], 1, 0.82, 0)
+                GameTooltip:AddDoubleLine(L["Pociones"], m.report.potions, 0.8, 0.8, 0.8, 1, 1, 1)
+                GameTooltip:AddDoubleLine(L["Frascos"], m.report.flasks, 0.8, 0.8, 0.8, 1, 1, 1)
+                GameTooltip:AddDoubleLine(L["Comida"], m.report.food, 0.8, 0.8, 0.8, 1, 1, 1)
+                GameTooltip:AddDoubleLine(L["Runas y pergaminos"], m.report.runes, 0.8, 0.8, 0.8, 1, 1, 1)
+            else
+                GameTooltip:AddLine(L["Sin GuildControl: no se ven sus bolsas."], 0.6, 0.6, 0.6, true)
+            end
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        rows[index] = row
+        return row
+    end
+
+    local function SetStatus(tex, value)
+        if value == nil then tex:SetTexture(UNKNOWN_TEXTURE) else tex:SetTexture(value and READY_TEXTURE or NOT_READY_TEXTURE) end
+    end
+
+    function frame.Refresh()
+        if not frame:IsShown() then return end
+        local members, available = T.GetGroupStatus()
+        for _, row in ipairs(rows) do row:Hide() end
+        local missingFlask, missingFood, missingRune, missingBuffs, unreadable = 0, 0, 0, 0, 0
+        for i, m in ipairs(members) do
+            local row = AcquireRow(i)
+            row.member, row.available = m, available
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(i - 1) * BUFF_ROW_HEIGHT)
+            local scan = m.scan
+            local nameColor = m.online and ("|cFF" .. addonTable.GetClassColorHex(m.class)) or "|cFF808080"
+            row.name:SetText(nameColor .. m.short .. "|r" .. (scan and "" or (m.online and L[" |cFF808080(lejos)|r"] or L[" |cFF808080(desc.)|r"])))
+            row.group:SetText(m.group)
+            local lacksBuff = false
+            for b, icon in ipairs(row.buffIcons) do
+                local key = available[b]
+                if key then
+                    local _, texture = T.GetBuffInfo(key)
+                    icon:SetTexture(texture or UNKNOWN_TEXTURE)
+                    local has = scan and scan.buffs[key]
+                    icon:SetDesaturated(not has)
+                    icon:SetAlpha(has and 1 or 0.3)
+                    if scan and not has then lacksBuff = true end
+                    icon:Show()
+                else
+                    icon:Hide()
+                end
+            end
+            SetStatus(row.flask, scan and scan.flask)
+            SetStatus(row.food, scan and scan.food)
+            SetStatus(row.rune, scan and scan.rune)
+            if m.report then
+                row.potions:SetText((m.report.potions > 0 and "|cFFFFFFFF" or "|cFFFF3333") .. m.report.potions .. "|r")
+            else
+                row.potions:SetText("|cFF808080-|r")
+            end
+            if scan then
+                if not scan.flask then missingFlask = missingFlask + 1 end
+                if not scan.food then missingFood = missingFood + 1 end
+                if not scan.rune then missingRune = missingRune + 1 end
+                if lacksBuff then missingBuffs = missingBuffs + 1 end
+            else
+                unreadable = unreadable + 1
+            end
+            local bad = scan and (not scan.flask or not scan.food or lacksBuff)
+            row.bg:SetColorTexture(bad and 0.6 or 1, bad and 0.1 or 1, bad and 0.1 or 1, bad and 0.12 or (i % 2 == 0 and 0.04 or 0))
+            row:Show()
+        end
+        child:SetHeight(math.max(1, #members * BUFF_ROW_HEIGHT))
+        empty:SetShown(#members == 0)
+        local parts = { L["Integrantes: "] .. "|cFFFFFFFF" .. #members .. "|r" }
+        table.insert(parts, L["Sin frasco: "] .. "|cFFFF7F00" .. missingFlask .. "|r")
+        table.insert(parts, L["Sin comida: "] .. "|cFFFF7F00" .. missingFood .. "|r")
+        table.insert(parts, L["Sin runa: "] .. "|cFFFF7F00" .. missingRune .. "|r")
+        table.insert(parts, L["Faltan buffos: "] .. "|cFFFF7F00" .. missingBuffs .. "|r")
+        if unreadable > 0 then table.insert(parts, L["Sin leer: "] .. "|cFF808080" .. unreadable .. "|r") end
+        if InCombatLockdown() then table.insert(parts, L["|cFFFF3333En combate|r"]) end
+        summary:SetText(table.concat(parts, "   "))
+    end
+
+    -- Se refresca con los cambios del grupo y de auras, como mucho dos veces por segundo
+    local pending = false
+    local function QueueRefresh()
+        if pending or not frame:IsShown() then return end
+        pending = true
+        C_Timer.After(0.5, function()
+            pending = false
+            frame.Refresh()
+        end)
+    end
+    local events = CreateFrame("Frame")
+    events:RegisterEvent("GROUP_ROSTER_UPDATE")
+    events:RegisterEvent("UNIT_AURA")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    events:RegisterEvent("BAG_UPDATE_DELAYED")
+    events:SetScript("OnEvent", QueueRefresh)
+    T.AddListener(QueueRefresh)
+    frame:SetScript("OnShow", frame.Refresh)
+    return frame
+end
+
+-- Muestra la ventana de buffos (anchor opcional: el marco junto al que se abre)
+function uiModule.ShowBuffWindow(anchor)
+    if not addonTable.RaidTools then return end
+    if not buffFrame then buffFrame = CreateBuffFrame() end
+    buffFrame:ClearAllPoints()
+    if anchor and anchor:IsShown() then
+        buffFrame:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    else
+        buffFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+    end
+    buffFrame:Show()
+    buffFrame:Raise()
+    buffFrame.Refresh()
+end
+
+-- Buff check: pide los datos, abre el addon en modo normal en Raid y la ventana de buffos
+function uiModule.BuffCheck()
+    if not addonTable.RaidTools then return end
+    addonTable.RaidTools.RequestReports()
+    if raidMiniFrame and raidMiniFrame:IsShown() then
+        uiModule.ExitMiniMode()
+    elseif not (GC_UI and GC_UI:IsShown()) then
+        uiModule.ToggleUI()
+    end
+    SwitchTab("Raid")
+    uiModule.ShowBuffWindow(containers.mainContent)
+end
+
+-- -------------------------------------------------------------------------
+-- Panel minimalista
+-- -------------------------------------------------------------------------
+local MINI_WIDTH, MINI_HEIGHT, MINI_PAD, MINI_GAP = 244, 112, 8, 4
+
+local function SaveMiniPosition(frame)
+    local point, _, relativePoint, x, y = frame:GetPoint(1)
+    GuildControlDB.settings.raidMiniPos = { point = point, relativePoint = relativePoint, x = x, y = y }
+end
+
+local function CreateRaidMiniFrame()
+    local T = addonTable.RaidTools
+    local frame = CreateBackdropBox(UIParent, MINI_WIDTH, MINI_HEIGHT)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        SaveMiniPosition(self)
+    end)
+    frame:Hide()
+
+    local pos = GuildControlDB.settings.raidMiniPos
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -140)
+    end
+
+    -- Título y cierre
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + 2, -8)
+    title:SetText(L["GuildControl · Banda"])
+    local btnClose = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    btnClose:SetSize(22, 22)
+    btnClose:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 1, 1)
+    btnClose:SetScript("OnClick", function()
+        GuildControlDB.settings.raidMini = false
+        frame:Hide()
+    end)
+    local line = frame:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 1, 1, 0.1)
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD, -22)
+    line:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -MINI_PAD, -22)
+
+    local inner = MINI_WIDTH - MINI_PAD * 2
+
+    -- Fila 1: listos y pull
+    local width1 = (inner - MINI_GAP * 3) / 4
+    local row1 = {
+        MiniButton(frame, L["Listos"], width1, L["Comprobación de listos"], L["Lanza la comprobación de listos (líder o ayudante)."], function() T.ReadyCheck() end),
+        MiniButton(frame, L["Pull 10"], width1, L["Pull 10"], L["Cuenta atrás de 10 segundos para todo el grupo."], function() T.Pull(10) end),
+        MiniButton(frame, L["Pull 5"], width1, L["Pull 5"], L["Cuenta atrás de 5 segundos para todo el grupo."], function() T.Pull(5) end),
+        MiniButton(frame, L["Cancelar"], width1, L["Cancelar pull"], L["Cancela la cuenta atrás."], function() T.CancelPull() end),
+    }
+    for i, btn in ipairs(row1) do
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width1 + MINI_GAP), -28)
+    end
+
+    -- Fila 2: marcas en el objetivo (8) y quitar marca
+    local MARK_SIZE = 22
+    local markGap = (inner - MARK_SIZE * 9) / 8
+    for i = 1, 9 do
+        local btn = CreateFrame("Button", nil, frame)
+        btn:SetSize(MARK_SIZE, MARK_SIZE)
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (MARK_SIZE + markGap), -55)
+        local index = i <= 8 and i or 0
+        if index > 0 then
+            btn:SetNormalTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. index)
+        else
+            btn:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+        end
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        btn:SetScript("OnClick", function() T.MarkTarget(index) end)
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(index > 0 and L[RAID_ICONS[index]] or L["Quitar marca"], 1, 1, 1)
+            GameTooltip:AddLine(L["Se pone en tu objetivo."], 0.8, 0.8, 0.8)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    -- Fila 3: buff check, ventana de buffos y modo normal
+    local width3 = (inner - MINI_GAP * 2) / 3
+    local row3 = {
+        MiniButton(frame, L["Buff check"], width3, L["Buff check"], L["Abre GuildControl en modo normal, en Raid, con la ventana de buffos de la banda."], function() uiModule.BuffCheck() end),
+        MiniButton(frame, L["Buffos"], width3, L["Ventana de buffos"], L["Muestra los buffos, frascos, comida, runas y pociones de la banda sin salir del modo minimalista."], function()
+            if addonTable.RaidTools then addonTable.RaidTools.RequestReports() end
+            uiModule.ShowBuffWindow(nil)
+        end),
+        MiniButton(frame, L["Modo normal"], width3, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end),
+    }
+    for i, btn in ipairs(row3) do
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width3 + MINI_GAP), -MINI_HEIGHT + MINI_PAD + 22)
+    end
+    return frame
+end
+
+function uiModule.EnterMiniMode()
+    if not addonTable.RaidTools then return end
+    addonTable.InitDB()
+    if not raidMiniFrame then raidMiniFrame = CreateRaidMiniFrame() end
+    GuildControlDB.settings.raidMini = true
+    if GC_UI then GC_UI:Hide() end
+    raidMiniFrame:Show()
+end
+
+function uiModule.ExitMiniMode()
+    GuildControlDB.settings.raidMini = false
+    if raidMiniFrame then raidMiniFrame:Hide() end
+    if not (GC_UI and GC_UI:IsShown()) then uiModule.ToggleUI() end
+    SwitchTab("Raid")
+end
+
+function uiModule.IsMiniMode()
+    return raidMiniFrame ~= nil and raidMiniFrame:IsShown()
+end
+
+-- Al entrar en el juego se recupera el modo minimalista si estaba activo
+local miniLoginFrame = CreateFrame("Frame")
+miniLoginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+miniLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadingUi)
+    if not (isInitialLogin or isReloadingUi) then return end
+    self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    if GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.raidMini then
+        C_Timer.After(1, uiModule.EnterMiniMode)
+    end
+end)

@@ -2,6 +2,8 @@
 
 ## Próxima versión
 
+- **Modo minimalista de banda** (Raid o `/gct mini`): panel pequeño con comprobación de listos, pull 10, pull 5, cancelar pull, marcas en el objetivo, buff check, ventana de buffos y vuelta al modo normal.
+- **Buff check**: ventana con los integrantes del grupo y sus buffos de banda, frasco, comida, runa y pociones (las pociones, de quien usa GuildControl).
 - **Invitar** individual organizado en paneles: qué buscáis, mensaje, enviar a un jugador y publicar en un canal.
 - **Botín**: los cuatro paneles tienen el mismo tamaño y la vista previa explica cómo funciona cada uno.
 - Configuración: el texto de ayuda de Bienvenida a nuevos miembros ya no se sale de su panel.

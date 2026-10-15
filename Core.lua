@@ -427,10 +427,13 @@ SlashCmdList["GUILDCONTROL"] = function(msg)
         if addonTable.UI.ShowBajas then addonTable.UI.ShowBajas() end
     elseif cmd == "csv" then
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
+    elseif cmd == "mini" or cmd == "banda" or cmd == "raid" then
+        if addonTable.UI.EnterMiniMode then addonTable.UI.EnterMiniMode() end
     else
         print(L["|cFF00FFFF[GuildControl] Comandos disponibles:|r"])
         print(L[" /gct - Abre/Cierra la interfaz principal."])
         print(L[" /gct csv - Panel de exportación CSV para Google Sheets."])
         print(L[" /gct bajas - Historial de bajas registradas."])
+        print(L[" /gct mini - Modo minimalista de banda."])
     end
 end
