@@ -1,8 +1,8 @@
 ## Interface: 120100
 ## Title: GuildControl
-## Notes: Complete guild management: members, roster, Raid-Helper style raid sign-ups, achievements, professions, Mythic+, warnings and blacklist.
-## Notes-esES: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
-## Notes-esMX: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
+## Notes: Complete guild management: Raid-Helper style sign-ups, synced roster and attendance, members, Mythic+, professions, achievements, warnings and blacklist.
+## Notes-esES: Gestión completa de la hermandad: bandas con inscripciones, roster y asistencia sincronizados, miembros, Míticas+, profesiones, logros, avisos y lista negra.
+## Notes-esMX: Gestión completa de la hermandad: bandas con inscripciones, roster y asistencia sincronizados, miembros, Míticas+, profesiones, logros, avisos y lista negra.
 ## Author: Forxaken
 ## Version: @project-version@
 ## IconTexture: Interface\Icons\Achievement_GuildPerk_MobileBanking

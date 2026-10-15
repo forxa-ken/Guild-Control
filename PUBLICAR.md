@@ -74,58 +74,66 @@ git push origin v5.0.0-beta1
 
 ## Resumen corto (Summary)
 
-Gestión completa de la hermandad: miembros, roster, bandas con inscripciones al estilo Raid-Helper, logros, profesiones, Míticas+, avisos y lista negra.
+Gestión completa de tu hermandad: bandas con inscripciones al estilo Raid-Helper, roster y asistencia sincronizados, miembros, Míticas+, profesiones, logros, avisos y lista negra. En español e inglés.
 
 ## Descripción
 
-**GuildControl** reúne en una sola ventana (`/gct`) todo lo que necesita una hermandad para organizarse. Interfaz en español e inglés (sigue el idioma del juego y se puede cambiar en Configuración).
+**GuildControl** reúne en una sola ventana (`/gct`) todo lo que necesita una hermandad para organizarse. La interfaz está en **español** e **inglés**: sigue el idioma del juego y se puede cambiar en Configuración.
 
 **Para todos los miembros**
-- **Resumen**: noticias de la hermandad (logros, jefes derrotados, botín con su origen, altas y bajas), mensaje del día, próximas bandas y oficiales.
+- **Resumen**: noticias de la hermandad agrupadas por semana (logros de hermandad y de personajes, jefes de banda y de mazmorra derrotados, botín con su origen y bajas), las últimas incorporaciones, el mensaje del día, las próximas bandas y los oficiales. Clic derecho en un logro para abrirlo en la ventana del juego.
+- **Raid**: apúntate a las bandas que programan los oficiales como tanque, sanador o DPS, o indica si llegas tarde, eres tentativo, vas a la banca o faltas. Consulta tu grupo y quién del roster ha respondido.
 - **Mi perfil**: indica tu rol, especialización y especialización off, enfoque (PvE, PvP o Social) y si es tu principal o un alter. Los oficiales lo reciben solo.
-- **Raid**: apúntate a las bandas que programan los oficiales como tanque, sanador o DPS, o indica si llegas tarde, eres tentativo o faltas. Consulta tu grupo.
+- **Favoritos**: marca a tus compañeros favoritos y recibe un aviso cuando se conectan. En la misma pestaña, tus amigos de Battle.net y BattleTag para susurrarles o invitarlos al grupo.
 - **Míticas+**: clasificación de la hermandad por puntuación, llaves de los compañeros, afijos y tus mejores mazmorras.
 - **Profesiones**: quién tiene cada profesión y con qué nivel, para pedirle un encargo.
+- **Mis rosters**: los rosters en los que estás, tus próximas bandas y tu porcentaje de asistencia.
 - **Chat de hermandad** contraíble, con pestañas por persona.
 
 **Para oficiales**
-- **Roster** con criterios de composición, cobertura de utilidades por clase, fechas, asistencia y la opción de compartirlo.
-- **Raid** al estilo Raid-Helper: crea la banda, mira quién se apunta, reparte los grupos y aplícalos en la banda con un clic.
-- **Warning**: inactivos, miembros sin rol, alters sin principal, baja asistencia, rangos a revisar y notas públicas.
-- **Lista negra** con avisos al entrar en la hermandad o en tu grupo y bloqueo de invitaciones.
+- **Raid** al estilo Raid-Helper: crea la banda, mira quién se apunta, reparte los grupos y aplícalos en la banda con un clic. Pasa lista en el modo **Asistencia** (también tomándola del grupo actual); se envía sola a los demás oficiales.
+- **Roster** con contenedores por rol, criterios de composición, cobertura de utilidades por clase y armaduras. Los cambios llegan **al momento** a los demás oficiales, como las bandas.
+- **Warning**: inactivos, miembros sin rol, alters sin principal, baja asistencia, titulares inactivos, rangos a revisar, notas públicas y lista negra. Clic en la caja Warnings del encabezado para abrirlo.
+- **Lista negra** con avisos al entrar en la hermandad o en tu grupo, marca en el tooltip y bloqueo de invitaciones.
 - **Invitación** de nuevos miembros, individual o masiva, con mensajes editables.
 - Anuncios periódicos y exportación a CSV para Google Sheets.
 
-Lo que se comparte entre jugadores (roles, rosters, bandas, llaves) solo llega a quien también tiene GuildControl instalado.
+Lo que se comparte entre jugadores (roles, rosters, bandas, asistencia, llaves y jefes derrotados) solo llega a quien también tiene GuildControl instalado.
 
 Comandos: `/gct` (o `/gctc`), `/gct csv`, `/gct bajas`.
+
+Es una **beta**: si encuentras un error, deja un comentario explicando qué estabas haciendo. Un addon como BugSack ayuda a copiar el error completo.
 
 ---
 
 ## Summary (English)
 
-Complete guild management: members, roster, Raid-Helper style raid sign-ups, achievements, professions, Mythic+, warnings and blacklist.
+Complete guild management: Raid-Helper style sign-ups, synced roster and attendance, members, Mythic+, professions, achievements, warnings and blacklist. English and Spanish.
 
 ## Description (English)
 
 **GuildControl** brings everything your guild needs to stay organized into a single window (`/gct`). The interface is available in **English** and **Spanish**: it follows your game language and can be changed in Settings.
 
 **For every member**
-- **Overview**: guild news (achievements, boss kills, loot with its source, members joining and leaving), message of the day, upcoming raids and officers.
+- **Overview**: guild news grouped by week (guild and character achievements, raid and dungeon bosses defeated, loot with its source and members who left), the latest members to join, the message of the day, upcoming raids and officers. Right-click an achievement to open it in the game's achievement window.
+- **Raid**: sign up for the raids your officers schedule as tank, healer or DPS, or mark yourself as late, tentative, bench or absent. Check your group and who from the roster has answered.
 - **My profile**: set your role, specialization and off-spec, focus (PvE, PvP or Social) and whether it's your main or an alt. Officers receive it automatically.
-- **Raid**: sign up for the raids your officers schedule as tank, healer or DPS, or mark yourself as late, tentative or absent. Check your group.
+- **Favorites**: mark your favorite guildmates and get an alert when they log in. The same tab lists your Battle.net and BattleTag friends so you can whisper them or invite them to your group.
 - **Mythic+**: guild ranking by score, guildmates' keystones, affixes and your best dungeons.
 - **Professions**: who has each profession and at what skill level, so you can ask for a craft.
+- **My rosters**: the rosters you're in, your upcoming raids and your attendance percentage.
 - Collapsible **guild chat** with per-person tabs.
 
 **For officers**
-- **Roster** with composition targets, class utility coverage, dates, attendance and sharing.
-- Raid-Helper style **Raid**: create the raid, see who signs up, sort the groups and apply them to your raid with one click.
-- **Warning**: inactive members, members without a role, alts without a main, low attendance, ranks to review and public notes.
-- **Blacklist** with alerts when someone on it joins the guild or your group, and invites to them blocked.
+- Raid-Helper style **Raid**: create the raid, see who signs up, sort the groups and apply them to your raid with one click. Take attendance in **Attendance** mode (you can take it from your current group); it's sent to the other officers automatically.
+- **Roster** with per-role containers, composition targets, class utility coverage and armor types. Changes reach the other officers **instantly**, just like raids.
+- **Warnings**: inactive members, members without a role, alts without a main, low attendance, inactive starters, ranks to review, public notes and blacklist. Click the Warnings box in the header to open it.
+- **Blacklist** with alerts when someone on it joins the guild or your group, a tooltip mark, and invites to them blocked.
 - **Recruitment** of new members, single or mass, with editable messages.
 - Recurring announcements and CSV export for Google Sheets.
 
-Shared data (roles, rosters, raids, keystones) only reaches players who also have GuildControl installed.
+Shared data (roles, rosters, raids, attendance, keystones and bosses defeated) only reaches players who also have GuildControl installed.
 
-Commands: `/gct` (or `/gctc`), `/gct csv`, `/gct bajas`.
+Commands: `/gct` (or `/gctc`), `/gct csv`, `/gct leaves`.
+
+This is a **beta**: if you find a bug, please leave a comment explaining what you were doing. An addon like BugSack helps you copy the full error.
