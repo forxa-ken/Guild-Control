@@ -316,6 +316,7 @@ function addonTable.ScanGuildRosterForChanges()
                 if rosterBaselineDone and addonTable.GuildChat then
                     if isReallyOnline and not m.isOnline and addonTable.GuildChat.MarkOnline then
                         addonTable.GuildChat.MarkOnline(fullName)
+                        if addonTable.Favorites and addonTable.Favorites.OnOnline then addonTable.Favorites.OnOnline(fullName) end
                     elseif not isReallyOnline and m.isOnline and addonTable.GuildChat.MarkOffline then
                         addonTable.GuildChat.MarkOffline(fullName)
                     end

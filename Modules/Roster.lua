@@ -61,6 +61,24 @@ local function Data()
     return d
 end
 
+-- Cada cambio de un oficial se envía solo a la hermandad, como las bandas de Raid: se
+-- marca la hora (del servidor, para comparar entre clientes) y se publica unos segundos
+-- después del último cambio
+local autoPublishTimers = {}
+local function Touch(roster)
+    if not roster then return end
+    roster.updatedAt = GetServerTime()
+    if addonTable.Profiles and not addonTable.Profiles.IsOfficer() then return end
+    local id = roster.id
+    if autoPublishTimers[id] then autoPublishTimers[id]:Cancel() end
+    autoPublishTimers[id] = C_Timer.NewTimer(2, function()
+        autoPublishTimers[id] = nil
+        local current = Data().rosters[id]
+        if current and rosterModule.ShareRoster then rosterModule.ShareRoster(current, true) end
+    end)
+end
+rosterModule.Touch = Touch
+
 local function SuggestedHealers(size)
     if size <= 12 then return 2 elseif size <= 17 then return 3 elseif size <= 22 then return 4 end
     return 5
@@ -151,6 +169,7 @@ function rosterModule.Rename(roster, name)
         end
         roster.name = name
         rosterModule.SyncMemberRosterField()
+        Touch(roster)
     end
 end
 
@@ -261,13 +280,15 @@ function rosterModule.Duplicate(roster)
     copy.nextVariantId = roster.nextVariantId
     copy.selectedVariant = nil
     rosterModule.SyncMemberRosterField()
+    Touch(copy)
     return copy
 end
 
-function rosterModule.Delete(roster)
+-- fromSync = true: lo borró otro oficial (no se vuelve a avisar)
+function rosterModule.Delete(roster, fromSync)
     if not roster then return end
-    -- Si estaba publicado, desaparece de "Mis rosters" de los jugadores
-    if roster.syncId and rosterModule.Unpublish then rosterModule.Unpublish(roster.syncId) end
+    -- Desaparece también en los demás clientes (oficiales y "Mis rosters")
+    if not fromSync and roster.syncId and rosterModule.Unpublish then rosterModule.Unpublish(roster.syncId) end
     local d = Data()
     d.rosters[roster.id] = nil
     for i = #d.order, 1, -1 do
@@ -284,6 +305,7 @@ function rosterModule.SetDifficulty(roster, difficulty)
     roster.difficulty = difficulty
     if difficulty == "mythic" then roster.size = rosterModule.MYTHIC_SIZE end
     ApplySuggestedTargets(roster)
+    Touch(roster)
 end
 
 function rosterModule.SetSize(roster, size)
@@ -291,12 +313,14 @@ function rosterModule.SetSize(roster, size)
     size = math.floor(tonumber(size) or roster.size)
     roster.size = math.max(rosterModule.MIN_SIZE, math.min(rosterModule.MAX_SIZE, size))
     ApplySuggestedTargets(roster)
+    Touch(roster)
 end
 
 function rosterModule.SetTarget(roster, slot, value)
     value = math.max(0, math.floor(tonumber(value) or 0))
     if slot == "tank" then roster.tanks = math.min(value, roster.size) end
     if slot == "healer" then roster.healers = math.min(value, roster.size - roster.tanks) end
+    Touch(roster)
 end
 
 -- Objetivo de cada rol: los DPS son el resto hasta el tamaño
@@ -324,6 +348,7 @@ function rosterModule.AddMember(roster, fullName, slot)
         end
     end
     rosterModule.SyncMemberRosterField()
+    Touch(roster)
 end
 
 -- En una variante, quitar a alguien de la base = no juega ese jefe (banca)
@@ -336,6 +361,7 @@ function rosterModule.RemoveMember(roster, fullName)
         roster.members[fullName] = nil
     end
     rosterModule.SyncMemberRosterField()
+    Touch(roster)
 end
 
 -- Base: vacía el roster. Variante: la restablece a la base.
@@ -348,6 +374,7 @@ function rosterModule.Clear(roster)
         wipe(roster.members)
     end
     rosterModule.SyncMemberRosterField()
+    Touch(roster)
 end
 
 -- Quita a quien ya no está en la hermandad (base y variantes)
@@ -368,7 +395,10 @@ function rosterModule.Prune(roster)
             end
         end
     end
-    if changed then rosterModule.SyncMemberRosterField() end
+    if changed then
+        rosterModule.SyncMemberRosterField()
+        Touch(roster)
+    end
 end
 
 -- { tank = {nombres}, healer = {...}, dps = {...}, bench = {...} } de la composición efectiva
@@ -735,7 +765,7 @@ end
 function rosterModule.ShareRoster(roster, isRepublish)
     if not roster or not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return 0 end
     EnsureSyncId(roster)
-    if not isRepublish or not roster.updatedAt then roster.updatedAt = time() end
+    if not isRepublish or not roster.updatedAt then roster.updatedAt = GetServerTime() end
     local payload = {
         version = 1,
         roster = {
@@ -767,15 +797,10 @@ end
 -- Recepción
 -- -------------------------------------------------------------------------
 local partials = {}         -- [remitente:msgId] = { total, parts = {}, count, started }
-local received = {}         -- { {from, roster, at}, ... } (solo durante la sesión)
 local receivedListeners = {}   -- vistas que se refrescan al recibir o retirar un roster
 
 function rosterModule.SetReceivedListener(fn)
     table.insert(receivedListeners, fn)
-end
-
-function rosterModule.GetReceived()
-    return received
 end
 
 function rosterModule.FindBySyncId(syncId)
@@ -827,27 +852,44 @@ local function StoreShared(sender, roster)
     }
 end
 
+-- Copia los datos recibidos sobre un roster local (sin volver a publicarlo)
+local SYNC_FIELDS = { "name", "syncId", "difficulty", "size", "tanks", "healers",
+                      "members", "variants", "variantOrder", "nextVariantId" }
+local function ApplyIncoming(target, incoming)
+    if target.name ~= incoming.name and addonTable.RaidEvents and addonTable.RaidEvents.RenameRoster then
+        addonTable.RaidEvents.RenameRoster(target.name, incoming.name)
+    end
+    for _, field in ipairs(SYNC_FIELDS) do target[field] = incoming[field] end
+    target.selectedVariant = nil
+    target.updatedAt = incoming.updatedAt
+    target.syncedAt = incoming.updatedAt
+end
+
 local function OnRosterReceived(sender, data)
+    -- Solo se aceptan rosters de oficiales
+    if addonTable.Profiles and addonTable.Profiles.IsOfficerName and not addonTable.Profiles.IsOfficerName(sender) then return end
     local ok, payload = pcall(Deserialize, data, 1, 0)
     if not ok or type(payload) ~= "table" or payload.version ~= 1 then return end
     local roster = SanitizeRoster(payload.roster)
-    if not roster then return end
+    if not roster or not roster.syncId then return end
 
     -- Copia de solo lectura para "Mis rosters" (la ven también los jugadores)
     StoreShared(sender, rosterModule.DeepCopy(roster))
 
-    -- Para los oficiales: solo se avisa si es un roster nuevo o más reciente que su copia
+    -- Oficiales: el roster se actualiza solo si el recibido es más reciente; si es nuevo, se añade
     local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
-    local localCopy = rosterModule.FindBySyncId(roster.syncId)
-    local isNewer = not localCopy or (roster.updatedAt or 0) > (localCopy.syncedAt or localCopy.updatedAt or 0)
-    if isOfficer and isNewer then
-        -- Un envío nuevo del mismo roster sustituye al pendiente anterior
-        for i = #received, 1, -1 do
-            if received[i].roster.syncId and received[i].roster.syncId == roster.syncId then table.remove(received, i) end
+    if isOfficer then
+        local localCopy = rosterModule.FindBySyncId(roster.syncId)
+        if localCopy then
+            if (roster.updatedAt or 0) > (localCopy.updatedAt or 0) then ApplyIncoming(localCopy, roster) end
+        else
+            local d = Data()
+            local previous = d.selected
+            ApplyIncoming(rosterModule.Create(roster.name), roster)
+            if previous and d.rosters[previous] then d.selected = previous end
+            print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. L["|r ha publicado el roster |cFFFFD100"] .. roster.name .. "|r.")
         end
-        table.insert(received, { from = sender, roster = roster, at = date("%H:%M") })
-        print("|cFF00FFFF[GuildControl]|r |cFFFFD100" .. sender .. L["|r ha compartido el roster |cFFFFD100"] .. roster.name
-            .. L["|r. Revísalo en Roster > Recibidos."])
+        rosterModule.SyncMemberRosterField()
     end
     for _, fn in ipairs(receivedListeners) do fn() end
 end
@@ -868,9 +910,7 @@ local function ScheduleRepublish()
     if republishTimer then return end
     if addonTable.Profiles and not addonTable.Profiles.IsOfficer() then return end
     local published = {}
-    for _, roster in ipairs(rosterModule.GetAll()) do
-        if roster.syncId then table.insert(published, roster) end
-    end
+    for _, roster in ipairs(rosterModule.GetAll()) do table.insert(published, roster) end
     if #published == 0 then return end
     republishTimer = C_Timer.NewTimer(3 + math.random() * 5, function()
         republishTimer = nil
@@ -920,10 +960,10 @@ syncFrame:SetScript("OnEvent", function(_, event, ...)
 
     local removedId = string.match(msg, "^X:(.+)$")
     if removedId then
+        if addonTable.Profiles and addonTable.Profiles.IsOfficerName and not addonTable.Profiles.IsOfficerName(sender) then return end
         SharedStore()[removedId] = nil
-        for i = #received, 1, -1 do
-            if received[i].roster.syncId == removedId then table.remove(received, i) end
-        end
+        local localCopy = rosterModule.FindBySyncId(removedId)
+        if localCopy then rosterModule.Delete(localCopy, true) end
         for _, fn in ipairs(receivedListeners) do fn() end
         return
     end
@@ -955,35 +995,6 @@ syncFrame:SetScript("OnEvent", function(_, event, ...)
         OnRosterReceived(sender, table.concat(partial.parts))
     end
 end)
-
--- Importa un roster recibido. mode = "new" (crea uno nuevo) o "replace" (sustituye al
--- que tiene el mismo syncId, conservando su identificador local).
-function rosterModule.ImportReceived(index, mode)
-    local item = received[index]
-    if not item then return nil end
-    local incoming = item.roster
-    local target = (mode == "replace") and rosterModule.FindBySyncId(incoming.syncId) or nil
-
-    if not target then
-        -- Si ya hay una copia local enlazada, la nueva queda independiente (sin syncId)
-        if rosterModule.FindBySyncId(incoming.syncId) then incoming.syncId = nil end
-        target = rosterModule.Create(incoming.name)
-    end
-    for _, field in ipairs({ "name", "syncId", "difficulty", "size", "tanks", "healers",
-                             "members", "variants", "variantOrder", "nextVariantId" }) do
-        target[field] = incoming[field]
-    end
-    target.selectedVariant = nil
-    target.syncedAt = incoming.updatedAt
-    Data().selected = target.id
-    table.remove(received, index)
-    rosterModule.SyncMemberRosterField()
-    return target
-end
-
-function rosterModule.DiscardReceived(index)
-    table.remove(received, index)
-end
 
 -- =========================================================================
 -- BANDAS Y JEFES DEL DIARIO DE ENCUENTROS DEL JUEGO

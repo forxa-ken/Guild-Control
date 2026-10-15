@@ -17,6 +17,7 @@ Modules\Announcements.lua
 Modules\Achievements.lua
 Modules\CSV.lua
 Modules\GuildChat.lua
+Modules\Favorites.lua
 Modules\Roster.lua
 Modules\Profiles.lua
 Modules\News.lua

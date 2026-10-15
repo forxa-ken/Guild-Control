@@ -149,6 +149,21 @@ local function BuildHeader(parent)
     local warningsBox = CreateStatBox(header, L["Warnings"], statWidth)
     warningsBox:SetPoint("RIGHT", membersBox, "LEFT", -statGap, 0)
     warningsBox.value:SetTextColor(1, 0.25, 0.25)
+    -- Clic: abre la pestaña Warning (solo la ven los oficiales; ApplyProfile la oculta a los jugadores)
+    warningsBox:EnableMouse(true)
+    warningsBox.highlight = warningsBox:CreateTexture(nil, "HIGHLIGHT")
+    warningsBox.highlight:SetAllPoints()
+    warningsBox.highlight:SetColorTexture(1, 1, 1, 0.06)
+    warningsBox:SetScript("OnMouseUp", function()
+        if uiModule.SwitchTab then uiModule.SwitchTab("Warning") end
+    end)
+    warningsBox:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Warnings"], 1, 1, 1)
+        GameTooltip:AddLine(L["Inactivos y miembros en la lista negra. Clic para abrir Warning."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    warningsBox:SetScript("OnLeave", function() GameTooltip:Hide() end)
     header.warningsBox = warningsBox
 
     local verText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -356,6 +371,10 @@ local function SetPreviewText(text)
         containers.preview.infoText:SetText(text or L[PREVIEW_DEFAULT_TEXT])
         -- Cada vista previa nueva empieza sin botón de acción
         if containers.preview.actionButton then containers.preview.actionButton:Hide() end
+        if containers.preview.rankRow then
+            containers.preview.rankRow:Hide()
+            containers.preview.infoText:SetPoint("BOTTOMRIGHT", containers.preview, "BOTTOMRIGHT", -15, 44)
+        end
     end
 end
 
@@ -366,6 +385,91 @@ local function SetPreviewAction(label, onClick)
     btn:SetText(label)
     btn:SetScript("OnClick", onClick)
     btn:Show()
+end
+
+-- =========================================================================
+-- CAMBIO DE RANGO DESDE LA VISTA PREVIA
+-- =========================================================================
+StaticPopupDialogs["GUILDCONTROL_CONFIRM_RANK"] = {
+    text = "%s",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(_, data) if data and data.fn then data.fn() end end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Posición del miembro en la lista de la hermandad del juego (para cambiarle el rango)
+local function GuildRosterIndex(fullName)
+    local wanted = string.gsub(fullName or "", "%s+", "")
+    for i = 1, GetNumGuildMembers() do
+        local name = GetGuildRosterInfo(i)
+        if name and string.gsub(name, "%s+", "") == wanted then return i end
+    end
+    return nil
+end
+
+-- Cambia el rango (índices desde 0, 0 = el más alto). Usa SetGuildMemberRank y, si no
+-- existe, asciende o degrada paso a paso.
+local function ChangeGuildRank(fullName, currentRank, targetRank)
+    local index = GuildRosterIndex(fullName)
+    if not index then return false end
+    local ok = false
+    if SetGuildMemberRank then
+        ok = pcall(SetGuildMemberRank, index, targetRank + 1)
+    else
+        local promote = (C_GuildInfo and C_GuildInfo.Promote) or GuildPromote
+        local demote = (C_GuildInfo and C_GuildInfo.Demote) or GuildDemote
+        local step = targetRank < currentRank and promote or demote
+        if step then
+            ok = true
+            for _ = 1, math.abs(currentRank - targetRank) do ok = pcall(step, fullName) and ok end
+        end
+    end
+    C_GuildInfo.GuildRoster()
+    return ok
+end
+
+-- Muestra el desplegable si tu rango puede ascender o degradar a ese miembro: solo a
+-- miembros por debajo de ti y hacia rangos por debajo del tuyo
+local function ShowPreviewRankChanger(fullName, data)
+    local preview = containers.preview
+    local row = preview and preview.rankRow
+    if not row or not IsInGuild() then return end
+    local _, _, myRank = GetGuildInfo("player")
+    local memberRank = data and data.rankIndex
+    local canPromote = CanGuildPromote and CanGuildPromote()
+    local canDemote = CanGuildDemote and CanGuildDemote()
+    local me = addonTable.Profiles and addonTable.Profiles.NormalizeName(UnitName("player"))
+    if not myRank or not memberRank or memberRank <= myRank or fullName == me or not (canPromote or canDemote) then return end
+
+    local short = string.match(fullName, "^([^-]+)") or fullName
+    row.dropdown:SetupMenu(function(_, root)
+        for _, rank in ipairs(addonTable.Profiles.GetGuildRanks()) do
+            local target = rank.index
+            local allowed = target > myRank and target ~= memberRank
+                and ((target < memberRank and canPromote) or (target > memberRank and canDemote))
+            local label = (target == memberRank) and ("|cFFFFD100" .. rank.name .. "|r") or rank.name
+            local button = root:CreateRadio(label, function() return target == memberRank end, function()
+                local verb = target < memberRank and L["¿Ascender a "] or L["¿Degradar a "]
+                StaticPopup_Show("GUILDCONTROL_CONFIRM_RANK", verb .. short .. L[" al rango "] .. rank.name .. "?", nil, {
+                    fn = function()
+                        if ChangeGuildRank(fullName, memberRank, target) then
+                            print("|cFF00FFFF[GuildControl]|r " .. L["Rango de |cFFFFD100"] .. short .. L["|r cambiado a |cFFFFD100"] .. rank.name .. "|r.")
+                        else
+                            print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se pudo cambiar el rango.|r"])
+                        end
+                    end,
+                })
+            end)
+            if not allowed and button and button.SetEnabled then button:SetEnabled(false) end
+        end
+    end)
+    row.dropdown:SetText(data.rank or "")
+    row:Show()
+    preview.infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 62)
 end
 
 local function SwitchTab(tabName)
@@ -394,6 +498,7 @@ local function SwitchTab(tabName)
         uiModule.RefreshRoster()
     end
 end
+uiModule.SwitchTab = SwitchTab
 
 -- =========================================================================
 -- 4. MENÚ LATERAL IZQUIERDO (SIDEBAR)
@@ -428,6 +533,9 @@ function uiModule.ApplyProfile()
     local sidebar = containers.sidebar
     if not sidebar then return end
     local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+    if containers.header and containers.header.warningsBox then
+        containers.header.warningsBox:SetShown(isOfficer)
+    end
 
     local yOffset = -15
     for _, tabName in ipairs(SIDEBAR_TABS) do
@@ -478,6 +586,19 @@ local function BuildPreviewPanel(parent)
     actionButton:SetPoint("BOTTOM", preview, "BOTTOM", 0, 14)
     actionButton:Hide()
     preview.actionButton = actionButton
+
+    -- Cambio de rango del miembro seleccionado (ShowPreviewRankChanger decide si se ve)
+    local rankRow = CreateFrame("Frame", nil, preview)
+    rankRow:SetSize(190, 44)
+    rankRow:SetPoint("BOTTOM", preview, "BOTTOM", 0, 10)
+    rankRow:Hide()
+    rankRow.label = rankRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    rankRow.label:SetPoint("TOPLEFT", rankRow, "TOPLEFT", 0, 0)
+    rankRow.label:SetText(L["Cambiar rango:"])
+    rankRow.dropdown = CreateFrame("DropdownButton", "GC_PreviewRankSelect", rankRow, "WowStyle1DropdownTemplate")
+    rankRow.dropdown:SetPoint("BOTTOMLEFT", rankRow, "BOTTOMLEFT", 0, 0)
+    rankRow.dropdown:SetWidth(190)
+    preview.rankRow = rankRow
     containers.preview = preview
 end
 
@@ -657,6 +778,13 @@ local function ShowPlayerMenu(owner, name)
         rootDescription:CreateTitle(name)
         rootDescription:CreateButton(L["Susurrar"], function() WhisperTo(name) end)
         rootDescription:CreateButton(L["Invitar al grupo"], function() InviteToGroup(name) end)
+        local F = addonTable.Favorites
+        if F then
+            rootDescription:CreateButton(F.IsFavorite(name) and L["Quitar de favoritos"] or L["Añadir a favoritos"], function()
+                F.Toggle(name)
+                if uiModule.RefreshList then uiModule.RefreshList() end
+            end)
+        end
     end)
 end
 
@@ -753,7 +881,7 @@ local function BuildMembersView(parent)
     local view = CreateFrame("Frame", nil, parent)
     view:SetAllPoints()
 
-    local showOnlyOnline = false
+    local memberFilter = "all"     -- "all", "online" o "favorites"
     local searchQuery = ""
     local sortKey, sortAsc = DEFAULT_SORT_KEY, true
 
@@ -784,8 +912,13 @@ local function BuildMembersView(parent)
     btnShowOnline:SetPoint("LEFT", btnShowAll, "RIGHT", 8, 0)
     btnShowOnline:SetText(L["En línea"])
 
+    local btnShowFav = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnShowFav:SetSize(90, 22)
+    btnShowFav:SetPoint("LEFT", btnShowOnline, "RIGHT", 8, 0)
+    btnShowFav:SetText(L["Favoritos"])
+
     local countText = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    countText:SetPoint("LEFT", btnShowOnline, "RIGHT", 15, 0)
+    countText:SetPoint("LEFT", btnShowFav, "RIGHT", 15, 0)
     countText:SetTextColor(0.75, 0.75, 0.75)
 
     local btnCSV = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
@@ -882,14 +1015,27 @@ local function BuildMembersView(parent)
     end)
 
     btnShowAll:SetScript("OnClick", function()
-        showOnlyOnline = false
+        memberFilter = "all"
         uiModule.RefreshList()
     end)
 
     btnShowOnline:SetScript("OnClick", function()
-        showOnlyOnline = true
+        memberFilter = "online"
         uiModule.RefreshList()
     end)
+
+    -- Favoritos: clic derecho en un miembro > Añadir a favoritos (avisa al conectarse)
+    btnShowFav:SetScript("OnClick", function()
+        memberFilter = "favorites"
+        uiModule.RefreshList()
+    end)
+    btnShowFav:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Favoritos"], 1, 1, 1)
+        GameTooltip:AddLine(L["Clic derecho en un miembro para añadirlo o quitarlo. Te avisa cuando se conecta."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnShowFav:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local function MatchesSearch(fullName, data)
         if searchQuery == "" then return true end
@@ -963,6 +1109,7 @@ local function BuildMembersView(parent)
             L["Estado: "] .. (data.isOnline and L["|cFF00FF00En línea|r"] or ("|cFF888888" .. addonTable.FormatLastOnline(data.lastOnline or "Desconectado") .. "|r")) .. "\n" ..
             BuildExpansionText(fullName)
         )
+        ShowPreviewRankChanger(fullName, data)
     end
 
     -- Pool de filas: se reutilizan en cada refresco
@@ -1011,7 +1158,9 @@ local function BuildMembersView(parent)
         local list, total = {}, 0
         for fullName, data in pairs(GuildControlDB.members or {}) do
             total = total + 1
-            if ((not showOnlyOnline) or data.isOnline) and MatchesSearch(fullName, data) then
+            local passFilter = (memberFilter == "all") or (memberFilter == "online" and data.isOnline)
+                or (memberFilter == "favorites" and addonTable.Favorites and addonTable.Favorites.IsFavorite(fullName))
+            if passFilter and MatchesSearch(fullName, data) then
                 table.insert(list, { name = fullName, data = data })
             end
         end
@@ -1042,7 +1191,7 @@ local function BuildMembersView(parent)
                 { i, dim },
                 { data.level or 0, hex },
                 { data.class or L["Desconocida"], hex },
-                { entry.name, hex },
+                { ((addonTable.Favorites and addonTable.Favorites.IsFavorite(entry.name)) and "|A:PetJournal-FavoritesIcon:12:12|a" or "") .. entry.name, hex },
                 { data.rank or L["Recluta"], isOnline and "FFFFFF" or dim },
                 { CharTypeCell(data), isOnline and "FFD100" or dim },
                 { RoleCellText(data), RoleCellColor(data, isOnline) },
@@ -1603,7 +1752,7 @@ local function BuildRosterView(parent)
     btnNew:SetPoint("LEFT", btnRaid, "RIGHT", 8, 0)
     btnNew:SetText(L["Nuevo"])
     btnNew:SetScript("OnClick", function()
-        R.Create()
+        R.Touch(R.Create())
         Refresh()
         nameInput:SetFocus()
         nameInput:HighlightText()
@@ -1736,35 +1885,7 @@ local function BuildRosterView(parent)
     local criteriaStatus = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     criteriaStatus:SetPoint("RIGHT", criteria, "RIGHT", -10, 0)
 
-    -- Rosters que otros oficiales han compartido (solo visible si hay alguno)
-    local btnReceived = CreateFrame("Button", nil, criteria, "UIPanelButtonTemplate")
-    btnReceived:SetSize(120, 22)
-    btnReceived:SetPoint("RIGHT", criteriaStatus, "LEFT", -14, 0)
-    btnReceived:Hide()
-    btnReceived:SetScript("OnClick", function(self)
-        MenuUtil.CreateContextMenu(self, function(_, root)
-            root:CreateTitle(L["Rosters recibidos"])
-            for index, item in ipairs(R.GetReceived()) do
-                local label = item.roster.name .. " |cFF808080(" .. item.from .. ", " .. item.at .. ")|r"
-                local sub = root:CreateButton(label)
-                local existing = R.FindBySyncId(item.roster.syncId)
-                if existing then
-                    sub:CreateButton(L["Actualizar \""] .. existing.name .. "\"", function()
-                        R.ImportReceived(index, "replace")
-                        Refresh()
-                    end)
-                end
-                sub:CreateButton(L["Importar como roster nuevo"], function()
-                    R.ImportReceived(index, "new")
-                    Refresh()
-                end)
-                sub:CreateButton(L["|cFFFF3333Descartar|r"], function()
-                    R.DiscardReceived(index)
-                    Refresh()
-                end)
-            end
-        end)
-    end)
+    -- Los cambios de otros oficiales llegan solos: se refresca la vista
     R.SetReceivedListener(function() Refresh() end)
 
     -- ---------------------------------------------------------------------
@@ -2201,20 +2322,20 @@ local function BuildRosterView(parent)
             addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
         end
     end)
-    -- Envía el roster completo (base, jefes, fechas y asistencia) a los demás usuarios de GuildControl
+    -- Los cambios se envían solos; este botón reenvía el roster ahora mismo
     local btnShare = CreateAction(L["Compartir"], 90, btnExport, function()
         local roster = R.GetSelected()
         local parts = R.ShareRoster(roster)
         if parts == 0 then
             PrintGC(L["|cFFFF3333No se pudo compartir el roster.|r"])
         else
-            PrintGC(L["Compartiendo |cFFFFD100"] .. roster.name .. L["|r con la hermandad ("] .. parts .. L[" mensajes). Los demás usuarios de GuildControl lo verán en Recibidos."])
+            PrintGC(L["Compartiendo |cFFFFD100"] .. roster.name .. L["|r con la hermandad ("] .. parts .. L[" mensajes)."])
         end
     end)
     btnShare:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText(L["Compartir roster"], 1, 1, 1)
-        GameTooltip:AddLine(L["Lo envía a quien use GuildControl en la hermandad. Cada uno decide si lo importa."], 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(L["Los cambios del roster se envían solos a quien use GuildControl en la hermandad. Este botón lo reenvía ahora."], 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     btnShare:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2314,9 +2435,6 @@ local function BuildRosterView(parent)
         else
             variantDiffText:SetText(L["|cFF808080Base: se aplica a todos los jefes.|r"])
         end
-        local receivedCount = #R.GetReceived()
-        btnReceived:SetShown(receivedCount > 0)
-        btnReceived:SetText(L["|cFF00FF00Recibidos ("] .. receivedCount .. ")|r")
 
         local targets = R.GetTargets(roster)
         sizeText:SetText(roster.size)
@@ -3971,22 +4089,40 @@ local function BuildSummaryView(parent)
     end)
 
     local filterButtons = {}
-    local previous = nil
     for _, filter in ipairs(N.FILTERS) do
         local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
         btn:SetSize(filter.width or 70, 20)
-        if previous then
-            btn:SetPoint("LEFT", previous, "RIGHT", 4, 0)
-        else
-            btn:SetPoint("TOPLEFT", feedTitle, "BOTTOMLEFT", 0, -10)
-        end
         btn:SetText(L[filter.label])
         btn:SetScript("OnClick", function()
             currentFilter = filter.key
             Refresh()
         end)
         filterButtons[filter.key] = btn
-        previous = btn
+    end
+
+    -- Solo se ven los filtros que tienen noticias (Altas y Bajas siempre); si el elegido
+    -- se queda vacío se pasa al primero que tenga
+    local function LayoutFilters()
+        local active = N.GetActiveFilters()
+        if not active[currentFilter] then
+            for _, filter in ipairs(N.FILTERS) do
+                if active[filter.key] then currentFilter = filter.key break end
+            end
+        end
+        local previousBtn = nil
+        for _, filter in ipairs(N.FILTERS) do
+            local btn = filterButtons[filter.key]
+            btn:ClearAllPoints()
+            btn:SetShown(active[filter.key] == true)
+            if active[filter.key] then
+                if previousBtn then
+                    btn:SetPoint("LEFT", previousBtn, "RIGHT", 4, 0)
+                else
+                    btn:SetPoint("TOPLEFT", feedTitle, "BOTTOMLEFT", 0, -10)
+                end
+                previousBtn = btn
+            end
+        end
     end
 
     local feedScroll = CreateFrame("ScrollFrame", "GC_SummaryFeedScroll", feedBox, "UIPanelScrollFrameTemplate")
@@ -4280,6 +4416,7 @@ local function BuildSummaryView(parent)
 
     -- Noticias agrupadas por semana (cabecera "Esta semana", "Semana pasada", "Semana del...")
     local function RefreshFeed()
+        LayoutFilters()
         for key, btn in pairs(filterButtons) do btn:SetEnabled(key ~= currentFilter) end
         for _, card in ipairs(cards) do card:Hide() end
 

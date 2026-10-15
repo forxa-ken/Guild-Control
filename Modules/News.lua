@@ -201,6 +201,17 @@ local function HistoryItems()
     return items
 end
 
+-- Claves de los filtros que tienen alguna noticia. Altas y Bajas se muestran siempre.
+function newsModule.GetActiveFilters()
+    local active = { join = true, leave = true }
+    for _, item in ipairs(newsModule.GetFeed("all")) do
+        for key, kinds in pairs(FILTER_KINDS) do
+            if kinds[item.kind] then active[key] = true end
+        end
+    end
+    return active
+end
+
 -- Las últimas altas de la hermandad (sin límite de días), más recientes primero
 local LATEST_JOINS = 5
 function newsModule.GetLatestJoins(count)
@@ -224,13 +235,128 @@ function newsModule.GetLatestJoins(count)
     return items
 end
 
+-- =========================================================================
+-- JEFES DERROTADOS (BANDAS Y MAZMORRAS)
+-- =========================================================================
+-- Las noticias del juego no incluyen todos los jefes (por ejemplo, los de mazmorra). El
+-- addon registra cada jefe que derrota quien lo usa (ENCOUNTER_END) si en el grupo hay al
+-- menos otro miembro de la hermandad, y lo comparte con el prefijo GuildControlBoss:
+--   "B;encounterID;difficultyID;hora(servidor);miembros;party|raid;instancia;jefe"
+-- GuildControlDB.bossKills = { {encounterID, difficultyID, at, members, instanceType, instance, boss}, ... }
+local BOSS_PREFIX = "GuildControlBoss"
+local BOSS_KEEP_DAYS = 30
+local BOSS_SAME_KILL_SECONDS = 600   -- varios clientes avisan del mismo jefe: se unen
+
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(BOSS_PREFIX)
+end
+
+local function BossStore()
+    if type(GuildControlDB.bossKills) ~= "table" then GuildControlDB.bossKills = {} end
+    return GuildControlDB.bossKills
+end
+
+local function CleanText(text, maxLen)
+    text = string.gsub(tostring(text or ""), "[|;]", "")
+    return string.sub(strtrim(text), 1, maxLen)
+end
+
+-- Añade un jefe derrotado (o lo une al que ya había). Devuelve true si es nuevo.
+local function AddBossKill(kill)
+    local store = BossStore()
+    local limit = GetServerTime() - BOSS_KEEP_DAYS * 86400
+    for i = #store, 1, -1 do
+        if (store[i].at or 0) < limit then table.remove(store, i) end
+    end
+    for _, k in ipairs(store) do
+        if k.encounterID == kill.encounterID and k.difficultyID == kill.difficultyID
+            and math.abs((k.at or 0) - kill.at) < BOSS_SAME_KILL_SECONDS then
+            if kill.members > (k.members or 0) then k.members = kill.members end
+            return false
+        end
+    end
+    table.insert(store, kill)
+    return true
+end
+
+-- Miembros de la hermandad en mi grupo (contándome)
+local function GuildMembersInGroup()
+    local count = IsInGuild() and 1 or 0
+    local prefix = IsInRaid() and "raid" or "party"
+    local total = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
+    for i = 1, total do
+        local unit = prefix .. i
+        if not UnitIsUnit(unit, "player") and UnitIsInMyGuild and UnitIsInMyGuild(unit) then count = count + 1 end
+    end
+    return count
+end
+
+local function OnEncounterEnd(encounterID, encounterName, difficultyID, _, success)
+    if issecretvalue and (issecretvalue(encounterID) or issecretvalue(encounterName) or issecretvalue(success)) then return end
+    if success ~= 1 and success ~= true then return end
+    if not IsInGuild() or not encounterID then return end
+    local instanceName, instanceType = GetInstanceInfo()
+    if instanceType ~= "party" and instanceType ~= "raid" then return end
+    local members = GuildMembersInGroup()
+    if members < 2 then return end
+    local kill = {
+        encounterID = encounterID, difficultyID = difficultyID or 0, at = GetServerTime(), members = members,
+        instanceType = instanceType, instance = CleanText(instanceName, 40), boss = CleanText(encounterName, 40),
+    }
+    AddBossKill(kill)
+    if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(BOSS_PREFIX, table.concat({ "B", kill.encounterID, kill.difficultyID, kill.at,
+            kill.members, kill.instanceType, kill.instance, kill.boss }, ";"), "GUILD")
+    end
+    Notify()
+end
+
+local function OnBossMessage(msg)
+    local kind, encounterID, difficultyID, at, members, instanceType, instance, boss = strsplit(";", msg)
+    encounterID, difficultyID, at, members = tonumber(encounterID), tonumber(difficultyID), tonumber(at), tonumber(members)
+    if kind ~= "B" or not encounterID or not at or not boss or boss == "" then return end
+    if instanceType ~= "party" and instanceType ~= "raid" then return end
+    if at > GetServerTime() + 300 or at < GetServerTime() - BOSS_KEEP_DAYS * 86400 then return end
+    if AddBossKill({ encounterID = encounterID, difficultyID = difficultyID or 0, at = at, members = members or 2,
+                     instanceType = instanceType, instance = CleanText(instance, 40), boss = CleanText(boss, 40) }) then
+        Notify()
+    end
+end
+
+local function BossKillItems()
+    local items = {}
+    for _, k in ipairs(BossStore()) do
+        local diffName = GetDifficultyInfo and GetDifficultyInfo(k.difficultyID) or nil
+        local parts = { k.instance ~= "" and k.instance or nil, diffName,
+                        L["Con "] .. (k.members or 2) .. L[" miembros de la hermandad"] }
+        local detail = {}
+        for _, p in pairs(parts) do if p then table.insert(detail, p) end end
+        table.insert(items, {
+            kind = "boss",
+            icon = ICONS.boss,
+            title = L["Victoria contra "] .. k.boss,
+            detail = table.concat(detail, L[" · "]),
+            bossName = k.boss,
+            dateText = date("%d/%m", k.at),
+            sortKey = date("%Y%m%d%H%M%S", k.at),
+        })
+    end
+    return items
+end
+
 -- Noticias combinadas, más recientes primero, según el filtro ("all" por defecto)
 function newsModule.GetFeed(filter)
     local feed = {}
     local allowed = FILTER_KINDS[filter or "all"]
-    for _, list in ipairs({ GuildNewsItems(), HistoryItems() }) do
+    local bosses = BossKillItems()
+    -- Un jefe que ya registró el addon no se repite con la noticia del juego del mismo día
+    local seenBoss = {}
+    for _, item in ipairs(bosses) do seenBoss[item.bossName .. "|" .. string.sub(item.sortKey, 1, 8)] = true end
+    for _, list in ipairs({ GuildNewsItems(), HistoryItems(), bosses }) do
         for _, item in ipairs(list) do
-            if not allowed or allowed[item.kind] then table.insert(feed, item) end
+            local duplicate = item.kind == "boss" and not item.bossName
+                and seenBoss[string.gsub(item.title, "^" .. L["Victoria contra "], "", 1) .. "|" .. string.sub(item.sortKey or "", 1, 8)]
+            if (not allowed or allowed[item.kind]) and not duplicate then table.insert(feed, item) end
         end
     end
     table.sort(feed, function(a, b) return (a.sortKey or "") > (b.sortKey or "") end)
@@ -426,6 +552,19 @@ end
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("GUILD_NEWS_UPDATE")
 frame:RegisterEvent("GUILD_MOTD")
-frame:SetScript("OnEvent", function()
-    if GuildControlDB then Notify() end
+frame:RegisterEvent("ENCOUNTER_END")
+frame:RegisterEvent("CHAT_MSG_ADDON")
+frame:SetScript("OnEvent", function(_, event, ...)
+    if not GuildControlDB then return end
+    if event == "ENCOUNTER_END" then
+        OnEncounterEnd(...)
+    elseif event == "CHAT_MSG_ADDON" then
+        local prefix, msg, channel, sender = ...
+        if prefix ~= BOSS_PREFIX or channel ~= "GUILD" then return end
+        if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
+        if msg and sender and Ambiguate(sender, "none") ~= UnitName("player") then OnBossMessage(msg) end
+    else
+        Notify()
+    end
 end)
+

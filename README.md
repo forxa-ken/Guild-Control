@@ -11,6 +11,7 @@
 - **`Modules/CSV.lua`**: Exportador e importador de listas masivas, altas del día y bajas en formato CSV compatibles con Google Sheets.
 - **`Modules/Professions.lua`**: Módulo aislado para el escaneo y sincronización de profesiones de los miembros.
 - **`Modules/GuildChat.lua`**: Historial del chat de hermandad para el panel inferior y saludo automático a quien salude.
+- **`Modules/Favorites.lua`**: Personajes favoritos y aviso cuando se conectan.
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
 - **`Modules/News.lua`**: Datos de la pestaña Resumen: noticias de la hermandad del juego, altas y bajas, próximas bandas, rosters y cifras.
@@ -23,7 +24,7 @@
 
 La pestaña **Resumen** funciona como un tablón de noticias:
 
-- **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas. Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
+- **Noticias de la hermandad**, agrupadas por semana: logros de la hermandad y de los personajes, jefes derrotados, botín y fabricaciones (las noticias oficiales del juego) y bajas de los últimos 30 días. Filtros: **Logros hermandad**, **Logros personajes**, Jefes, Botín, Altas y Bajas; solo se ven los que tienen noticias (Altas y Bajas siempre). **Jefes** incluye, además de las noticias del juego, los jefes de banda y de mazmorra que derrota quien usa GuildControl con al menos otro miembro de la hermandad en el grupo (se comparten entre clientes y se guardan 30 días). Al pasar el ratón se ve el logro o el objeto, y al hacer clic su detalle en la vista previa; en los logros de personaje indica si tú ya lo has completado. **Clic derecho** en un logro lo abre en la ventana de logros del juego. En el botín muestra el nivel de objeto, el tipo y el **origen** (banda o mazmorra y jefe, si figura en el diario de encuentros). **Shift+clic** en una noticia comparte el objeto o el logro en el chat de hermandad.
 - **Altas**: las 5 últimas incorporaciones a la hermandad bajo la cabecera «¡Bienvenidos a la hermandad!».
 - **Mensaje del día** de la hermandad.
 - **Próximas bandas** creadas en la pestaña Raid.
@@ -53,7 +54,8 @@ El encabezado muestra debajo del nombre el reino de la hermandad y la facción. 
 
 ## 👥 Miembros y chat
 
-- Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**.
+- Clic derecho sobre un miembro: menú para **susurrar** o **invitar al grupo**, y para **añadirlo a favoritos** o quitarlo. El botón **Favoritos** filtra la lista (con estrella junto al nombre) y, cuando un favorito se conecta, se avisa en el chat, en el centro de la pantalla y con un sonido.
+- **Cambiar rango**: en la vista previa de un miembro aparece un desplegable para ascenderlo o degradarlo si tu rango tiene ese permiso (solo a miembros y rangos por debajo del tuyo). Pide confirmación.
 - **Actualizar** (junto a Sheets / CSV) vuelve a pedir la lista de la hermandad al servidor. Si al abrir la ventana la lista está vacía, se pide sola.
  y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
@@ -74,7 +76,7 @@ La pestaña **Roster** sirve para montar las composiciones de banda:
 La columna Roster de Miembros muestra en qué rosters está cada uno.
 La vista previa y el tooltip de cada integrante muestran su asistencia (de las bandas de Raid asociadas al roster), y el CSV del roster la incluye.
 - **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la banda (de las creadas en Raid, primero las asociadas al roster) y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
-- **Compartir**: envía el roster completo a quien use GuildControl en la hermandad. Al recibirlo aparece el botón **Recibidos** en la barra de criterios para **actualizar** el roster enlazado, **importarlo como nuevo** o **descartarlo**. Nada se importa sin confirmación.
+- **Sincronización**: como en Raid, cada cambio de un oficial (integrantes, criterios, nombre...) se envía solo a la hermandad unos segundos después y los demás clientes lo aplican al momento; los rosters nuevos aparecen solos en los demás oficiales y borrar un roster lo borra en todos. Solo se aceptan rosters de oficiales. **Compartir** lo reenvía en el momento.
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
@@ -100,7 +102,7 @@ La pestaña **Warning** (oficiales) agrupa los avisos por categorías, cada una 
 - **Nota pública**: vacía o sin el texto obligatorio que configures.
 - **Lista negra**: miembros de la hermandad que figuran en ella.
 
-Cada lista se puede exportar a CSV y tiene clic derecho para susurrar o invitar al grupo. La caja **Warnings** del encabezado suma inactivos y lista negra.
+Cada lista se puede exportar a CSV y tiene clic derecho para susurrar o invitar al grupo. La caja **Warnings** del encabezado suma inactivos y lista negra; solo la ven los oficiales y al hacer clic abre esta pestaña.
 
 ## 🛠️ Profesiones
 

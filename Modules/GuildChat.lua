@@ -261,6 +261,7 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         local who = ONLINE_PATTERN and string.match(text, ONLINE_PATTERN)
         if who then
             loginTimes[ShortName(who)] = GetTime()
+            if addonTable.Favorites and addonTable.Favorites.OnOnline then addonTable.Favorites.OnOnline(who) end
             return
         end
         local gone = OFFLINE_PATTERN and string.match(text, OFFLINE_PATTERN)
