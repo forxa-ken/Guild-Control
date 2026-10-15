@@ -11,7 +11,7 @@ addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true))
 
 -- Enlace de donación al autor (botón "Donar" del encabezado). Vacío = el botón avisa de que
 -- aún no hay enlace.
-addonTable.DONATE_URL = ""
+addonTable.DONATE_URL = "https://paypal.me/Forxaken"
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}

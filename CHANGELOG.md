@@ -2,6 +2,7 @@
 
 ## Próxima versión
 
+- El botón **Donar** ya tiene enlace: https://paypal.me/Forxaken
 - **DKP** en Botín (lo eligen los oficiales): DKP por jefe de banda, por banda completada y semanales por antigüedad; decay semanal del 10 % (configurable); subasta abierta desde el addon (gana la puja más alta, a igualdad más antigüedad, y paga lo que pujó); ajustes y ajuste manual para oficiales.
 - La **antigüedad** cuenta desde que cada jugador rellena **Mi perfil**. Quien no lo ha hecho ve una ventana de **tarea pendiente** al entrar.
 - **Modo minimalista de banda** (Raid o `/gct mini`): panel pequeño con comprobación de listos, pull 10, pull 5, cancelar pull, marcas en el objetivo, buff check, ventana de buffos y vuelta al modo normal.
