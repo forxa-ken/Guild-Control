@@ -1,0 +1,29 @@
+# Empaqueta el addon y lo sube a CurseForge al publicar una etiqueta de versión.
+#   v5.0.0-beta1  -> se publica como beta
+#   v5.0.0-alpha1 -> se publica como alpha
+#   v5.0.0        -> se publica como release
+# Necesita el secreto CF_API_KEY (token de la API de CurseForge) en la configuración del
+# repositorio y la línea "## X-Curse-Project-ID" en GuildControl.toc.
+name: Publicar en CurseForge
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # para crear también la release de GitHub con el .zip
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # el empaquetador necesita el historial para el número de versión
+
+      - name: Empaquetar y subir
+        uses: BigWigsMods/packager@v2

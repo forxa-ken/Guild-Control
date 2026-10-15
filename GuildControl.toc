@@ -1,8 +1,9 @@
 ## Interface: 120100
 ## Title: GuildControl
-## Notes: Gestion modularizada de hermandad Lobo Gelido, rosters, anuncios y profesiones.
-## Author: IA Developer
-## Version: 4.5.0
+## Notes: Gestión completa de la hermandad: miembros, roster, bandas con inscripciones, logros, profesiones, Míticas+, avisos y lista negra.
+## Author: Forxaken
+## Version: @project-version@
+## IconTexture: Interface\Icons\Achievement_GuildPerk_MobileBanking
 ## SavedVariables: GuildControlDB
 
 Core.lua

@@ -152,11 +152,11 @@ local function BuildHeader(parent)
 
     local verText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     verText:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -30, -6)
-    verText:SetText("v4.5.0")
+    verText:SetText("v" .. addonTable.VERSION)
 
     local authorText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     authorText:SetPoint("RIGHT", verText, "LEFT", -12, 0)
-    authorText:SetText("|cFF808080Autor:|r Forxaken  |cFF808080·  Guild:|r Lobo Gélido")
+    authorText:SetText("|cFF808080Autor:|r Forxaken")
 
     containers.header = header
     uiModule.UpdateHeader()
@@ -6944,7 +6944,7 @@ local function BuildConfigView(parent)
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
     aboutText:SetWidth(284)
     aboutText:SetJustifyH("LEFT")
-    aboutText:SetText("GuildControl v4.5.0 · Autor: Forxaken · Guild: Lobo Gélido\nEl perfil de oficial y el rango mínimo se configuran en Mi perfil.")
+    aboutText:SetText("GuildControl v" .. addonTable.VERSION .. " · Autor: Forxaken\nEl perfil de oficial y el rango mínimo se configuran en Mi perfil.")
 
     -- ---------------------------------------------------------------------
     -- 9.3 Saludo automático: mensaje, tiempos y palabras

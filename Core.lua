@@ -1,4 +1,10 @@
 local addonName, addonTable = ...
+
+-- Versión leída del .toc. El empaquetador de CurseForge sustituye @project-version@ por la
+-- etiqueta de git; si se usa el addon directamente desde el repositorio se muestra "dev".
+local tocVersion = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(addonName, "Version"))
+    or (GetAddOnMetadata and GetAddOnMetadata(addonName, "Version")) or ""
+addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true)) and "dev" or tocVersion
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}
@@ -65,7 +71,8 @@ function addonTable.InitDB()
     -- Panel de chat de hermandad y saludo automático
     if type(GuildControlDB.settings.windowOnTop) ~= "boolean" then GuildControlDB.settings.windowOnTop = false end
     if type(GuildControlDB.settings.chatCollapsed) ~= "boolean" then GuildControlDB.settings.chatCollapsed = false end
-    if type(GuildControlDB.settings.autoGreet) ~= "boolean" then GuildControlDB.settings.autoGreet = true end
+    -- Desactivado por defecto: el addon no escribe en el chat por su cuenta hasta que se active
+    if type(GuildControlDB.settings.autoGreet) ~= "boolean" then GuildControlDB.settings.autoGreet = false end
     if type(GuildControlDB.settings.greetDelay) ~= "number" then GuildControlDB.settings.greetDelay = 2 end        -- segundos
     if type(GuildControlDB.settings.greetCooldown) ~= "number" then GuildControlDB.settings.greetCooldown = 30 end -- minutos
     if type(GuildControlDB.settings.greetLoginWindow) ~= "number" then GuildControlDB.settings.greetLoginWindow = 5 end -- minutos
@@ -315,7 +322,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         addonTable.InitDB()
         addonTable.CreateMinimapButton()
         C_GuildInfo.GuildRoster()
-        print("|cFF00FFFF[GuildControl]|r v4.5.0 (Modular) cargado. Usa /gct para abrir la interfaz.")
+        print("|cFF00FFFF[GuildControl]|r v" .. addonTable.VERSION .. " cargado. Usa /gct para abrir la interfaz.")
     elseif event == "PLAYER_ENTERING_WORLD" or event == "GUILD_ROSTER_UPDATE" then
         addonTable.ScanGuildRosterForChanges()
     end

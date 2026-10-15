@@ -1,4 +1,4 @@
-# GuildControl (v4.5.0)
+# GuildControl
 
 **GuildControl** es un addon modular para World of Warcraft Retail diseñado para la gestión integral de hermandades, control de rosters de raid, seguimiento de miembros, anuncios automáticos y exportación de datos a Google Sheets.
 

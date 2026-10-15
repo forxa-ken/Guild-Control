@@ -1,0 +1,15 @@
+# Configuración del empaquetador de BigWigsMods (lo usa la Action de .github/workflows/release.yml)
+package-as: GuildControl
+
+# El texto de los cambios de cada versión que se publica en CurseForge
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# Archivos del repositorio que no van en el .zip del addon
+ignore:
+  - CLAUDE.md
+  - PUBLICAR.md
+  - versiones
+  - .github
+  - .gitignore
