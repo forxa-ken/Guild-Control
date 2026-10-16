@@ -2,6 +2,10 @@
 
 ## Próxima versión
 
+- **Warning**: nuevas secciones **Sin GuildControl** y **Con GuildControl** (versión y última detección), con filtro de conectados y botón **Comprobar ahora**.
+- **Resumen**: los logros que anuncia el chat de hermandad aparecen aunque las noticias del juego no los traigan.
+- Explicación del **DKP** en Botín reescrita, más clara y por pasos.
+- Enlace correcto del botón **Más addons**.
 - **DKP con precio fijo** (reparto por defecto): tabla de precios por hueco y dificultad, botón Precio para cambiar el de un objeto, Main-spec / Off-spec (50 %), gana quien tenga más DKP, mínimo de 20 DKP para piezas de Mítica y asistencia mínima opcional. La subasta abierta sigue disponible en Ajustes.
 - **Favoritos** de fuera de la hermandad (marcados aparte; si son tus amigos se ve si están conectados).
 - Ayuda de **Botín** en la vista previa con viñetas, para +1 y para DKP.

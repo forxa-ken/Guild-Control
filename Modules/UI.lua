@@ -43,24 +43,27 @@ local TAB_HELP = {
 }
 -- En Botín con el sistema DKP se muestra esta otra ayuda
 local TAB_HELP_DKP = {
-    ["Botín"] = "|cFFFFD100Cómo funciona Botín (DKP)|r\n"
-        .. "\n|cFF4080FFCómo se gana|r\n"
-        .. "|cFFFFD100•|r Por cada jefe de una banda programada en Raid.\n"
-        .. "|cFFFFD100•|r Por banda completada (botón DKP de banda).\n"
-        .. "|cFFFFD100•|r Cada semana por antigüedad.\n"
-        .. "\n|cFF40D959Antigüedad y decay|r\n"
-        .. "|cFFFFD100•|r La antigüedad cuenta desde que se rellena Mi perfil.\n"
-        .. "|cFFFFD100•|r Cada semana los DKP pierden un % para evitar la inflación.\n"
-        .. "\n|cFFB380FFPrecio fijo|r\n"
-        .. "|cFFFFD100•|r Cada objeto tiene un precio según su hueco y la dificultad (botón Precios).\n"
-        .. "|cFFFFD100•|r Main-spec paga el precio; Off-spec paga un % si nadie lo pide como Main-spec.\n"
-        .. "|cFFFFD100•|r Gana quien tenga más DKP; a igualdad, más antigüedad.\n"
-        .. "|cFFFFD100•|r Las piezas de Mítica piden un mínimo de DKP.\n"
-        .. "\n|cFFFF7F00Subasta (se elige en Ajustes)|r\n"
-        .. "|cFFFFD100•|r Gana la puja más alta y paga lo que pujó; el precio es la puja mínima.\n"
-        .. "\n|cFFFFBF33DKP de la hermandad|r\n"
-        .. "|cFFFFD100•|r Saldos y días de antigüedad.\n"
-        .. "|cFFFFD100•|r Oficiales: clic derecho para sumar o restar; Precio cambia el de un objeto.",
+    ["Botín"] = "|cFFFFD100Botín con DKP|r\n"
+        .. "Los DKP son puntos: los ganas jugando con la hermandad y los gastas en objetos.\n"
+        .. "\n|cFF40D959Cómo ganas DKP|r\n"
+        .. "|cFFFFD100•|r Cada jefe que matáis en una banda programada en Raid.\n"
+        .. "|cFFFFD100•|r Al acabar la banda (lo da un oficial).\n"
+        .. "|cFFFFD100•|r Cada semana, por antigüedad (desde que rellenas Mi perfil).\n"
+        .. "\n|cFFB380FFCómo consigues un objeto|r\n"
+        .. "|cFFFFD1001.|r Sale un objeto y un oficial pulsa Tirar.\n"
+        .. "|cFFFFD1002.|r Te sale una ventana: Main-spec si es para tu especialización principal u Off-spec si es para la otra (cuesta la mitad).\n"
+        .. "|cFFFFD1003.|r Se lo lleva quien tenga más DKP. Main-spec va siempre antes que Off-spec.\n"
+        .. "|cFFFFD1004.|r Al ganador se le restan los DKP del precio.\n"
+        .. "\n|cFF4080FFPrecios|r\n"
+        .. "|cFFFFD100•|r Dependen del tipo de pieza y de la dificultad: Normal, Heroica o Mítica.\n"
+        .. "|cFFFFD100•|r Para piezas de Mítica hace falta un mínimo de DKP.\n"
+        .. "\n|cFFFF7F00Ten en cuenta|r\n"
+        .. "|cFFFFD100•|r Cada semana los DKP bajan un poco (decay) para que nadie acumule demasiados.\n"
+        .. "|cFFFFD100•|r Si hay empate de DKP, gana quien lleve más tiempo.\n"
+        .. "\n|cFFFFBF33Para oficiales|r\n"
+        .. "|cFFFFD100•|r Precios: tabla de precios. Precio: cambia el de un objeto.\n"
+        .. "|cFFFFD100•|r Clic derecho en un jugador: sumar o restar DKP.\n"
+        .. "|cFFFFD100•|r Ajustes: puntos, decay, mínimos y reparto por subasta.",
 }
 
 local function TabHelp(tabName)
@@ -5232,6 +5235,39 @@ local WARNING_CATEGORIES = {
             return list
         end,
     },
+    {
+        key = "noaddon", label = "Sin GuildControl",
+        help = "Miembros de los que no consta que usen GuildControl. Se detecta con cualquier mensaje del addon (roles, llaves, bandas...) y con Comprobar ahora, que pregunta a los conectados.",
+        collect = function(s)
+            local list = {}
+            for name, m in pairs(GuildControlDB.members or {}) do
+                if not addonTable.GetAddonUser(name) and (not s.addonOnlineOnly or m.isOnline) then
+                    table.insert(list, { name = name, data = m, sort = m.isOnline and 1 or 0,
+                        detail = m.isOnline and L["|cFF00FF00Conectado|r"] or (addonTable.FormatLastOnline(m.lastOnline) or "") })
+                end
+            end
+            return list
+        end,
+    },
+    {
+        key = "withaddon", label = "Con GuildControl", info = true,
+        help = "Miembros que usan GuildControl, con su versión y la última vez que se detectó.",
+        collect = function(s)
+            local list = {}
+            for name, m in pairs(GuildControlDB.members or {}) do
+                local user = addonTable.GetAddonUser(name)
+                if user and (not s.addonOnlineOnly or m.isOnline) then
+                    local version = user.version or "?"
+                    local mine = addonTable.VERSION
+                    local other = user.version and mine ~= "dev" and version ~= "dev" and version ~= mine
+                    table.insert(list, { name = name, data = m, sort = m.isOnline and 1 or 0,
+                        detail = (other and "|cFFFF7F00" or "|cFFFFFFFF") .. L["Versión "] .. version .. "|r  |cFF808080"
+                            .. L["visto el "] .. date("%d/%m %H:%M", user.at or 0) .. "|r" })
+                end
+            end
+            return list
+        end,
+    },
 }
 
 local function CollectCategory(category)
@@ -5251,7 +5287,7 @@ function uiModule.GetWarningSummary()
     local settings = WarningSettings()
     for _, category in ipairs(WARNING_CATEGORIES) do
         local count = #category.collect(settings)
-        if count > 0 then table.insert(result, { key = category.key, label = category.label, count = count }) end
+        if count > 0 and not category.info then table.insert(result, { key = category.key, label = category.label, count = count }) end
     end
     return result
 end
@@ -5460,6 +5496,36 @@ local function BuildWarningView(parent)
         controlsByKey.notes = { holder }
     end
 
+    -- Uso de GuildControl: solo conectados y comprobar ahora
+    for _, key in ipairs({ "noaddon", "withaddon" }) do
+        local holder = CreateFrame("Frame", nil, settingsRow)
+        holder:SetAllPoints()
+        local chk = CreateFrame("CheckButton", nil, holder, "UICheckButtonTemplate")
+        chk:SetSize(24, 24)
+        chk:SetPoint("LEFT", holder, "LEFT", -4, 0)
+        local chkText = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        chkText:SetPoint("LEFT", chk, "RIGHT", 2, 0)
+        chkText:SetText(L["Solo conectados"])
+        chk:SetScript("OnClick", function(self)
+            WarningSettings().addonOnlineOnly = self:GetChecked() and true or false
+            Refresh()
+        end)
+        local btnCheck = CreateFrame("Button", nil, holder, "UIPanelButtonTemplate")
+        btnCheck:SetSize(140, 22)
+        btnCheck:SetPoint("LEFT", chkText, "RIGHT", 16, 0)
+        btnCheck:SetText(L["Comprobar ahora"])
+        btnCheck:SetScript("OnClick", function()
+            if addonTable.PingAddonUsers then addonTable.PingAddonUsers() end
+            PrintGC(L["Preguntando a los conectados que usan GuildControl..."])
+            C_Timer.After(8, function() Refresh() end)
+        end)
+        local hint = holder:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        hint:SetPoint("LEFT", btnCheck, "RIGHT", 10, 0)
+        hint:SetText(L["Las respuestas llegan en unos segundos."])
+        holder.Load = function() chk:SetChecked(WarningSettings().addonOnlineOnly == true) end
+        controlsByKey[key] = { holder }
+    end
+
     -- Tabla
     local COLS = {
         { title = L["Personaje"], x = 8,   w = 170 },
@@ -5599,7 +5665,7 @@ local function BuildWarningView(parent)
         for _, category in ipairs(WARNING_CATEGORIES) do
             local count = #category.collect(WarningSettings())
             local btn = catButtons[category.key]
-            btn.count:SetText(count > 0 and ("|cFFFF7F7F" .. count .. "|r") or "|cFF808080 0|r")
+            btn.count:SetText(count > 0 and ((category.info and "|cFF7FFF7F" or "|cFFFF7F7F") .. count .. "|r") or "|cFF808080 0|r")
             btn.bg:SetShown(category.key == selectedKey)
             if category.key == selectedKey then selected = category end
         end

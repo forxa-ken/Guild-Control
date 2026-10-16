@@ -13,7 +13,7 @@ addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true))
 -- aún no hay enlace.
 addonTable.DONATE_URL = "https://paypal.me/Forxaken"
 -- Perfil del autor en CurseForge (botón "Más addons" del encabezado)
-addonTable.MORE_ADDONS_URL = "https://www.curseforge.com/members/forxaken/projects"
+addonTable.MORE_ADDONS_URL = "https://www.curseforge.com/members/forxa/projects"
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}
@@ -444,6 +444,88 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         print("|cFF00FFFF[GuildControl]|r v" .. addonTable.VERSION .. L[" cargado. Usa /gct para abrir la interfaz."])
     elseif event == "PLAYER_ENTERING_WORLD" or event == "GUILD_ROSTER_UPDATE" then
         addonTable.ScanGuildRosterForChanges()
+    end
+end)
+
+-- =========================================================================
+-- QUIÉN USA GUILDCONTROL
+-- =========================================================================
+-- GuildControlDB.addonUsers[Nombre-Reino] = { version, at (time()) }
+-- Cuenta cualquier mensaje de addon de GuildControl (roles, llaves, bandas...). Además, al
+-- entrar cada cliente dice "H;versión" con el prefijo GuildControlHi, y "P" (botón Comprobar
+-- ahora de Warning) pide que respondan todos los conectados que lo usan.
+local HI_PREFIX = "GuildControlHi"
+local lastHello = 0
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(HI_PREFIX)
+end
+
+local function FullSenderName(sender)
+    local name, realm = strsplit("-", sender, 2)
+    if not realm or realm == "" then
+        realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
+    end
+    return name .. "-" .. string.gsub(realm, "%s+", "")
+end
+
+function addonTable.MarkAddonUser(fullName, version)
+    if not fullName or type(GuildControlDB) ~= "table" then return end
+    if type(GuildControlDB.addonUsers) ~= "table" then GuildControlDB.addonUsers = {} end
+    local entry = GuildControlDB.addonUsers[fullName] or {}
+    entry.at = time()
+    if version and version ~= "" then entry.version = version end
+    GuildControlDB.addonUsers[fullName] = entry
+end
+
+function addonTable.GetAddonUser(fullName)
+    return fullName and type(GuildControlDB.addonUsers) == "table" and GuildControlDB.addonUsers[fullName] or nil
+end
+
+local function SendHello()
+    if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    lastHello = GetTime()
+    C_ChatInfo.SendAddonMessage(HI_PREFIX, "H;" .. tostring(addonTable.VERSION), "GUILD")
+end
+
+-- Pide a todos los conectados con GuildControl que respondan
+function addonTable.PingAddonUsers()
+    if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    C_ChatInfo.SendAddonMessage(HI_PREFIX, "P", "GUILD")
+end
+
+local presenceFrame = CreateFrame("Frame")
+presenceFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+presenceFrame:RegisterEvent("CHAT_MSG_ADDON")
+presenceFrame:SetScript("OnEvent", function(_, event, ...)
+    if type(GuildControlDB) ~= "table" then return end
+    if event == "PLAYER_ENTERING_WORLD" then
+        local isInitialLogin, isReloadingUi = ...
+        if isInitialLogin or isReloadingUi then
+            addonTable.MarkAddonUser(FullSenderName(UnitName("player")), addonTable.VERSION)
+            C_Timer.After(18, SendHello)
+        end
+        return
+    end
+    local prefix, msg, channel, sender = ...
+    -- Barato: solo los prefijos del addon
+    if type(prefix) ~= "string" or (string.sub(prefix, 1, 12) ~= "GuildControl" and prefix ~= "GCRoleReq") then return end
+    if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
+    if not sender or sender == "" then return end
+    local fullName = FullSenderName(sender)
+    if prefix == HI_PREFIX and type(msg) == "string" then
+        if string.sub(msg, 1, 2) == "H;" then
+            addonTable.MarkAddonUser(fullName, string.sub(msg, 3, 30))
+        else
+            addonTable.MarkAddonUser(fullName)
+            -- Petición: se responde con un pequeño retraso (y no más de una vez por minuto)
+            if msg == "P" and Ambiguate(sender, "none") ~= UnitName("player") and GetTime() - lastHello > 60 then
+                lastHello = GetTime()
+                C_Timer.After(1 + math.random() * 6, SendHello)
+            end
+        end
+        if addonTable.UI and addonTable.UI.RefreshWarnings then addonTable.UI.RefreshWarnings() end
+    else
+        addonTable.MarkAddonUser(fullName)
     end
 end)
 

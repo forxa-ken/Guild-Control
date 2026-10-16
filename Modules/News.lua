@@ -375,6 +375,58 @@ local function BossKillItems()
     return items
 end
 
+-- =========================================================================
+-- LOGROS QUE SE VEN EN EL CHAT DE HERMANDAD
+-- =========================================================================
+-- Las noticias del juego no traen todos los logros de los miembros (ni al momento). El addon
+-- apunta los avisos "X ha ganado el logro [Y]" del chat de hermandad (CHAT_MSG_GUILD_ACHIEVEMENT)
+-- en GuildControlDB.memberAchievements = { {at, who, id}, ... } durante 30 días.
+local ACH_KEEP_DAYS = 30
+local ACH_MAX = 400
+
+local function AchievementStore()
+    if type(GuildControlDB.memberAchievements) ~= "table" then GuildControlDB.memberAchievements = {} end
+    return GuildControlDB.memberAchievements
+end
+
+local function OnGuildAchievement(text, sender)
+    if issecretvalue and (issecretvalue(text) or issecretvalue(sender)) then return end
+    if type(text) ~= "string" or type(sender) ~= "string" then return end
+    local id = tonumber(string.match(text, "|Hachievement:(%d+)"))
+    if not id then return end
+    local store = AchievementStore()
+    local now = GetServerTime()
+    for _, entry in ipairs(store) do
+        if entry.id == id and entry.who == sender and now - (entry.at or 0) < 600 then return end
+    end
+    table.insert(store, 1, { at = now, who = sender, id = id })
+    local limit = now - ACH_KEEP_DAYS * 86400
+    for i = #store, 1, -1 do
+        if i > ACH_MAX or (store[i].at or 0) < limit then table.remove(store, i) end
+    end
+    Notify()
+end
+
+local function ChatAchievementItems()
+    local items = {}
+    for _, entry in ipairs(AchievementStore()) do
+        local _, name, points, _, _, _, _, _, _, icon, _, isGuild = GetAchievementInfo(entry.id)
+        if name then
+            local who = ShortName(entry.who)
+            table.insert(items, {
+                kind = isGuild and "guildAchievement" or "achievement",
+                icon = icon or ICONS.achievement,
+                achievementId = entry.id, name = name, who = who,
+                title = isGuild and L["La hermandad ha conseguido un logro"] or (who .. L[" ha conseguido un logro"]),
+                detail = "|cFFFFD100" .. name .. "|r" .. ((points and points > 0) and (L[" |cFF808080("] .. points .. L[" puntos)|r"]) or ""),
+                dateText = date("%d/%m", entry.at),
+                sortKey = date("%Y%m%d%H%M%S", entry.at),
+            })
+        end
+    end
+    return items
+end
+
 -- Noticias combinadas, más recientes primero, según el filtro ("all" por defecto)
 function newsModule.GetFeed(filter)
     local feed = {}
@@ -383,10 +435,17 @@ function newsModule.GetFeed(filter)
     -- Un jefe que ya registró el addon no se repite con la noticia del juego del mismo día
     local seenBoss = {}
     for _, item in ipairs(bosses) do seenBoss[item.bossName .. "|" .. string.sub(item.sortKey, 1, 8)] = true end
-    for _, list in ipairs({ GuildNewsItems(), HistoryItems(), bosses }) do
+    -- Un logro del chat que ya está en las noticias del juego no se repite
+    local gameNews = GuildNewsItems()
+    local seenAch = {}
+    for _, item in ipairs(gameNews) do
+        if item.achievementId then seenAch[item.achievementId .. "|" .. (item.who or "")] = true end
+    end
+    for _, list in ipairs({ gameNews, HistoryItems(), bosses, ChatAchievementItems() }) do
         for _, item in ipairs(list) do
-            local duplicate = item.kind == "boss" and not item.bossName
-                and seenBoss[string.gsub(item.title, "^" .. L["Victoria contra "], "", 1) .. "|" .. string.sub(item.sortKey or "", 1, 8)]
+            local duplicate = (item.kind == "boss" and not item.bossName
+                and seenBoss[string.gsub(item.title, "^" .. L["Victoria contra "], "", 1) .. "|" .. string.sub(item.sortKey or "", 1, 8)])
+                or (list ~= gameNews and item.achievementId and seenAch[item.achievementId .. "|" .. (item.who or "")])
             if (not allowed or allowed[item.kind]) and not duplicate then table.insert(feed, item) end
         end
     end
@@ -534,12 +593,16 @@ frame:RegisterEvent("GUILD_NEWS_UPDATE")
 frame:RegisterEvent("GUILD_MOTD")
 frame:RegisterEvent("ENCOUNTER_END")
 frame:RegisterEvent("BOSS_KILL")
+frame:RegisterEvent("CHAT_MSG_GUILD_ACHIEVEMENT")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
     if event == "GUILD_NEWS_UPDATE" then
         cachedNews = nil
         Notify()
+    elseif event == "CHAT_MSG_GUILD_ACHIEVEMENT" then
+        local text, sender = ...
+        OnGuildAchievement(text, sender)
     elseif event == "ENCOUNTER_END" then
         OnEncounterEnd(...)
     elseif event == "BOSS_KILL" then
