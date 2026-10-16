@@ -1,6 +1,6 @@
 # GuildControl
 
-## Próxima versión
+## 5.0.0-beta5
 
 - **Anuncios**: solo se publican si tienes rango de oficial. Si pierdes el rango, tu cliente deja de enviarlos (se conservan por si lo recuperas).
 
