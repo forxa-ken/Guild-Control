@@ -33,7 +33,7 @@ local TAB_HELP = {
 -- En Botín con el sistema DKP se muestra esta otra ayuda
 local TAB_HELP_DKP = {
     ["Botín"] = "|cFFFFD100Cómo funciona Botín (DKP)|r\n\n"
-        .. "|cFF4080FFCómo se gana:|r por cada jefe de banda derrotado (los miembros de la hermandad del grupo), por banda completada (botón DKP de banda de un oficial) y cada semana por antigüedad.\n"
+        .. "|cFF4080FFCómo se gana:|r por cada jefe derrotado de una banda programada en Raid (los miembros de la hermandad del grupo), por banda completada (botón DKP de banda de un oficial) y cada semana por antigüedad.\n"
         .. "|cFF40D959Antigüedad:|r cuenta desde que cada jugador rellena Mi perfil con GuildControl. Da DKP cada semana y desempata las pujas.\n"
         .. "|cFFFF7F00Decay:|r en cada reinicio semanal los DKP pierden un % para evitar la inflación.\n"
         .. "|cFFB380FFSubasta:|r al pulsar Subastar, a quien tenga GuildControl en el grupo le sale una ventana para pujar (desde la puja mínima hasta sus DKP) o pasar. Todos ven las pujas y se pueden subir. Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó. Solo un oficial asigna el objeto.\n"
@@ -6089,7 +6089,7 @@ local function BuildRaidView(parent)
     view:Hide()
 
     local selectedEventId = nil
-    local mode = "planning"           -- "planning", "groups" o "attendance" (solo oficiales)
+    local mode = "planning"           -- "planning", "groups", "attendance" (solo oficiales) o "history"
     local editing = nil               -- nil, "new" o el evento que se edita
     local Refresh
 
@@ -6134,6 +6134,11 @@ local function BuildRaidView(parent)
     btnPlanning:SetText(L["Planning raid"])
     btnPlanning:SetScript("OnClick", function() mode = "planning"; Refresh() end)
     btnGroups:SetScript("OnClick", function() mode = "groups"; editing = nil; Refresh() end)
+    local btnHistory = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnHistory:SetSize(100, 22)
+    btnHistory:SetPoint("RIGHT", btnPlanning, "LEFT", -6, 0)
+    btnHistory:SetText(L["Historial"])
+    btnHistory:SetScript("OnClick", function() mode = "history"; editing = nil; selectedEventId = nil; Refresh() end)
 
     -- ---------------------------------------------------------------------
     -- Lista de bandas (izquierda, común a los dos modos)
@@ -6973,6 +6978,172 @@ local function BuildRaidView(parent)
         otherText:SetText(table.concat(otherLines, "\n"))
     end
 
+    -- ---------------------------------------------------------------------
+    -- Historial de bandas (todos): jefes que murieron y asistencia de cada banda pasada
+    -- ---------------------------------------------------------------------
+    local HISTORY_PAGE_SIZE = 8
+    local historyPage = 1
+    local btnPrevPage = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnPrevPage:SetSize(50, 20)
+    btnPrevPage:SetPoint("BOTTOMLEFT", listBox, "BOTTOMLEFT", 8, 8)
+    btnPrevPage:SetText("<")
+    btnPrevPage:SetScript("OnClick", function() historyPage = math.max(1, historyPage - 1); selectedEventId = nil; Refresh() end)
+    local btnNextPage = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnNextPage:SetSize(50, 20)
+    btnNextPage:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -8, 8)
+    btnNextPage:SetText(">")
+    btnNextPage:SetScript("OnClick", function() historyPage = historyPage + 1; selectedEventId = nil; Refresh() end)
+    local pageText = listBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pageText:SetPoint("BOTTOM", listBox, "BOTTOM", 0, 13)
+    for _, w in ipairs({ btnPrevPage, btnNextPage, pageText }) do w:Hide() end
+
+    local histPanel = CreateBackdropBox(view, 644, 470, "TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+    histPanel:Hide()
+    local histTitle = histPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    histTitle:SetPoint("TOPLEFT", histPanel, "TOPLEFT", 14, -12)
+    histTitle:SetWidth(616)
+    histTitle:SetJustifyH("LEFT")
+    histTitle:SetWordWrap(false)
+    local histInfo = histPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    histInfo:SetPoint("TOPLEFT", histTitle, "BOTTOMLEFT", 0, -6)
+    histInfo:SetWidth(616)
+    histInfo:SetJustifyH("LEFT")
+    histInfo:SetWordWrap(false)
+    local histSummary = histPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    histSummary:SetPoint("TOPLEFT", histInfo, "BOTTOMLEFT", 0, -6)
+    histSummary:SetWidth(616)
+    histSummary:SetJustifyH("LEFT")
+    histSummary:SetWordWrap(false)
+
+    local histBossBox = CreateColoredPanel(histPanel, L["Jefes"], PANEL_COLORS.blue, 300, 380)
+    histBossBox:SetPoint("TOPLEFT", histPanel, "TOPLEFT", 10, -80)
+    local histAttBox = CreateColoredPanel(histPanel, L["Asistencia"], PANEL_COLORS.blue, 318, 380)
+    histAttBox:SetPoint("TOPLEFT", histBossBox, "TOPRIGHT", 6, 0)
+    local histAttScroll = CreateFrame("ScrollFrame", nil, histAttBox, "UIPanelScrollFrameTemplate")
+    histAttScroll:SetPoint("TOPLEFT", histAttBox, "TOPLEFT", 8, -28)
+    histAttScroll:SetPoint("BOTTOMRIGHT", histAttBox, "BOTTOMRIGHT", -28, 8)
+    local histAttChild = CreateFrame("Frame")
+    histAttChild:SetSize(280, 1)
+    histAttScroll:SetScrollChild(histAttChild)
+    local histEmpty = histPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    histEmpty:SetPoint("CENTER")
+    histEmpty:SetWidth(560)
+    histEmpty:SetText(L["Aquí aparecen las bandas programadas en Raid que ya se jugaron, con los jefes que murieron y la asistencia."])
+
+    local bossLines, attLines = {}, {}
+    local function HistLine(lines, parent, index, x, y, width)
+        local fs = lines[index]
+        if not fs then
+            fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetWidth(width)
+            fs:SetJustifyH("LEFT")
+            fs:SetWordWrap(false)
+            lines[index] = fs
+        end
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+        fs:Show()
+        return fs
+    end
+
+    local ATT_ORDER = { present = 1, late = 2, excused = 3, absent = 4 }
+    local function RefreshHistory()
+        local history = E.GetHistory()
+        local pages = math.max(1, math.ceil(#history / HISTORY_PAGE_SIZE))
+        historyPage = math.min(historyPage, pages)
+        local first = (historyPage - 1) * HISTORY_PAGE_SIZE
+        listTitle:SetText(L["Bandas anteriores"])
+        local selected = nil
+        for i = first + 1, math.min(#history, first + HISTORY_PAGE_SIZE) do
+            if history[i].id == selectedEventId then selected = history[i] end
+        end
+        if not selected then
+            selected = history[first + 1]
+            selectedEventId = selected and selected.id or nil
+        end
+        for _, btn in ipairs(eventButtons) do btn:Hide() end
+        for i = 1, HISTORY_PAGE_SIZE do
+            local entry = history[first + i]
+            if not entry then break end
+            local btn = AcquireEventButton(i)
+            btn:SetPoint("TOPLEFT", listBox, "TOPLEFT", 8, -34 - (i - 1) * 48)
+            btn.eventId = entry.id
+            btn.bg:SetColorTexture(1, 0.82, 0, entry.id == selectedEventId and 0.22 or 0.05)
+            btn.titleFs:SetText(entry.title)
+            local bosses, killed = E.GetHistoryBosses(entry)
+            btn.infoFs:SetText("|cFFBFBFBF" .. RaidEventDateText(entry) .. "|r   " .. L["Jefes: "] .. "|cFFFFD100" .. killed
+                .. (#bosses > 0 and ("/" .. #bosses) or "") .. "|r")
+            btn:Show()
+        end
+        listEmpty:SetShown(#history == 0)
+        listEmpty:SetText(L["Todavía no hay bandas anteriores."])
+        for _, w in ipairs({ btnPrevPage, btnNextPage, pageText }) do w:SetShown(pages > 1) end
+        btnPrevPage:SetEnabled(historyPage > 1)
+        btnNextPage:SetEnabled(historyPage < pages)
+        pageText:SetText(historyPage .. "/" .. pages)
+
+        -- Detalle de la banda elegida
+        for _, fs in ipairs(bossLines) do fs:Hide() end
+        for _, fs in ipairs(attLines) do fs:Hide() end
+        histEmpty:SetShown(selected == nil)
+        histBossBox:SetShown(selected ~= nil)
+        histAttBox:SetShown(selected ~= nil)
+        if not selected then
+            histTitle:SetText(L["Historial de bandas"])
+            histInfo:SetText("")
+            histSummary:SetText("")
+            return
+        end
+        histTitle:SetText(selected.title)
+        local info = { RaidEventDateText(selected, true) }
+        if selected.raidName then table.insert(info, selected.raidName) end
+        if RAID_DIFFICULTY_LABELS[selected.difficulty or ""] then table.insert(info, L[RAID_DIFFICULTY_LABELS[selected.difficulty]]) end
+        if selected.rosterName then table.insert(info, L["Roster: "] .. selected.rosterName) end
+        histInfo:SetText("|cFFBFBFBF" .. table.concat(info, "  ·  ") .. "|r")
+
+        local bosses, killed = E.GetHistoryBosses(selected)
+        for i, boss in ipairs(bosses) do
+            local fs = HistLine(bossLines, histBossBox, i, 14, -32 - (i - 1) * 18, 272)
+            if boss.at then
+                fs:SetText("|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14|t |cFFFFFFFF" .. boss.name .. "|r  |cFF808080" .. date("%H:%M", boss.at) .. "|r")
+            else
+                fs:SetText("|TInterface\\RaidFrame\\ReadyCheck-NotReady:14:14|t |cFF808080" .. boss.name .. "|r")
+            end
+        end
+        if #bosses == 0 then
+            HistLine(bossLines, histBossBox, 1, 14, -32, 272):SetText("|cFF808080" .. L["No se registró ningún jefe."] .. "|r")
+        end
+
+        local names = {}
+        local counts = { present = 0, late = 0, absent = 0, excused = 0 }
+        for name, status in pairs(selected.marks) do
+            table.insert(names, { name = name, status = status })
+            if counts[status] then counts[status] = counts[status] + 1 end
+        end
+        table.sort(names, function(a, b)
+            local oa, ob = ATT_ORDER[a.status] or 9, ATT_ORDER[b.status] or 9
+            if oa ~= ob then return oa < ob end
+            return a.name < b.name
+        end)
+        for i, entry in ipairs(names) do
+            local fs = HistLine(attLines, histAttChild, i, 4, -(i - 1) * 16, 270)
+            local m = GuildControlDB.members[entry.name]
+            local short = string.match(entry.name, "^([^-]+)") or entry.name
+            fs:SetText("|cFF" .. addonTable.GetClassColorHex(m and m.class) .. short .. "|r  |cFF"
+                .. (E.ATTENDANCE_COLORS[entry.status] or "FFFFFF") .. L[E.ATTENDANCE_LABELS[entry.status] or entry.status] .. "|r")
+        end
+        histAttChild:SetHeight(math.max(1, #names * 16))
+        if #names == 0 then
+            HistLine(attLines, histAttChild, 1, 4, 0, 270):SetText("|cFF808080" .. L["No se pasó lista en esta banda."] .. "|r")
+        end
+        local summary = L["Jefes: "] .. "|cFFFFD100" .. killed .. (#bosses > 0 and ("/" .. #bosses) or "") .. "|r"
+        if #names > 0 then
+            summary = summary .. "     " .. L["Presentes: "] .. "|cFF00FF00" .. counts.present .. "|r   " .. L["Tarde: "] .. "|cFFFFD100" .. counts.late
+                .. "|r   " .. L["Ausentes: "] .. "|cFFFF3333" .. counts.absent .. "|r   " .. L["Justificados: "] .. "|cFF66B3FF" .. counts.excused .. "|r"
+        end
+        histSummary:SetText(summary)
+    end
+
     Refresh = function()
         if not view:IsShown() then return end
         local isOfficer = IsOfficerProfile()
@@ -6982,6 +7153,17 @@ local function BuildRaidView(parent)
         btnPlanning:SetEnabled(mode ~= "planning")
         btnGroups:SetEnabled(mode ~= "groups")
         btnAttendance:SetEnabled(mode ~= "attendance")
+        btnHistory:SetEnabled(mode ~= "history")
+        local isHistory = mode == "history"
+        histPanel:SetShown(isHistory)
+        if not isHistory then for _, w in ipairs({ btnPrevPage, btnNextPage, pageText }) do w:Hide() end end
+        if isHistory then
+            btnNew:Hide()
+            detail:Hide(); groupsPanel:Hide(); attPanel:Hide(); form:Hide()
+            form.loadedFor = nil
+            RefreshHistory()
+            return
+        end
 
         -- Lista de bandas: las próximas o, al pasar lista, también las de los últimos 14 días
         local isAttendance = mode == "attendance"

@@ -2,6 +2,8 @@
 
 ## Próxima versión
 
+- **Jefes de la banda programada**: el addon detecta los jefes que mueren en una banda programada en Raid y los apunta en ella. Los DKP por jefe solo se dan por esos jefes.
+- **Historial de bandas** en Raid: bandas anteriores con sus jefes (muertos y pendientes) y la asistencia.
 - El botón **Donar** ya tiene enlace: https://paypal.me/Forxaken
 - **DKP** en Botín (lo eligen los oficiales): DKP por jefe de banda, por banda completada y semanales por antigüedad; decay semanal del 10 % (configurable); subasta abierta desde el addon (gana la puja más alta, a igualdad más antigüedad, y paga lo que pujó); ajustes y ajuste manual para oficiales.
 - La **antigüedad** cuenta desde que cada jugador rellena **Mi perfil**. Quien no lo ha hecho ve una ventana de **tarea pendiente** nada más conectarse.

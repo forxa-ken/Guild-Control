@@ -5,7 +5,8 @@ addonTable.Dkp = {}
 local dkpModule = addonTable.Dkp
 
 -- Sistema DKP (sin frames). Lo llevan los oficiales y se comparte con toda la hermandad.
---   - Se gana DKP por cada jefe de banda derrotado (los miembros de la hermandad presentes),
+--   - Se gana DKP por cada jefe de banda derrotado de una banda programada en Raid (los miembros
+--     de la hermandad presentes),
 --     por banda completada (botón de un oficial) y por antigüedad (cada semana).
 --   - La antigüedad empieza el día en que el jugador rellena Mi perfil con GuildControl
 --     (since[nombre] = fecha de su declaración más antigua conocida) y desempata las pujas.
@@ -371,7 +372,11 @@ local function OnEncounterEnd(encounterID, encounterName, difficultyID, _, succe
     if db.system ~= "dkp" or db.settings.boss <= 0 or not encounterID then return end
     local _, instanceType = GetInstanceInfo()
     if instanceType ~= "raid" or not IsAwarder() then return end
-    local key = encounterID .. ":" .. (difficultyID or 0) .. ":" .. date("%Y%m%d", GetServerTime())
+    -- Solo cuentan los jefes de una banda programada en el addon (Raid)
+    local E = addonTable.RaidEvents
+    local event = E and E.FindActiveEvent and E.FindActiveEvent(encounterID, difficultyID)
+    if not event then return end
+    local key = event.id .. ":" .. encounterID
     if db.bossKeys[key] then return end
     local limit = GetServerTime() - BOSS_KEY_DAYS * 86400
     for k, at in pairs(db.bossKeys) do
@@ -380,7 +385,7 @@ local function OnEncounterEnd(encounterID, encounterName, difficultyID, _, succe
     db.bossKeys[key] = GetServerTime()
     local names = dkpModule.GetGroupGuildMembers()
     if #names > 0 then
-        dkpModule.Adjust(names, db.settings.boss, L["Jefe: "] .. tostring(encounterName or "?"))
+        dkpModule.Adjust(names, db.settings.boss, L["Jefe: "] .. tostring(encounterName or "?") .. " (" .. event.title .. ")")
         PrintGC(L["DKP por jefe: |cFFFFD100+"] .. db.settings.boss .. L["|r para "] .. #names .. L[" jugadores."])
     end
 end
@@ -420,7 +425,7 @@ local function ApplyIncoming(payload, sender)
         if type(name) == "string" and tonumber(value) then since[string.sub(name, 1, 60)] = Num(value, 0) end
     end
     for key, value in pairs(type(payload.bossKeys) == "table" and payload.bossKeys or {}) do
-        if type(key) == "string" and tonumber(value) then bossKeys[string.sub(key, 1, 40)] = Num(value, 0) end
+        if type(key) == "string" and tonumber(value) then bossKeys[string.sub(key, 1, 90)] = Num(value, 0) end
     end
     db.balances, db.since, db.bossKeys = balances, since, bossKeys
     db.lastWeekly = Num(payload.lastWeekly, 0, nil, db.lastWeekly)

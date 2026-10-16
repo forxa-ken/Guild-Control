@@ -15,7 +15,9 @@ local eventsModule = addonTable.RaidEvents
 -- }
 --
 -- Asistencia (la pasan los oficiales): GuildControlDB.raidAttendance[id] = {
---   date, time, title, rosterName, at, marks = { [Nombre-Reino] = "present"|"late"|"absent"|"excused" } }
+--   date, time, title, rosterName, raidId, raidName, difficulty, at,
+--   marks = { [Nombre-Reino] = "present"|"late"|"absent"|"excused" },
+--   bosses = { [encounterID] = { name, at } } }   (jefes que murieron en la banda; ver más abajo)
 -- Se guarda aparte porque las bandas se borran a los 14 días y los porcentajes deben seguir.
 -- Viaja junto al evento cuando un oficial lo publica.
 --
@@ -306,11 +308,13 @@ local function Record(event, create)
     local store = AttendanceStore()
     local rec = store[event.id]
     if not rec and create then
-        rec = { marks = {}, at = 0 }
+        rec = { marks = {}, bosses = {}, at = 0 }
         store[event.id] = rec
     end
     if rec then
         rec.date, rec.time, rec.title, rec.rosterName = event.date, event.time, event.title, event.rosterName
+        rec.raidId, rec.raidName, rec.difficulty = event.raidId, event.raidName, event.difficulty
+        if type(rec.bosses) ~= "table" then rec.bosses = {} end
     end
     return rec
 end
@@ -537,6 +541,139 @@ end
 -- =========================================================================
 local sendQueue, sendTicker = {}, nil
 
+-- =========================================================================
+-- JEFES DE LA BANDA PROGRAMADA E HISTORIAL DE BANDAS
+-- =========================================================================
+-- Cuando muere un jefe de banda, si hay una banda programada en el addon en ese momento
+-- (desde 1 h antes de su hora hasta 8 h después), del mismo diario de encuentros y de la
+-- misma dificultad, se apunta en su registro: rec.bosses[encounterID] = { name, at }. El
+-- registro es el de la asistencia (no se borra con la banda) y viaja con ella al publicarla.
+local DIFFICULTY_IDS = { normal = 14, heroic = 15, mythic = 16 }
+local EVENT_WINDOW_BEFORE = 3600
+local EVENT_WINDOW_AFTER = 8 * 3600
+local encounterCache = {}
+
+-- Jefes de una banda del diario de encuentros, en orden: { {id = encounterID, name}, ... }
+function eventsModule.GetRaidEncounters(raidId)
+    raidId = tonumber(raidId)
+    if not raidId or not EJ_GetEncounterInfoByIndex then return {} end
+    if encounterCache[raidId] then return encounterCache[raidId] end
+    local list = {}
+    for index = 1, 40 do
+        local ok, name, _, _, _, _, _, encounterID = pcall(EJ_GetEncounterInfoByIndex, index, raidId)
+        if not ok or not name then break end
+        table.insert(list, { id = tonumber(encounterID), name = name })
+    end
+    if #list > 0 then encounterCache[raidId] = list end
+    return list
+end
+
+-- Hora de inicio de una banda (hora local) o nil
+local function EventStart(event)
+    local y, m, d = string.match(event and event.date or "", "^(%d+)-(%d+)-(%d+)$")
+    if not y then return nil end
+    local hh, mm = string.match(event.time or "", "^(%d+):(%d+)$")
+    return time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = tonumber(hh) or 20, min = tonumber(mm) or 0 })
+end
+eventsModule.EventStart = EventStart
+
+-- La banda programada a la que pertenece un jefe que acaba de morir (o nil)
+function eventsModule.FindActiveEvent(encounterID, difficultyID)
+    encounterID = tonumber(encounterID)
+    if not encounterID then return nil end
+    local now, best, bestGap = time(), nil, nil
+    for _, event in pairs(Store()) do
+        local start = EventStart(event)
+        if start and now >= start - EVENT_WINDOW_BEFORE and now <= start + EVENT_WINDOW_AFTER then
+            local wanted = DIFFICULTY_IDS[event.difficulty]
+            local sameDifficulty = not wanted or not difficultyID or wanted == difficultyID
+            local inRaid = true
+            if event.raidId then
+                inRaid = false
+                for _, boss in ipairs(eventsModule.GetRaidEncounters(event.raidId)) do
+                    if boss.id == encounterID then inRaid = true break end
+                end
+            end
+            if sameDifficulty and inRaid then
+                local gap = math.abs(now - start)
+                if not bestGap or gap < bestGap then best, bestGap = event, gap end
+            end
+        end
+    end
+    return best
+end
+
+local bossPublishTimer = nil
+local function RecordBossKill(event, encounterID, name)
+    local rec = Record(event, true)
+    if rec.bosses[encounterID] then return false end
+    rec.bosses[encounterID] = { name = Clean(name, 40), at = GetServerTime() }
+    -- Los oficiales lo publican (los demás clientes solo lo guardan)
+    if IsOfficer() then
+        if bossPublishTimer then bossPublishTimer:Cancel() end
+        bossPublishTimer = C_Timer.NewTimer(5, function()
+            bossPublishTimer = nil
+            eventsModule.Publish(event)
+        end)
+    end
+    Notify()
+    return true
+end
+
+local function OnEncounterEnd(encounterID, encounterName, difficultyID, _, success)
+    if issecretvalue and (issecretvalue(encounterID) or issecretvalue(encounterName) or issecretvalue(success)) then return end
+    if success ~= 1 and success ~= true then return end
+    local _, instanceType = GetInstanceInfo()
+    if instanceType ~= "raid" then return end
+    local event = eventsModule.FindActiveEvent(encounterID, difficultyID)
+    if event and RecordBossKill(event, tonumber(encounterID), encounterName) then
+        print("|cFF00FFFF[GuildControl]|r " .. L["Jefe derrotado en "] .. "|cFFFFD100" .. event.title .. "|r: " .. tostring(encounterName or "?"))
+    end
+end
+
+-- Bandas anteriores (las que ya empezaron), más recientes primero:
+-- { {id, date, time, title, raidId, raidName, difficulty, rosterName, marks, bosses}, ... }
+function eventsModule.GetHistory()
+    local list, seen, now = {}, {}, time()
+    for id, rec in pairs(AttendanceStore()) do
+        if rec.date then
+            seen[id] = true
+            table.insert(list, { id = id, date = rec.date, time = rec.time or "", title = rec.title or "?", raidId = rec.raidId,
+                raidName = rec.raidName, difficulty = rec.difficulty, rosterName = rec.rosterName,
+                marks = rec.marks or {}, bosses = rec.bosses or {} })
+        end
+    end
+    for id, event in pairs(Store()) do
+        local start = EventStart(event)
+        if not seen[id] and start and start <= now then
+            table.insert(list, { id = id, date = event.date, time = event.time or "", title = event.title, raidId = event.raidId,
+                raidName = event.raidName, difficulty = event.difficulty, rosterName = event.rosterName, marks = {}, bosses = {} })
+        end
+    end
+    table.sort(list, function(a, b) return (a.date .. a.time) > (b.date .. b.time) end)
+    return list
+end
+
+-- Jefes de una banda del historial: los del diario en orden (muertos o no) y, si no hay
+-- diario, solo los muertos. { {id, name, at}, ... } y cuántos murieron.
+function eventsModule.GetHistoryBosses(entry)
+    local list, killed = {}, 0
+    local known = {}
+    for _, boss in ipairs(eventsModule.GetRaidEncounters(entry.raidId)) do
+        local kill = boss.id and entry.bosses[boss.id]
+        known[boss.id or 0] = true
+        table.insert(list, { id = boss.id, name = boss.name, at = kill and kill.at })
+        if kill then killed = killed + 1 end
+    end
+    for id, kill in pairs(entry.bosses) do
+        if not known[id] then
+            table.insert(list, { id = id, name = kill.name, at = kill.at })
+            killed = killed + 1
+        end
+    end
+    return list, killed
+end
+
 local function ProcessQueue()
     local msg = sendQueue[1]
     if not msg then
@@ -555,7 +692,8 @@ function eventsModule.Publish(event)
     if not event or not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     local R = addonTable.Roster
     local rec = AttendanceStore()[event.id]
-    local attendance = (rec and next(rec.marks or {})) and { marks = rec.marks, at = rec.at or 0 } or nil
+    local attendance = (rec and (next(rec.marks or {}) or next(rec.bosses or {})))
+        and { marks = rec.marks or {}, at = rec.at or 0, bosses = rec.bosses } or nil
     local data = R.SerializeTable({ version = 1, event = event, attendance = attendance })
     local msgId = tostring(math.random(100000, 999999))
     local total = math.ceil(#data / CHUNK_BYTES)
@@ -654,6 +792,15 @@ local function OnChunk(sender, msg)
                 end
                 rec.marks, rec.at = marks, at
             end
+            -- Jefes muertos: se juntan los de todos (gana la primera hora conocida)
+            if type(att.bosses) == "table" then
+                for id, kill in pairs(att.bosses) do
+                    id = tonumber(id)
+                    if id and type(kill) == "table" and not rec.bosses[id] then
+                        rec.bosses[id] = { name = Clean(kill.name, 40), at = tonumber(kill.at) or 0 }
+                    end
+                end
+            end
         end
         if isNew then
             print("|cFF00FFFF[GuildControl]|r " .. L["Nueva banda: "] .. "|cFFFFD100" .. event.title .. L["|r el "]
@@ -679,9 +826,14 @@ end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("ENCOUNTER_END")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
+    if event == "ENCOUNTER_END" then
+        OnEncounterEnd(...)
+        return
+    end
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         if isInitialLogin or isReloadingUi then C_Timer.After(16, eventsModule.RequestEvents) end
