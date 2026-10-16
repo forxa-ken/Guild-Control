@@ -15,6 +15,8 @@
 - **`Modules/GuildConfig.lua`**: Discord e icono de la hermandad que definen los oficiales y se comparten con todos.
 - **`Modules/Loot.lua`**: Reparto de botín con el sistema +1 o DKP: tiradas y subastas desde el addon, +1 e historial.
 - **`Modules/Dkp.lua`**: DKP: saldos, antigüedad desde Mi perfil, decay semanal, DKP por jefe, banda y antigüedad, y sincronización desde los oficiales.
+- **`Modules/Personal.lua`**: Para mí: avisos personales, lista de deseos, historial de DKP, recordatorios de banda, insignias y récords.
+- **`Modules/Community.lua`**: Comunidad: buscar grupo y recetas compartidas de los artesanos.
 - **`Modules/RaidTools.lua`**: Herramientas de banda: comprobación de listos, cuenta atrás de pull, marcas en el objetivo y buff check (buffos, frascos, comida, runas y pociones).
 - **`Modules/Roster.lua`**: Lógica de los rosters de banda: criterios, integrantes por rol, cobertura de utilidades, armaduras, anuncio, CSV e invitación al grupo.
 - **`Modules/Profiles.lua`**: Perfiles de oficial y jugador, y roles que cada jugador declara desde Mi perfil.
@@ -74,6 +76,22 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
 - Debajo de la ventana está el **chat**: hermandad, susurros (recibidos y enviados), banda (con los avisos de banda) y grupo o mazmorra, cada canal con su color. El historial se guarda (los últimos 500 mensajes, con fecha) y sigue ahí tras `/reload` o al volver a entrar; **Limpiar** lo borra. Pestañas **Todo**, **Hermandad**, **Susurros**, **Banda** y **Grupo**, y una por persona al hacer clic en su nombre (su conversación: lo que escribe, los susurros con ella y lo tuyo que la menciona). Lo que escribes va al canal de la pestaña activa (en la de una persona, por susurro; en Susurros, al último con quien hablaste); a la izquierda se indica el destino. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos.
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
+
+## 🙋 Para mí
+
+La pestaña **Para mí** reúne lo que le interesa a cada jugador:
+
+- **Mi lista de deseos**: los objetos que buscas (Shift+clic para añadirlos, hasta 40). Cuando caen en la banda te avisa, se comparten con la hermandad y en Botín aparece una estrella `*` junto a quien los quiere.
+- **Mis próximas bandas**: con cuenta atrás, tu respuesta y un botón **Apuntarme** (con el rol de Mi perfil). Si estás apuntado, te avisa 15 minutos antes.
+- **Mi historial**: tus DKP ganados y gastados línea a línea, los objetos que has ganado y las bandas a las que has ido.
+- **Mis insignias**: Veterano, Nunca falta, Asesino de Mítica, Maestro de llaves, Coleccionista, Afortunado, Artesano y Al día. Las que te faltan se ven en gris como objetivo; las de los demás salen en la vista previa de Miembros.
+- **Avisos personales** (se pueden desactivar en Configuración > Ventana): objeto asignado, objeto de tu lista de deseos que cae, banda nueva, banda a punto de empezar, cambios de tu puesto en un roster, de tus DKP y de tu llave.
+
+## 🤝 Comunidad
+
+- **Buscar grupo**: publica «Busco gente para…» con la actividad y las plazas; los demás se apuntan con un clic (te avisa) y tú los invitas con **Invitar**. Los anuncios duran 2 horas.
+- **Récords de la hermandad**: puntos de logro, puntuación de Míticas+, bandas asistidas, objetos ganados, DKP y la mejor llave de la semana.
+- **Artesanos: ¿quién me lo hace?**: busca una receta y te dice qué miembros la conocen (conectados primero) con un botón para susurrarles. Cada jugador con GuildControl comparte sus recetas al abrir y cerrar su ventana de profesión.
 
 ## ⭐ Favoritos
 

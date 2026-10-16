@@ -313,7 +313,7 @@ function addonTable.ScanGuildRosterForChanges()
     local currentGuildOnlineMap = {}
 
     for i = 1, numMembers do
-        local fullName, rankName, rankIndex, level, _, zoneName, publicNote, officerNote, online, _, classFileName, _, _, _, _, _, guid = GetGuildRosterInfo(i)
+        local fullName, rankName, rankIndex, level, _, zoneName, publicNote, officerNote, online, _, classFileName, achievementPoints, _, _, _, _, guid = GetGuildRosterInfo(i)
         
         if fullName then
             currentGuildOnlineMap[fullName] = true
@@ -372,6 +372,7 @@ function addonTable.ScanGuildRosterForChanges()
                 end
                 m.isOnline = isReallyOnline
                 m.guid = guid or m.guid
+                m.achievementPoints = tonumber(achievementPoints) or m.achievementPoints
                 m.rankIndex = rankIndex
             end
         end

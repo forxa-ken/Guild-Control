@@ -2,6 +2,9 @@
 
 ## Próxima versión
 
+- Nueva pestaña **Para mí**: lista de deseos (avisa cuando cae y la ven los oficiales), próximas bandas con cuenta atrás y aviso 15 min antes, historial personal de DKP, objetos y bandas, e insignias.
+- Nueva pestaña **Comunidad**: buscar grupo, récords de la hermandad y artesanos (quién conoce cada receta).
+- **Avisos personales** en pantalla (objeto asignado, banda nueva, cambios de roster, DKP y llave), desactivables en Configuración.
 - **Mi perfil**: panel **Tu progreso** con tus DKP (y tu puesto) o tus +1, tu antigüedad, los objetos ganados y tu asistencia.
 - **Configuración**: los jugadores ya no ven la sección Hermandad (Discord e icono).
 - **Resumen**: el filtro Bajas lleva la cabecera «¡Abandonan el barco!».

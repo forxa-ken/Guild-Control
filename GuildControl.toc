@@ -28,4 +28,6 @@ Modules\GuildConfig.lua
 Modules\Dkp.lua
 Modules\Loot.lua
 Modules\RaidTools.lua
+Modules\Personal.lua
+Modules\Community.lua
 Modules\UI.lua

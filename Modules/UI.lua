@@ -75,7 +75,7 @@ local function TabHelp(tabName)
 end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Logros", "Profesiones", "Mi perfil", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Comunidad", "Logros", "Profesiones", "Mi perfil", "Para mí", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -601,7 +601,7 @@ function uiModule.ApplyProfile()
         if allowed then
             btn:ClearAllPoints()
             btn:SetPoint("TOP", sidebar, "TOP", 0, yOffset)
-            yOffset = yOffset - 32
+            yOffset = yOffset - 28
         end
     end
     sidebar.profileText:SetText(isOfficer and L["Perfil: |cFFFFD100Oficial|r"] or L["Perfil: |cFF00FFFFJugador|r"])
@@ -1161,12 +1161,23 @@ local function BuildMembersView(parent)
             .. ((entry.note and entry.note ~= "") and (": " .. entry.note) or "") .. "|r\n\n"
     end
 
+    -- Insignias del miembro (Personal.lua)
+    local function BadgesLine(fullName)
+        local PM = addonTable.Personal
+        local badges = PM and PM.GetBadges(fullName) or {}
+        if #badges == 0 then return "" end
+        local parts = {}
+        for _, badge in ipairs(badges) do table.insert(parts, "|T" .. badge.icon .. ":14:14|t " .. L[badge.label]) end
+        return L["Insignias: "] .. table.concat(parts, ", ") .. "\n\n"
+    end
+
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
         selectedFullName = fullName
         SetPreviewText(
             "|cFFFFD100" .. fullName .. "|r\n\n" ..
             BlacklistPreviewLine(fullName) ..
+            BadgesLine(fullName) ..
             L["Nivel: "] .. (data.level or 0) .. "\n" ..
             L["Clase: "] .. (data.class or L["Desconocida"]) .. "\n" ..
             L["Rango: "] .. (data.rank or L["Recluta"]) .. "\n" ..
@@ -8299,6 +8310,8 @@ local function BuildLootView(parent)
                 and (L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. WinnerText(item))
                 or STATE_TEXT[item.state] or ""
             local priceText = (dkp and item.state ~= "done") and ("   |cFFFFD100" .. LT.GetItemPrice(item) .. " DKP|r") or ""
+            local wanted = addonTable.Personal and #addonTable.Personal.WhoWants(addonTable.Personal.ItemIdFromLink(item.link)) or 0
+            if wanted > 0 and item.state ~= "done" then priceText = priceText .. "   |cFFFFD100*" .. wanted .. "|r" end
             row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. priceText .. "   " .. state)
             row.action:SetShown(canManage and item.state ~= "done")
             row.action:SetText(item.state == "rolling" and L["Asignar"] or (dkp and L["Subastar"] or L["Tirar"]))
@@ -8349,6 +8362,11 @@ local function BuildLootView(parent)
             else
                 rollState:SetText(dkp and (L["|cFFBFBFBFPendiente.|r "] .. L["Precio: |cFFFFD100"] .. price .. " DKP|r") or L["|cFFBFBFBFPendiente de tirar.|r"])
             end
+            -- Quién tiene el objeto en su lista de deseos (estrella delante del nombre)
+            local wantSet = {}
+            if addonTable.Personal then
+                for _, name in ipairs(addonTable.Personal.WhoWants(addonTable.Personal.ItemIdFromLink(item.link))) do wantSet[name] = true end
+            end
             local list = LT.GetRollList(item)
             for i, entry in ipairs(list) do
                 if i > MAX_ROLL_ROWS then break end
@@ -8356,7 +8374,8 @@ local function BuildLootView(parent)
                 row:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -2 - (i - 1) * 16)
                 row.playerName = entry.name
                 local color = LT.KIND_COLORS[entry.kind] or "FFFFFF"
-                row.cells.name:SetText((i == 1 and item.state == "rolling" and "|cFFFFD100>|r " or "") .. ClassName(entry.name))
+                local wants = wantSet[entry.name] and "|cFFFFD100*|r " or ""
+                row.cells.name:SetText((i == 1 and item.state == "rolling" and "|cFFFFD100>|r " or "") .. wants .. ClassName(entry.name))
                 if fixed and (entry.kind == "need" or entry.kind == "offspec") then
                     -- Precio fijo: lo que pide, lo que pagaría y sus DKP; si no puede optar, el motivo
                     row.cells.kind:SetText("|cFF" .. color .. (entry.kind == "need" and L["Main-spec"] or L["Off-spec"]) .. "|r")
@@ -8778,6 +8797,12 @@ local function BuildConfigView(parent)
         end
     end)
     dropLanguage:SetText(LanguageName(settings().language or "auto"))
+
+    local chkNotify = CreateFrame("CheckButton", "GC_CfgPersonalNotify", windowBox, "UICheckButtonTemplate")
+    chkNotify:SetPoint("TOPLEFT", dropLanguage, "BOTTOMLEFT", -4, -8)
+    _G[chkNotify:GetName() .. "Text"]:SetText(L["Avisos personales en pantalla"])
+    chkNotify:SetScript("OnClick", function(self) settings().personalNotify = self:GetChecked() and true or false end)
+    chkNotify:SetScript("OnShow", function(self) self:SetChecked(settings().personalNotify ~= false) end)
 
     local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
@@ -9364,6 +9389,592 @@ local function BuildChatPanel(parent)
 end
 
 -- =========================================================================
+-- 10b. AVISOS PERSONALES EN PANTALLA (TOAST)
+-- =========================================================================
+local toastFrame = nil
+local toastQueue = {}
+
+local function ShowNextToast()
+    if not toastFrame or toastFrame:IsShown() then return end
+    local nextToast = table.remove(toastQueue, 1)
+    if not nextToast then return end
+    toastFrame.icon:SetTexture(nextToast.icon or "Interface\\Icons\\Achievement_GuildPerk_MobileBanking")
+    toastFrame.text:SetText(nextToast.text)
+    toastFrame:SetAlpha(1)
+    toastFrame:Show()
+    toastFrame.hideAt = GetTime() + 6
+end
+
+function uiModule.ShowToast(text, icon)
+    if not toastFrame then
+        local frame = CreateBackdropBox(UIParent, 380, 58, "TOP", UIParent, "TOP", 0, -110)
+        frame:SetFrameStrata("DIALOG")
+        frame:EnableMouse(true)
+        frame:Hide()
+        frame.icon = frame:CreateTexture(nil, "ARTWORK")
+        frame.icon:SetSize(36, 36)
+        frame.icon:SetPoint("LEFT", frame, "LEFT", 12, 0)
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        frame.title:SetPoint("TOPLEFT", frame.icon, "TOPRIGHT", 10, 0)
+        frame.title:SetText("GuildControl")
+        frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        frame.text:SetPoint("TOPLEFT", frame.title, "BOTTOMLEFT", 0, -3)
+        frame.text:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+        frame.text:SetJustifyH("LEFT")
+        frame.text:SetMaxLines(2)
+        frame:SetScript("OnMouseUp", function(self) self:Hide() end)
+        frame:SetScript("OnUpdate", function(self)
+            local left = (self.hideAt or 0) - GetTime()
+            if left <= 0 then
+                self:Hide()
+            elseif left < 1 then
+                self:SetAlpha(left)
+            end
+        end)
+        frame:SetScript("OnHide", function() C_Timer.After(0.3, ShowNextToast) end)
+        toastFrame = frame
+    end
+    table.insert(toastQueue, { text = text, icon = icon })
+    while #toastQueue > 5 do table.remove(toastQueue, 1) end
+    ShowNextToast()
+end
+
+local function ColoredName(fullName)
+    local m = GuildControlDB.members and GuildControlDB.members[fullName]
+    local short = fullName and (string.match(fullName, "^([^-]+)") or fullName) or "?"
+    return "|cFF" .. addonTable.GetClassColorHex(m and m.class) .. short .. "|r"
+end
+
+local function ItemLinkById(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local link = getInfo and select(2, getInfo(itemID))
+    return link or ("item:" .. itemID)
+end
+
+-- Cuenta atrás corta: "en 2 d 3 h", "en 45 min"
+local function CountdownText(seconds)
+    if seconds <= 0 then return L["|cFF00FF00ahora|r"] end
+    local days = math.floor(seconds / 86400)
+    local hours = math.floor((seconds % 86400) / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    if days > 0 then return string.format(L["en %d d %d h"], days, hours) end
+    if hours > 0 then return string.format(L["en %d h %d min"], hours, minutes) end
+    return string.format(L["en %d min"], math.max(1, minutes))
+end
+
+-- =========================================================================
+-- 10c. VISTA PARA MÍ: LISTA DE DESEOS, PRÓXIMAS BANDAS, HISTORIAL E INSIGNIAS
+-- =========================================================================
+local ROLE_KEYS = { Tanque = "tank", Sanador = "healer", DPS = "dps" }
+
+local function BuildForMeView(parent)
+    local PM = addonTable.Personal
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+    local Refresh
+
+    local function ScrollPanel(titleText, x, y, width, height)
+        local box = CreateColoredPanel(view, titleText, PANEL_COLORS.blue, width, height)
+        box:SetPoint("TOPLEFT", view, "TOPLEFT", x, y)
+        box.scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+        box.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 8, -28)
+        box.scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -28, 8)
+        box.child = CreateFrame("Frame")
+        box.child:SetSize(width - 40, 1)
+        box.scroll:SetScrollChild(box.child)
+        box.empty = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        box.empty:SetPoint("TOPLEFT", box, "TOPLEFT", 14, -34)
+        box.empty:SetWidth(width - 30)
+        box.empty:SetJustifyH("LEFT")
+        box.rows = {}
+        return box
+    end
+
+    -- 1. Lista de deseos ------------------------------------------------------
+    local wishBox = ScrollPanel(L["Mi lista de deseos"], 10, -10, 437, 250)
+    wishBox.scroll:SetPoint("BOTTOMRIGHT", wishBox, "BOTTOMRIGHT", -28, 36)
+    local wishInput = CreateFrame("EditBox", nil, wishBox, "InputBoxTemplate")
+    wishInput:SetSize(300, 20)
+    wishInput:SetPoint("BOTTOMLEFT", wishBox, "BOTTOMLEFT", 16, 10)
+    wishInput:SetAutoFocus(false)
+    wishInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local wishPlaceholder = wishInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    wishPlaceholder:SetPoint("LEFT", wishInput, "LEFT", 2, 0)
+    wishPlaceholder:SetText(L["Shift+clic en un objeto para añadirlo"])
+    wishInput:SetScript("OnTextChanged", function(self) wishPlaceholder:SetShown((self:GetText() or "") == "") end)
+    local btnWishAdd = CreateFrame("Button", nil, wishBox, "UIPanelButtonTemplate")
+    btnWishAdd:SetSize(90, 22)
+    btnWishAdd:SetPoint("LEFT", wishInput, "RIGHT", 8, 0)
+    btnWishAdd:SetText(L["Añadir"])
+    local function AddWish()
+        local id = PM.ItemIdFromLink(wishInput:GetText())
+        if not id then
+            PrintGC(L["|cFFFF3333Pega el enlace del objeto con Shift+clic.|r"])
+            return
+        end
+        if not PM.GetMyWishlist()[id] then PM.ToggleWish(id) end
+        wishInput:SetText("")
+        wishInput:ClearFocus()
+    end
+    btnWishAdd:SetScript("OnClick", AddWish)
+    wishInput:SetScript("OnEnterPressed", AddWish)
+    if ChatEdit_InsertLink then
+        hooksecurefunc("ChatEdit_InsertLink", function(link)
+            if wishInput:IsVisible() and wishInput:HasFocus() and link then wishInput:Insert(link) end
+        end)
+    end
+
+    local function AcquireWishRow(index)
+        local row = wishBox.rows[index]
+        if row then return row end
+        row = CreateFrame("Button", nil, wishBox.child)
+        row:SetSize(397, 24)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(20, 20)
+        row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
+        row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+        row.remove:SetSize(20, 20)
+        row.remove:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+        row.text:SetPoint("RIGHT", row.remove, "LEFT", -4, 0)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        row:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        wishBox.rows[index] = row
+        return row
+    end
+
+    -- 2. Próximas bandas ------------------------------------------------------
+    local raidBox = ScrollPanel(L["Mis próximas bandas"], 453, -10, 437, 250)
+    local function AcquireRaidRow(index)
+        local row = raidBox.rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, raidBox.child)
+        row:SetSize(397, 42)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.04)
+        row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -5)
+        row.title:SetPoint("RIGHT", row, "RIGHT", -100, 0)
+        row.title:SetJustifyH("LEFT")
+        row.title:SetWordWrap(false)
+        row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.info:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 6, 5)
+        row.info:SetPoint("RIGHT", row, "RIGHT", -100, 0)
+        row.info:SetJustifyH("LEFT")
+        row.info:SetWordWrap(false)
+        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.button:SetSize(92, 22)
+        row.button:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        raidBox.rows[index] = row
+        return row
+    end
+
+    -- 3. Mi historial -----------------------------------------------------------
+    local historyBox = ScrollPanel(L["Mi historial"], 10, -266, 437, 250)
+    local historyText = historyBox.child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    historyText:SetPoint("TOPLEFT", historyBox.child, "TOPLEFT", 4, -2)
+    historyText:SetWidth(390)
+    historyText:SetJustifyH("LEFT")
+    historyText:SetSpacing(3)
+
+    -- 4. Insignias ------------------------------------------------------------
+    local badgeBox = CreateColoredPanel(view, L["Mis insignias"], PANEL_COLORS.blue, 437, 250)
+    badgeBox:SetPoint("TOPLEFT", view, "TOPLEFT", 453, -266)
+    local badgeRows = {}
+    for i, badge in ipairs(PM and PM.BADGES or {}) do
+        local row = CreateFrame("Frame", nil, badgeBox)
+        row:SetSize(415, 26)
+        row:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 12, -28 - (i - 1) * 27)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(22, 22)
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.icon:SetTexture(badge.icon)
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
+        row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetWordWrap(false)
+        row.badge = badge
+        badgeRows[i] = row
+    end
+
+    Refresh = function()
+        if not view:IsShown() or not PM then return end
+        local me = addonTable.Profiles and addonTable.Profiles.GetMyFullName() or UnitName("player")
+
+        -- Lista de deseos
+        for _, row in ipairs(wishBox.rows) do row:Hide() end
+        local ids = PM.GetMyWishIds()
+        for i, id in ipairs(ids) do
+            local row = AcquireWishRow(i)
+            row:SetPoint("TOPLEFT", wishBox.child, "TOPLEFT", 0, -(i - 1) * 26)
+            local link = ItemLinkById(id)
+            row.link = link
+            row.icon:SetTexture(ItemIconFromLink(link))
+            local others = 0
+            for _, name in ipairs(PM.WhoWants(id)) do if name ~= me then others = others + 1 end end
+            row.text:SetText(link .. (others > 0 and ("  |cFF808080" .. string.format(L["(+%d lo quieren)"], others) .. "|r") or ""))
+            row.remove:SetScript("OnClick", function() PM.ToggleWish(id) end)
+            row:Show()
+        end
+        wishBox.child:SetHeight(math.max(1, #ids * 26))
+        wishBox.empty:SetShown(#ids == 0)
+        wishBox.empty:SetText(L["Añade los objetos que buscas: cuando caigan en la banda te avisará, y los oficiales verán que los quieres."])
+
+        -- Próximas bandas
+        local E = addonTable.RaidEvents
+        for _, row in ipairs(raidBox.rows) do row:Hide() end
+        local events = E and E.GetUpcoming() or {}
+        local profile = addonTable.Profiles and addonTable.Profiles.GetMyProfile() or {}
+        local shown = 0
+        for _, ev in ipairs(events) do
+            local start = E.EventStart and E.EventStart(ev)
+            if start and start > time() - 3 * 3600 then
+                shown = shown + 1
+                local row = AcquireRaidRow(shown)
+                row:SetPoint("TOPLEFT", raidBox.child, "TOPLEFT", 0, -(shown - 1) * 46)
+                row.title:SetText(ev.title)
+                local mine = ev.signups and ev.signups[me]
+                local status = mine and ("|cFF" .. (E.STATUS_COLORS[mine.status] or "FFFFFF") .. L[E.STATUS_LABELS[mine.status] or mine.status] .. "|r")
+                    or L["|cFF808080sin apuntar|r"]
+                row.info:SetText("|cFFBFBFBF" .. RaidEventDateText(ev) .. "|r  ·  " .. CountdownText(start - time()) .. "  ·  " .. status)
+                row.button:SetShown(not mine or mine.status == "absent")
+                row.button:SetText(L["Apuntarme"])
+                row.button:SetScript("OnClick", function()
+                    E.SignUp(ev, "signed", ROLE_KEYS[profile.main or ""], profile.spec or "", "")
+                end)
+                row:Show()
+            end
+        end
+        raidBox.child:SetHeight(math.max(1, shown * 46))
+        raidBox.empty:SetShown(shown == 0)
+        raidBox.empty:SetText(L["No hay bandas programadas. Cuando un oficial publique una en Raid aparecerá aquí, con un aviso 15 minutos antes si estás apuntado."])
+
+        -- Mi historial: DKP, objetos y bandas, lo más reciente primero
+        local entries = {}
+        for _, change in ipairs(PM.GetLedger(me)) do
+            table.insert(entries, { at = change.at or 0, text = (change.delta > 0 and "|cFF00FF00+" or "|cFFFF3333") .. change.delta .. " DKP|r  "
+                .. (change.reason or "") .. "  |cFF808080(" .. (change.balance or 0) .. ")|r" })
+        end
+        local LT = addonTable.Loot
+        for _, award in ipairs(LT and LT.GetHistory() or {}) do
+            if award.winner == me then
+                table.insert(entries, { at = award.at or 0, text = L["|cFFFFD100Objeto:|r "] .. LT.DisplayLink(award.link)
+                    .. (award.kind == "bid" and (" |cFF808080(-" .. tostring(award.roll or 0) .. " DKP)|r") or "") })
+            end
+        end
+        for _, raid in ipairs(E and E.GetHistory and E.GetHistory() or {}) do
+            local mark = raid.marks[me]
+            if mark == "present" or mark == "late" then
+                local _, killed = E.GetHistoryBosses(raid)
+                table.insert(entries, { at = (E.EventStart and E.EventStart(raid)) or 0, text = L["|cFF66B3FFBanda:|r "] .. raid.title
+                    .. "  |cFF808080" .. string.format(L["(%d jefes)"], killed) .. "|r" })
+            end
+        end
+        table.sort(entries, function(a, b) return a.at > b.at end)
+        local lines = {}
+        for i = 1, math.min(#entries, 80) do
+            table.insert(lines, "|cFF808080" .. date("%d/%m", entries[i].at) .. "|r  " .. entries[i].text)
+        end
+        historyText:SetText(table.concat(lines, "\n"))
+        historyBox.child:SetHeight(math.max(1, historyText:GetStringHeight() + 6))
+        historyBox.empty:SetShown(#lines == 0)
+        historyBox.empty:SetText(L["Aquí irán tus DKP ganados y gastados, los objetos que ganes y las bandas a las que vayas."])
+
+        -- Insignias: las ganadas en color y las que faltan en gris (como objetivo)
+        local earned = {}
+        for _, badge in ipairs(PM.GetBadges(me)) do earned[badge.key] = true end
+        for _, row in ipairs(badgeRows) do
+            local has = earned[row.badge.key]
+            row.icon:SetDesaturated(not has)
+            row.icon:SetAlpha(has and 1 or 0.4)
+            row.text:SetText((has and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r  " .. (has and "|cFFFFFFFF" or "|cFF606060")
+                .. L[row.badge.desc] .. "|r")
+        end
+    end
+
+    PM.AddListener(function() Refresh() end)
+    if addonTable.RaidEvents then addonTable.RaidEvents.AddListener(function() Refresh() end) end
+    local itemFrame = CreateFrame("Frame")
+    itemFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    itemFrame:SetScript("OnEvent", function()
+        if view:IsShown() and not itemFrame.pending then
+            itemFrame.pending = true
+            C_Timer.After(0.5, function() itemFrame.pending = false; Refresh() end)
+        end
+    end)
+    view:SetScript("OnShow", Refresh)
+    containers.views["Para mí"] = view
+end
+
+-- =========================================================================
+-- 10d. VISTA COMUNIDAD: BUSCAR GRUPO, RÉCORDS Y ARTESANOS
+-- =========================================================================
+local function BuildCommunityView(parent)
+    local C = addonTable.Community
+    local PM = addonTable.Personal
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetAllPoints()
+    view:Hide()
+    local Refresh
+    local activity = "mplus"
+
+    -- 1. Buscar grupo --------------------------------------------------------
+    local lfgBox = CreateColoredPanel(view, L["Buscar grupo"], PANEL_COLORS.blue, 437, 506)
+    lfgBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
+
+    local dropActivity = CreateFrame("DropdownButton", "GC_CommunityActivity", lfgBox, "WowStyle1DropdownTemplate")
+    dropActivity:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 12, -32)
+    dropActivity:SetWidth(130)
+    dropActivity:SetupMenu(function(_, root)
+        for _, a in ipairs(C.ACTIVITIES) do
+            local key = a.key
+            root:CreateRadio(L[a.label], function() return activity == key end, function()
+                activity = key
+                dropActivity:SetText(L[a.label])
+            end)
+        end
+    end)
+    dropActivity:SetText(L["Míticas+"])
+
+    local slotsLabel = lfgBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    slotsLabel:SetPoint("LEFT", dropActivity, "RIGHT", 12, 0)
+    slotsLabel:SetText(L["Plazas:"])
+    local slotsInput = CreateFrame("EditBox", nil, lfgBox, "InputBoxTemplate")
+    slotsInput:SetSize(34, 20)
+    slotsInput:SetPoint("LEFT", slotsLabel, "RIGHT", 8, 0)
+    slotsInput:SetAutoFocus(false)
+    slotsInput:SetNumeric(true)
+    slotsInput:SetMaxLetters(2)
+    slotsInput:SetText("4")
+    slotsInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local textInput = CreateFrame("EditBox", nil, lfgBox, "InputBoxTemplate")
+    textInput:SetSize(300, 20)
+    textInput:SetPoint("TOPLEFT", dropActivity, "BOTTOMLEFT", 6, -10)
+    textInput:SetAutoFocus(false)
+    textInput:SetMaxLetters(120)
+    textInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local textPlaceholder = textInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    textPlaceholder:SetPoint("LEFT", textInput, "LEFT", 2, 0)
+    textPlaceholder:SetText(L["Ej.: Busco tanque y sanador para +12"])
+    textInput:SetScript("OnTextChanged", function(self) textPlaceholder:SetShown((self:GetText() or "") == "") end)
+    local btnPublish = CreateFrame("Button", nil, lfgBox, "UIPanelButtonTemplate")
+    btnPublish:SetSize(90, 22)
+    btnPublish:SetPoint("LEFT", textInput, "RIGHT", 8, 0)
+    btnPublish:SetText(L["Publicar"])
+    local function Publish()
+        if C.CreatePost(activity, slotsInput:GetText(), textInput:GetText()) then
+            textInput:SetText("")
+            textInput:ClearFocus()
+        end
+    end
+    btnPublish:SetScript("OnClick", Publish)
+    textInput:SetScript("OnEnterPressed", Publish)
+
+    local lfgScroll = CreateFrame("ScrollFrame", nil, lfgBox, "UIPanelScrollFrameTemplate")
+    lfgScroll:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 8, -98)
+    lfgScroll:SetPoint("BOTTOMRIGHT", lfgBox, "BOTTOMRIGHT", -28, 8)
+    local lfgChild = CreateFrame("Frame")
+    lfgChild:SetSize(397, 1)
+    lfgScroll:SetScrollChild(lfgChild)
+    local lfgEmpty = lfgBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    lfgEmpty:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 14, -104)
+    lfgEmpty:SetWidth(400)
+    lfgEmpty:SetJustifyH("LEFT")
+    lfgEmpty:SetText(L["No hay grupos abiertos. Publica uno arriba: lo verán todos los que usan GuildControl y podrán apuntarse con un clic. Los anuncios duran 2 horas."])
+    local postRows = {}
+    local function AcquirePostRow(index)
+        local row = postRows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, lfgChild)
+        row:SetSize(397, 54)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.04)
+        row.head = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.head:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -5)
+        row.head:SetPoint("RIGHT", row, "RIGHT", -96, 0)
+        row.head:SetJustifyH("LEFT")
+        row.head:SetWordWrap(false)
+        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.text:SetPoint("TOPLEFT", row.head, "BOTTOMLEFT", 0, -3)
+        row.text:SetPoint("RIGHT", row, "RIGHT", -96, 0)
+        row.text:SetJustifyH("LEFT")
+        row.text:SetMaxLines(2)
+        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.button:SetSize(86, 20)
+        row.button:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -5)
+        row.button2 = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.button2:SetSize(86, 20)
+        row.button2:SetPoint("TOP", row.button, "BOTTOM", 0, -2)
+        postRows[index] = row
+        return row
+    end
+
+    -- 2. Récords ----------------------------------------------------------------
+    local recordsBox = CreateColoredPanel(view, L["Récords de la hermandad"], PANEL_COLORS.blue, 437, 250)
+    recordsBox:SetPoint("TOPLEFT", lfgBox, "TOPRIGHT", 6, 0)
+    local recordsScroll = CreateFrame("ScrollFrame", nil, recordsBox, "UIPanelScrollFrameTemplate")
+    recordsScroll:SetPoint("TOPLEFT", recordsBox, "TOPLEFT", 8, -28)
+    recordsScroll:SetPoint("BOTTOMRIGHT", recordsBox, "BOTTOMRIGHT", -28, 8)
+    local recordsChild = CreateFrame("Frame")
+    recordsChild:SetSize(397, 1)
+    recordsScroll:SetScrollChild(recordsChild)
+    local recordsText = recordsChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    recordsText:SetPoint("TOPLEFT", recordsChild, "TOPLEFT", 4, -2)
+    recordsText:SetWidth(390)
+    recordsText:SetJustifyH("LEFT")
+    recordsText:SetSpacing(3)
+
+    -- 3. Artesanos --------------------------------------------------------------
+    local craftBox = CreateColoredPanel(view, L["Artesanos: ¿quién me lo hace?"], PANEL_COLORS.blue, 437, 250)
+    craftBox:SetPoint("TOPLEFT", recordsBox, "BOTTOMLEFT", 0, -6)
+    local searchInput = CreateFrame("EditBox", nil, craftBox, "InputBoxTemplate")
+    searchInput:SetSize(260, 20)
+    searchInput:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 18, -32)
+    searchInput:SetAutoFocus(false)
+    searchInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local searchPlaceholder = searchInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", searchInput, "LEFT", 2, 0)
+    searchPlaceholder:SetText(L["Busca una receta (3 letras o más)"])
+    local craftInfo = craftBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    craftInfo:SetPoint("LEFT", searchInput, "RIGHT", 10, 0)
+    craftInfo:SetWidth(130)
+    craftInfo:SetJustifyH("LEFT")
+    local craftScroll = CreateFrame("ScrollFrame", nil, craftBox, "UIPanelScrollFrameTemplate")
+    craftScroll:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 8, -58)
+    craftScroll:SetPoint("BOTTOMRIGHT", craftBox, "BOTTOMRIGHT", -28, 8)
+    local craftChild = CreateFrame("Frame")
+    craftChild:SetSize(397, 1)
+    craftScroll:SetScrollChild(craftChild)
+    local craftEmpty = craftBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    craftEmpty:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 14, -64)
+    craftEmpty:SetWidth(410)
+    craftEmpty:SetJustifyH("LEFT")
+    local craftRows = {}
+    local function AcquireCraftRow(index)
+        local row = craftRows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, craftChild)
+        row:SetSize(397, 34)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -2)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -84, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.who = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.who:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
+        row.who:SetPoint("RIGHT", row, "RIGHT", -84, 0)
+        row.who:SetJustifyH("LEFT")
+        row.who:SetWordWrap(false)
+        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.button:SetSize(78, 20)
+        row.button:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+        row.button:SetText(L["Susurrar"])
+        craftRows[index] = row
+        return row
+    end
+    local function RefreshCrafts()
+        for _, row in ipairs(craftRows) do row:Hide() end
+        local results = C.SearchRecipes(searchInput:GetText(), 40)
+        for i, entry in ipairs(results) do
+            local row = AcquireCraftRow(i)
+            row:SetPoint("TOPLEFT", craftChild, "TOPLEFT", 0, -(i - 1) * 36)
+            row.name:SetText("|cFFFFD100" .. entry.name .. "|r |cFF808080(" .. entry.profession .. ")|r")
+            local names, firstOnline = {}, nil
+            for _, crafter in ipairs(entry.crafters) do
+                local m = GuildControlDB.members[crafter]
+                if m and m.isOnline and not firstOnline then firstOnline = crafter end
+                table.insert(names, ColoredName(crafter) .. ((m and m.isOnline) and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""))
+            end
+            row.who:SetText(table.concat(names, ", "))
+            local target = firstOnline or entry.crafters[1]
+            row.button:SetEnabled(firstOnline ~= nil)
+            row.button:SetScript("OnClick", function() WhisperTo(target) end)
+            row:Show()
+        end
+        craftChild:SetHeight(math.max(1, #results * 36))
+        local query = strtrim(searchInput:GetText() or "")
+        craftEmpty:SetShown(#results == 0)
+        craftEmpty:SetText(#query < 3
+            and L["Escribe el nombre de una receta. Las recetas las comparte cada jugador con GuildControl al abrir y cerrar su ventana de profesión."]
+            or L["Nadie de la hermandad ha compartido esa receta todavía."])
+        craftInfo:SetText(string.format(L["%d artesanos"], C.CountCrafters()))
+    end
+    searchInput:SetScript("OnTextChanged", function(self)
+        searchPlaceholder:SetShown((self:GetText() or "") == "")
+        RefreshCrafts()
+    end)
+
+    Refresh = function()
+        if not view:IsShown() or not C then return end
+        local me = addonTable.Profiles and addonTable.Profiles.GetMyFullName() or UnitName("player")
+
+        -- Grupos
+        for _, row in ipairs(postRows) do row:Hide() end
+        local posts = C.GetPosts()
+        for i, post in ipairs(posts) do
+            local row = AcquirePostRow(i)
+            row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 58)
+            local count = C.CountMembers(post)
+            local mineIn = post.members[me]
+            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. ColoredName(post.author)
+                .. "  |cFF808080" .. date("%H:%M", post.at) .. "  ·  " .. count .. "/" .. post.slots .. "|r")
+            row.text:SetText(post.text)
+            row.button2:Hide()
+            if post.author == me then
+                row.button:SetText(L["Cerrar"])
+                row.button:SetScript("OnClick", function() C.ClosePost(post.id) end)
+                row.button2:SetText(L["Invitar"])
+                row.button2:SetShown(count > 0)
+                row.button2:SetScript("OnClick", function()
+                    for name in pairs(post.members) do InviteToGroup(name) end
+                end)
+            elseif mineIn then
+                row.button:SetText(L["Salir"])
+                row.button:SetScript("OnClick", function() C.Leave(post.id) end)
+            else
+                row.button:SetText(L["Me apunto"])
+                row.button:SetScript("OnClick", function() C.Join(post.id) end)
+                row.button2:SetText(L["Susurrar"])
+                row.button2:Show()
+                row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
+            end
+            row:Show()
+        end
+        lfgChild:SetHeight(math.max(1, #posts * 58))
+        lfgEmpty:SetShown(#posts == 0)
+
+        -- Récords
+        local lines = {}
+        for _, record in ipairs(PM and PM.GetRecords() or {}) do
+            table.insert(lines, "|cFFFFD100" .. L[record.label] .. "|r" .. (record.suffix and ("  |cFF808080" .. record.suffix .. "|r") or ""))
+            if #record.entries == 0 then
+                table.insert(lines, "   |cFF808080" .. L["sin datos todavía"] .. "|r")
+            else
+                for i, entry in ipairs(record.entries) do
+                    table.insert(lines, "   " .. i .. ". " .. ColoredName(entry.name) .. "  |cFFFFFFFF" .. entry.value .. "|r")
+                end
+            end
+        end
+        recordsText:SetText(table.concat(lines, "\n"))
+        recordsChild:SetHeight(math.max(1, recordsText:GetStringHeight() + 6))
+
+        RefreshCrafts()
+    end
+
+    if C then C.AddListener(function() Refresh() end) end
+    view:SetScript("OnShow", Refresh)
+    containers.views["Comunidad"] = view
+end
+
+-- =========================================================================
 -- CONSTRUCCIÓN TOTAL DE LA UI
 -- =========================================================================
 function uiModule.CreateUI()
@@ -9392,6 +10003,8 @@ function uiModule.CreateUI()
 
     BuildMembersView(mainContent)
     BuildFavoritesView(mainContent)
+    BuildForMeView(mainContent)
+    BuildCommunityView(mainContent)
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
     BuildMyRostersView(mainContent)
