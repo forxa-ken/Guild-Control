@@ -62,6 +62,9 @@ end
 
 function annModule.ProcessAnnouncements()
     if not IsInGuild() then return end
+    -- Los anuncios son cosa de oficiales: si pierdes el rango, tu cliente deja de publicarlos
+    -- (se conservan y vuelven a salir si lo recuperas)
+    if addonTable.Profiles and addonTable.Profiles.IsOfficer and not addonTable.Profiles.IsOfficer() then return end
     if type(GuildControlDB) ~= "table" or type(GuildControlDB.announcements) ~= "table" then return end
 
     local now = GetServerTime()

@@ -1,5 +1,9 @@
 # GuildControl
 
+## Próxima versión
+
+- **Anuncios**: solo se publican si tienes rango de oficial. Si pierdes el rango, tu cliente deja de enviarlos (se conservan por si lo recuperas).
+
 ## 5.0.0-beta4
 
 - **Invitar para jugadores**: un oficial puede permitir en Configuración > Hermandad que los jugadores usen la pestaña Invitar (se aplica a toda la hermandad).
