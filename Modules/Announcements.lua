@@ -36,7 +36,9 @@ local TICK_SECONDS = 10      -- resolución del ticker; el intervalo de cada anu
 local MAX_CHAT_BYTES = 255   -- límite de longitud de un mensaje de chat
 
 local ticker = nil
-local lastSent = {}          -- [índice de ranura] = GetTime() del último envío (o de la activación)
+local LOGIN_GRACE = 60       -- tras entrar, nunca se publica antes de este margen
+-- La hora del último envío se guarda en la ranura (data.lastSentAt, hora del servidor), así un
+-- /reload o cambiar de personaje no reinicia la cuenta atrás
 
 -- Recorta a 255 bytes sin partir un carácter UTF-8 multibyte
 local function TruncateForChat(msg)
@@ -62,28 +64,36 @@ function annModule.ProcessAnnouncements()
     if not IsInGuild() then return end
     if type(GuildControlDB) ~= "table" or type(GuildControlDB.announcements) ~= "table" then return end
 
-    local now = GetTime()
-    for idx, data in ipairs(GuildControlDB.announcements) do
+    local now = GetServerTime()
+    for _, data in ipairs(GuildControlDB.announcements) do
         local msg = type(data.message) == "string" and data.message:match("^%s*(.-)%s*$") or ""
 
         if data.enabled and msg ~= "" then
             local intervalSeconds = math.max(1, tonumber(data.interval) or 15) * 60
-            if not lastSent[idx] then
+            local last = tonumber(data.lastSentAt)
+            if not last or last > now then
                 -- Recién activado: el primer envío llega al cumplirse el intervalo, no al instante
-                lastSent[idx] = now
-            elseif now - lastSent[idx] >= intervalSeconds then
-                lastSent[idx] = now
+                data.lastSentAt = now
+            elseif now - last >= intervalSeconds then
+                data.lastSentAt = now
                 SendGuildMessage(TruncateForChat(msg))
             end
         else
             -- Al desactivar o vaciar la ranura se reinicia su cuenta atrás
-            lastSent[idx] = nil
+            data.lastSentAt = nil
         end
     end
 end
 
 function annModule.StartTicker()
     if ticker or not (C_Timer and C_Timer.NewTicker) then return end
+    -- Si al entrar ya tocaba publicar (por ejemplo, tras días sin conectarse), se espera el margen
+    local now = GetServerTime()
+    for _, data in ipairs(type(GuildControlDB.announcements) == "table" and GuildControlDB.announcements or {}) do
+        local last = tonumber(data.lastSentAt)
+        local intervalSeconds = math.max(1, tonumber(data.interval) or 15) * 60
+        if last and now - last > intervalSeconds - LOGIN_GRACE then data.lastSentAt = now - intervalSeconds + LOGIN_GRACE end
+    end
     ticker = C_Timer.NewTicker(TICK_SECONDS, annModule.ProcessAnnouncements)
 end
 
@@ -92,7 +102,6 @@ function annModule.StopTicker()
         ticker:Cancel()
         ticker = nil
     end
-    wipe(lastSent)
 end
 
 -- PLAYER_LOGIN llega después de cargar las SavedVariables, así que GuildControlDB ya existe

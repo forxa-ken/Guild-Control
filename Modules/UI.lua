@@ -56,14 +56,15 @@ local TAB_HELP_DKP = {
         .. "|cFFFFD1004.|r Al ganador se le restan los DKP del precio.\n"
         .. "\n|cFF4080FFPrecios|r\n"
         .. "|cFFFFD100•|r Dependen del tipo de pieza y de la dificultad: Normal, Heroica o Mítica.\n"
-        .. "|cFFFFD100•|r Para piezas de Mítica hace falta un mínimo de DKP.\n"
+        .. "|cFFFFD100•|r Para pedir una pieza de dificultad Mítica tienes que tener ahorrado un mínimo de DKP (20 por defecto). Así nadie se queda en negativo con su primera pieza.\n"
         .. "\n|cFFFF7F00Ten en cuenta|r\n"
         .. "|cFFFFD100•|r Cada semana los DKP bajan un poco (decay) para que nadie acumule demasiados.\n"
         .. "|cFFFFD100•|r Si hay empate de DKP, gana quien lleve más tiempo.\n"
-        .. "\n|cFFFFBF33Para oficiales|r\n"
-        .. "|cFFFFD100•|r Precios: tabla de precios. Precio: cambia el de un objeto.\n"
-        .. "|cFFFFD100•|r Clic derecho en un jugador: sumar o restar DKP.\n"
-        .. "|cFFFFD100•|r Ajustes: puntos, decay, mínimos y reparto por subasta.",
+        .. "\n|cFFFFBF33Solo oficiales: qué botones usan|r\n"
+        .. "|cFFFFD100•|r Precios: editar la tabla de precios.\n"
+        .. "|cFFFFD100•|r Precio: cambiar el precio de un objeto concreto.\n"
+        .. "|cFFFFD100•|r Clic derecho en un jugador de la lista: sumarle o restarle DKP.\n"
+        .. "|cFFFFD100•|r Ajustes: puntos por jefe y por banda, decay, mínimos y cambiar a subasta.",
 }
 
 local function TabHelp(tabName)
@@ -512,6 +513,7 @@ end
 local function SetPreviewText(text)
     if containers.preview and containers.preview.infoText then
         containers.preview.infoText:SetText(text or L[PREVIEW_DEFAULT_TEXT])
+        if containers.preview.UpdateScroll then containers.preview.UpdateScroll() end
         -- Cada vista previa nueva empieza sin botón de acción
         if containers.preview.actionButton then containers.preview.actionButton:Hide() end
     end
@@ -626,14 +628,32 @@ local function BuildPreviewPanel(parent)
     title:SetPoint("TOP", preview, "TOP", 0, -15)
     title:SetText(L["Vista Previa"])
 
-    local infoText = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", preview, "TOPLEFT", 15, -45)
-    infoText:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -15, 44)
+    -- El texto va dentro de un área con desplazamiento: si no cabe sale la barra (rueda del ratón)
+    local scroll = CreateFrame("ScrollFrame", nil, preview, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", preview, "TOPLEFT", 12, -45)
+    scroll:SetPoint("BOTTOMRIGHT", preview, "BOTTOMRIGHT", -28, 44)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(178, 1)
+    scroll:SetScrollChild(child)
+
+    local infoText = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    infoText:SetPoint("TOPLEFT", child, "TOPLEFT", 2, 0)
+    infoText:SetWidth(174)
     infoText:SetJustifyH("LEFT")
     infoText:SetJustifyV("TOP")
+
+    -- Ajusta el alto del contenido y muestra la barra solo si hace falta
+    function preview.UpdateScroll()
+        local height = infoText:GetStringHeight() + 6
+        child:SetHeight(math.max(1, height))
+        scroll:SetVerticalScroll(0)
+        if scroll.ScrollBar then scroll.ScrollBar:SetShown(height > scroll:GetHeight()) end
+    end
     infoText:SetText(L[PREVIEW_DEFAULT_TEXT])
 
     preview.infoText = infoText
+    preview.infoScroll = scroll
+    C_Timer.After(0, preview.UpdateScroll)
 
     local actionButton = CreateFrame("Button", nil, preview, "UIPanelButtonTemplate")
     actionButton:SetSize(190, 22)
@@ -766,7 +786,9 @@ local function OpenChatWith(text)
 end
 
 local function WhisperTo(name)
-    if name and name ~= "" then OpenChatWith("/w " .. name .. " ") end
+    if not name or name == "" then return end
+    if addonTable.WarnIfBusy then addonTable.WarnIfBusy(name) end
+    OpenChatWith("/w " .. name .. " ")
 end
 
 local function SendWhisper(name, msg)
@@ -5756,6 +5778,39 @@ local function BuildProfessionsView(parent)
     local listTitle = listBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     listTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", 12, -10)
     listTitle:SetText(L["Profesiones"])
+
+    -- Mi profesión: abre la ventana de profesiones del juego (elige cuál si tienes varias)
+    local function OpenMyProfession(skillLine)
+        if skillLine and C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill then
+            local ok, opened = pcall(C_TradeSkillUI.OpenTradeSkill, skillLine)
+            if ok and opened ~= false then return end
+        end
+        if ToggleProfessionsBook then ToggleProfessionsBook() end
+    end
+    local btnMyProf = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnMyProf:SetSize(180, 24)
+    btnMyProf:SetPoint("BOTTOM", listBox, "BOTTOM", 0, 10)
+    btnMyProf:SetText(L["Mi profesión"])
+    btnMyProf:SetScript("OnClick", function(self)
+        local mine = {}
+        for _, index in ipairs({ GetProfessions() }) do
+            if index then
+                local name, icon, _, _, _, _, skillLine = GetProfessionInfo(index)
+                if name then table.insert(mine, { name = name, icon = icon, skillLine = skillLine }) end
+            end
+        end
+        if #mine == 0 then
+            OpenMyProfession(nil)
+            return
+        end
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle(L["Abrir profesión"])
+            for _, prof in ipairs(mine) do
+                root:CreateButton("|T" .. tostring(prof.icon) .. ":14:14|t " .. prof.name, function() OpenMyProfession(prof.skillLine) end)
+            end
+            root:CreateButton(L["Libro de profesiones"], function() if ToggleProfessionsBook then ToggleProfessionsBook() end end)
+        end)
+    end)
 
     local profButtons = {}
     local function AcquireProfButton(index)

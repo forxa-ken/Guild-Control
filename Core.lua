@@ -493,11 +493,56 @@ function addonTable.PingAddonUsers()
     C_ChatInfo.SendAddonMessage(HI_PREFIX, "P", "GUILD")
 end
 
+-- Ocupado en un encuentro: al empezar un jefe de mazmorra o banda se avisa a la hermandad
+-- ("B;jefe") y al terminar ("F"). Quien le susurre desde el addon ve que está ocupado.
+local busyPlayers = {}      -- [Nombre-Reino] = { boss, at = GetTime() }
+local BUSY_MAX_SECONDS = 20 * 60
+
+local function SendBusy(msg)
+    if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    pcall(C_ChatInfo.SendAddonMessage, HI_PREFIX, msg, "GUILD")
+end
+
+-- Jefe con el que está ese jugador (o nil)
+function addonTable.GetBusyBoss(name)
+    if not name or name == "" then return nil end
+    local entry = busyPlayers[FullSenderName(name)]
+    if not entry then return nil end
+    if GetTime() - entry.at > BUSY_MAX_SECONDS then
+        busyPlayers[FullSenderName(name)] = nil
+        return nil
+    end
+    return entry.boss
+end
+
+-- Avisa en el chat si el jugador al que vas a susurrar está con un jefe
+function addonTable.WarnIfBusy(name)
+    local boss = addonTable.GetBusyBoss(name)
+    if not boss then return false end
+    local short = string.match(name, "^([^-]+)") or name
+    print("|cFF00FFFF[GuildControl]|r " .. string.format(L["|cFFFF7F00%s está en un encuentro con %s y ahora está ocupado.|r"], short, boss))
+    return true
+end
+
 local presenceFrame = CreateFrame("Frame")
 presenceFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+presenceFrame:RegisterEvent("ENCOUNTER_START")
+presenceFrame:RegisterEvent("ENCOUNTER_END")
 presenceFrame:RegisterEvent("CHAT_MSG_ADDON")
 presenceFrame:SetScript("OnEvent", function(_, event, ...)
     if type(GuildControlDB) ~= "table" then return end
+    if event == "ENCOUNTER_START" or event == "ENCOUNTER_END" then
+        local _, instanceType = GetInstanceInfo()
+        if instanceType ~= "party" and instanceType ~= "raid" then return end
+        if event == "ENCOUNTER_START" then
+            local _, encounterName = ...
+            if issecretvalue and issecretvalue(encounterName) then encounterName = nil end
+            SendBusy("B;" .. string.gsub(tostring(encounterName or L["un jefe"]), "[;|]", ""))
+        else
+            SendBusy("F")
+        end
+        return
+    end
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         if isInitialLogin or isReloadingUi then
@@ -513,7 +558,14 @@ presenceFrame:SetScript("OnEvent", function(_, event, ...)
     if not sender or sender == "" then return end
     local fullName = FullSenderName(sender)
     if prefix == HI_PREFIX and type(msg) == "string" then
-        if string.sub(msg, 1, 2) == "H;" then
+        if string.sub(msg, 1, 2) == "B;" then
+            addonTable.MarkAddonUser(fullName)
+            busyPlayers[fullName] = { boss = string.sub(msg, 3, 60), at = GetTime() }
+            return
+        elseif msg == "F" then
+            busyPlayers[fullName] = nil
+            return
+        elseif string.sub(msg, 1, 2) == "H;" then
             addonTable.MarkAddonUser(fullName, string.sub(msg, 3, 30))
         else
             addonTable.MarkAddonUser(fullName)

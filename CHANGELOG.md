@@ -2,6 +2,10 @@
 
 ## Próxima versión
 
+- **Ocupado en un jefe**: si susurras desde el addon a alguien que está con un jefe de mazmorra o banda, te avisa de con qué jefe está.
+- **Anuncios**: la cuenta atrás ya no se reinicia con /reload ni al cambiar de personaje.
+- **Profesiones**: botón **Mi profesión** que abre la ventana de profesiones del juego.
+- La **vista previa** se desplaza cuando el texto no cabe. Explicación del DKP más clara.
 - **Warning**: nuevas secciones **Sin GuildControl** y **Con GuildControl** (versión y última detección), con filtro de conectados y botón **Comprobar ahora**.
 - **Resumen**: los logros que anuncia el chat de hermandad aparecen aunque las noticias del juego no los traigan.
 - Explicación del **DKP** en Botín reescrita, más clara y por pasos.

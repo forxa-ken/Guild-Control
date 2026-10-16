@@ -129,6 +129,8 @@ Cada lista se puede exportar a CSV y tiene clic derecho para susurrar o invitar 
 
 ## 🛠️ Profesiones
 
+El botón **Mi profesión** (abajo a la izquierda) abre la ventana de profesiones del juego; si tienes varias, eliges cuál (o el libro de profesiones).
+
 La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados. Clic en un miembro para susurrarle o invitarlo al grupo.
 
 ## ⚔️ Raid
