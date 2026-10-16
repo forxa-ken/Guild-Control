@@ -1,6 +1,6 @@
 # GuildControl
 
-## Próxima versión
+## 5.0.0-beta4
 
 - **Invitar para jugadores**: un oficial puede permitir en Configuración > Hermandad que los jugadores usen la pestaña Invitar (se aplica a toda la hermandad).
 - **Configuración del perfil jugador** reorganizada: Ventana y avisos arriba, canales de reclutamiento solo si pueden invitar, y sin huecos.
