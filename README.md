@@ -53,7 +53,7 @@ Debajo, el tablón de noticias:
 
 La pestaña **Configuración** (con desplazamiento) tiene las secciones **Hermandad** (Discord e icono), **Ventana** (siempre por encima e idioma), **Saludo automático** (mensaje, tiempos y palabras), **Bienvenida a nuevos miembros**, **Canales de reclutamiento** y **Aviso de favoritos**.
 
-El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y la facción. Si los oficiales configuran un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C. Junto al autor, el botón **Donar** muestra el enlace para apoyar el desarrollo del addon.
+El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y la facción. Si los oficiales configuran un **enlace de Discord**, aparece un botón junto al nombre que abre una ventanita con el enlace seleccionado para copiarlo con Ctrl+C. Junto al autor, el botón **Donar** muestra el enlace para apoyar el desarrollo del addon. El botón **Más addons** muestra el perfil de CurseForge del autor para descargar sus otros addons.
 
 
 - **Discord e icono de la hermandad** (solo oficiales; los jugadores ven lo que definen): el Discord y el icono se envían a todos los que usan GuildControl. El icono puede ser el **emblema de la hermandad del juego**, cualquiera de los **iconos del juego** (selector con todos ellos), uno de los iconos rápidos o una **imagen propia** (archivo TGA o BLP en `Interface\AddOns\GuildControl\Media\`; cada jugador necesita el archivo para verla). El nombre de la hermandad ya no se puede cambiar: siempre es el del juego.
@@ -79,7 +79,7 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 
 La pestaña **Favoritos** (debajo de Miembros) reúne:
 
-- **Favoritos de la hermandad**: conectados primero, con su zona o su última conexión, y botones para **susurrar**, **invitar al grupo** o **quitar**. Se añaden escribiendo el nombre abajo o con clic derecho en Miembros. Cuando uno se conecta, el addon avisa en el chat, en pantalla y con el sonido elegido en Configuración.
+- **Favoritos de la hermandad**: conectados primero, con su zona o su última conexión, y botones para **susurrar**, **invitar al grupo** o **quitar**. Se añaden escribiendo el nombre abajo o con clic derecho en Miembros. También se pueden añadir jugadores **de fuera de la hermandad** (Nombre o Nombre-Reino): salen marcados como «[fuera de la hermandad]» y, si están en tu lista de amigos, se ve si están conectados. Cuando uno se conecta, el addon avisa en el chat, en pantalla y con el sonido elegido en Configuración.
 - **Amigos BattleTag** (los de Real ID no se muestran): conectados primero, con el personaje y la zona si están en WoW, y botones para susurrar (Battle.net) e invitar al grupo (si están jugando a WoW).
 
 ## 🛡️ Roster de banda
@@ -161,6 +161,7 @@ La pestaña **Botín** reparte los objetos de banda con el sistema **+1** o con 
 - **Subasta abierta**: al abrir la subasta de un objeto, a todos los del grupo con GuildControl les sale una ventanita para **pujar** (desde la puja mínima hasta sus DKP) o **pasar**. Se ve quién puja y cuánto, y se puede subir la puja. Gana la más alta (a igualdad, más antigüedad) y **paga lo que pujó**. Con DKP solo un oficial asigna el objeto.
 - **DKP de la hermandad**: lista de saldos con los días de antigüedad. Clic derecho de un oficial en un jugador para sumar o restar DKP a mano. **Ajustes** (oficiales): DKP por jefe, por banda, semanales por antigüedad, decay y puja mínima.
 - Los saldos los llevan los oficiales y se comparten con toda la hermandad (al entrar se pide la última versión).
+- Con el sistema **+1** el DKP queda en reposo: no calcula antigüedad, decay ni DKP por jefe hasta que un oficial elige DKP.
 
 ## 🗝️ Míticas+
 

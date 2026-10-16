@@ -198,6 +198,7 @@ function dkpModule.SetSystem(system)
     -- Al activar el DKP, la semana en curso no aplica decay
     if system == "dkp" and db.lastWeekly == 0 then db.lastWeekly = dkpModule.GetLastWeeklyReset() end
     Touch()
+    if system == "dkp" then dkpModule.UpdateSeniority() end
     return true
 end
 
@@ -275,7 +276,7 @@ end
 -- =========================================================================
 -- Toma la fecha de la declaración de Mi perfil de cada miembro; se queda con la más antigua
 function dkpModule.UpdateSeniority()
-    if not IsOfficer() then return end
+    if not IsOfficer() or not dkpModule.IsActive() then return end
     local db = State()
     local changed = false
     local function Consider(name, at)
@@ -480,15 +481,15 @@ frame:SetScript("OnEvent", function(_, event, ...)
         C_Timer.After(20, function()
             if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then C_ChatInfo.SendAddonMessage(PREFIX, "Q", "GUILD") end
         end)
-        -- Antigüedad y semanal: después de recibir el estado de otro oficial
-        C_Timer.After(45, function()
+        -- Antigüedad y semanal: después de recibir el estado de otro oficial. Con el sistema +1
+        -- no se hace nada (el DKP queda en reposo hasta que un oficial lo active).
+        local function Periodic()
+            if not dkpModule.IsActive() or not IsOfficer() then return end
             dkpModule.UpdateSeniority()
             ApplyWeekly()
-        end)
-        C_Timer.NewTicker(600, function()
-            dkpModule.UpdateSeniority()
-            ApplyWeekly()
-        end)
+        end
+        C_Timer.After(45, Periodic)
+        C_Timer.NewTicker(600, Periodic)
     elseif event == "ENCOUNTER_END" then
         OnEncounterEnd(...)
     else

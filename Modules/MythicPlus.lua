@@ -49,16 +49,13 @@ function mplusModule.UpdateScores(force)
     local elapsed = GetTime() - lastScoreUpdate
     if elapsed < (force and SCORE_FORCED_COOLDOWN or SCORE_COOLDOWN) then return false end
     lastScoreUpdate = GetTime()
-    if not (C_Club and C_Club.GetGuildClubId and C_Club.GetClubMembers and C_Club.GetMemberInfo) then return false end
-    local clubId = C_Club.GetGuildClubId()
-    if not clubId then return false end
-    local ok, memberIds = pcall(C_Club.GetClubMembers, clubId)
-    if not ok or type(memberIds) ~= "table" then return false end
+    -- Lista compartida con Profesiones (Core): un solo recorrido de C_Club
+    local infos = addonTable.GetClubMemberInfos and addonTable.GetClubMemberInfos(force and SCORE_FORCED_COOLDOWN or nil)
+    if not infos then return false end
 
     local scoreByGuid = {}
-    for _, memberId in ipairs(memberIds) do
-        local okInfo, info = pcall(C_Club.GetMemberInfo, clubId, memberId)
-        if okInfo and info and info.guid and info.overallDungeonScore then
+    for _, info in ipairs(infos) do
+        if info.guid and info.overallDungeonScore then
             scoreByGuid[info.guid] = info.overallDungeonScore
         end
     end

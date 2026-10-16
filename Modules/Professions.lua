@@ -337,17 +337,13 @@ end
 -- =========================================================================
 -- Devuelve un mapa guid -> {p1, p2} con los miembros que tienen datos de profesión
 local function BuildClubProfessionMap()
-    if not (C_Club and C_Club.GetGuildClubId and C_Club.GetClubMembers and C_Club.GetMemberInfo) then return nil end
-    local clubId = C_Club.GetGuildClubId()
-    if not clubId then return nil end
-
-    local ok, memberIds = pcall(C_Club.GetClubMembers, clubId)
-    if not ok or type(memberIds) ~= "table" then return nil end
+    -- Lista compartida con Míticas+ (Core): un solo recorrido de C_Club por minuto
+    local infos = addonTable.GetClubMemberInfos and addonTable.GetClubMemberInfos()
+    if not infos then return nil end
 
     local map = {}
-    for _, memberId in ipairs(memberIds) do
-        local okInfo, info = pcall(C_Club.GetMemberInfo, clubId, memberId)
-        if okInfo and info and info.guid then
+    for _, info in ipairs(infos) do
+        if info.guid then
             local p1 = FormatProfession(info.profession1Name, info.profession1Rank)
             local p2 = FormatProfession(info.profession2Name, info.profession2Rank)
             if p1 or p2 then

@@ -23,21 +23,45 @@ local PREVIEW_DEFAULT_TEXT = "Selecciona un elemento para ver su información de
 -- Ayuda que se muestra en la vista previa al entrar en algunas pestañas (texto en español,
 -- se traduce al dibujar)
 local TAB_HELP = {
-    ["Botín"] = "|cFFFFD100Cómo funciona Botín (+1)|r\n\n"
-        .. "|cFFB380FFObjetos de la banda:|r aparecen solos al derrotar a un jefe en grupo, o se añaden con Shift+clic en un objeto. Haz clic en uno para llevarlo a Tirada.\n"
-        .. "|cFF40D959Tirada:|r el líder, un ayudante o un oficial pulsa Abrir tirada. A quien tenga GuildControl en el grupo le sale una ventana para elegir Necesidad (+1), Off-spec o Pasar, y el addon tira el /roll por él. Asignar al ganador elige primero Necesidad, luego a quien tenga menos +1 y, si empatan, la tirada más alta. Con clic derecho en un jugador se le asigna a mano.\n"
-        .. "|cFF4080FF+1 de la hermandad:|r cada objeto ganado por Necesidad suma un +1 al ganador y se comparte con la hermandad. Reiniciar +1 (dos clics) los pone a cero.\n"
-        .. "|cFFFFBF33Historial de botín:|r quién se llevó cada objeto. \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
-        .. "Nueva sesión empieza una banda nueva con la lista de objetos vacía.",
+    ["Botín"] = "|cFFFFD100Cómo funciona Botín (+1)|r\n"
+        .. "\n|cFFB380FFObjetos de la banda|r\n"
+        .. "|cFFFFD100•|r Salen solos al morir un jefe en grupo.\n"
+        .. "|cFFFFD100•|r Shift+clic en un objeto para añadirlo.\n"
+        .. "|cFFFFD100•|r Clic en uno para llevarlo a Tirada.\n"
+        .. "\n|cFF40D959Tirada|r\n"
+        .. "|cFFFFD100•|r El líder, un ayudante o un oficial pulsa Tirar.\n"
+        .. "|cFFFFD100•|r Cada uno elige Necesidad (+1), Off-spec o Pasar y el addon tira el /roll.\n"
+        .. "|cFFFFD100•|r Gana Necesidad con menos +1; si empatan, la tirada más alta.\n"
+        .. "|cFFFFD100•|r Clic derecho en un jugador para asignárselo a mano.\n"
+        .. "\n|cFF4080FF+1 de la hermandad|r\n"
+        .. "|cFFFFD100•|r Ganar por Necesidad suma un +1 y se comparte con la hermandad.\n"
+        .. "|cFFFFD100•|r Reiniciar +1 (dos clics) los pone a cero.\n"
+        .. "\n|cFFFFBF33Historial de botín|r\n"
+        .. "|cFFFFD100•|r Quién se llevó cada objeto.\n"
+        .. "|cFFFFD100•|r \"Ya ganó\" avisa de quien ya se llevó algo en esta banda.\n"
+        .. "\n|cFFFFD100•|r Nueva sesión empieza una banda nueva.",
 }
 -- En Botín con el sistema DKP se muestra esta otra ayuda
 local TAB_HELP_DKP = {
-    ["Botín"] = "|cFFFFD100Cómo funciona Botín (DKP)|r\n\n"
-        .. "|cFF4080FFCómo se gana:|r por cada jefe derrotado de una banda programada en Raid (los miembros de la hermandad del grupo), por banda completada (botón DKP de banda de un oficial) y cada semana por antigüedad.\n"
-        .. "|cFF40D959Antigüedad:|r cuenta desde que cada jugador rellena Mi perfil con GuildControl. Da DKP cada semana y desempata las pujas.\n"
-        .. "|cFFFF7F00Decay:|r en cada reinicio semanal los DKP pierden un % para evitar la inflación.\n"
-        .. "|cFFB380FFSubasta:|r al pulsar Subastar, a quien tenga GuildControl en el grupo le sale una ventana para pujar (desde la puja mínima hasta sus DKP) o pasar. Todos ven las pujas y se pueden subir. Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó. Solo un oficial asigna el objeto.\n"
-        .. "|cFFFFBF33DKP de la hermandad:|r saldos y días de antigüedad. Los oficiales suman o restan con clic derecho en un jugador y cambian los valores en Ajustes.",
+    ["Botín"] = "|cFFFFD100Cómo funciona Botín (DKP)|r\n"
+        .. "\n|cFF4080FFCómo se gana|r\n"
+        .. "|cFFFFD100•|r Por cada jefe de una banda programada en Raid.\n"
+        .. "|cFFFFD100•|r Por banda completada (botón DKP de banda).\n"
+        .. "|cFFFFD100•|r Cada semana por antigüedad.\n"
+        .. "\n|cFF40D959Antigüedad|r\n"
+        .. "|cFFFFD100•|r Cuenta desde que se rellena Mi perfil.\n"
+        .. "|cFFFFD100•|r Da DKP cada semana y desempata las pujas.\n"
+        .. "\n|cFFFF7F00Decay|r\n"
+        .. "|cFFFFD100•|r Cada semana los DKP pierden un % para evitar la inflación.\n"
+        .. "\n|cFFB380FFSubasta|r\n"
+        .. "|cFFFFD100•|r Al pulsar Subastar sale la ventana de puja.\n"
+        .. "|cFFFFD100•|r Puja desde la mínima hasta tus DKP, o pasa.\n"
+        .. "|cFFFFD100•|r Todos ven las pujas y se pueden subir.\n"
+        .. "|cFFFFD100•|r Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó.\n"
+        .. "|cFFFFD100•|r Solo un oficial asigna el objeto.\n"
+        .. "\n|cFFFFBF33DKP de la hermandad|r\n"
+        .. "|cFFFFD100•|r Saldos y días de antigüedad.\n"
+        .. "|cFFFFD100•|r Oficiales: clic derecho para sumar o restar, y valores en Ajustes.",
 }
 
 local function TabHelp(tabName)
@@ -264,6 +288,21 @@ local function BuildHeader(parent)
         GameTooltip:Show()
     end)
     btnDonate:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Más addons del autor: su perfil de CurseForge
+    local btnMore = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+    btnMore:SetSize(100, 18)
+    btnMore:SetPoint("RIGHT", btnDonate, "LEFT", -6, 0)
+    btnMore:SetText("|TInterface\\Icons\\INV_Misc_Book_09:12:12|t " .. L["Más addons"])
+    btnMore:GetFontString():SetFontObject("GameFontHighlightSmall")
+    btnMore:SetScript("OnClick", function() uiModule.ShowCopyLink(L["Más addons del autor"], addonTable.MORE_ADDONS_URL) end)
+    btnMore:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Más addons del autor"], 1, 1, 1)
+        GameTooltip:AddLine(L["Muestra el perfil de CurseForge del autor para descargar sus otros addons."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnMore:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     containers.header = header
     uiModule.UpdateHeader()
@@ -7331,7 +7370,7 @@ local function BuildFavoritesView(parent)
 
     local addLabel = favBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     addLabel:SetPoint("BOTTOMLEFT", favBox, "BOTTOMLEFT", 14, 40)
-    addLabel:SetText(L["Añadir miembro de la hermandad:"])
+    addLabel:SetText(L["Añadir jugador (de la hermandad o de fuera):"])
     local addInput = CreateFrame("EditBox", nil, favBox, "InputBoxTemplate")
     addInput:SetSize(220, 20)
     addInput:SetPoint("BOTTOMLEFT", favBox, "BOTTOMLEFT", 18, 14)
@@ -7351,8 +7390,15 @@ local function BuildFavoritesView(parent)
             if lower == wanted or string.lower(string.match(fullName, "^([^-]+)") or "") == wanted then found = fullName break end
         end
         if not found then
-            PrintGC(L["|cFFFF3333No está en la hermandad: |r"] .. text)
-            return
+            -- Fuera de la hermandad también vale: se guarda como Nombre-Reino (tu reino si no lo pones)
+            local name, realm = string.match(text, "^([^%-%s]+)%-?(.*)$")
+            if not name then return end
+            name = string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)
+            if realm == "" then
+                realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
+            end
+            found = name .. "-" .. string.gsub(realm, "%s+", "")
+            PrintGC(L["Añadido a favoritos (fuera de la hermandad): "] .. found)
         end
         if not F.IsFavorite(found) then F.Toggle(found) end
         addInput:SetText("")
@@ -7435,13 +7481,24 @@ local function BuildFavoritesView(parent)
         if not view:IsShown() then return end
 
         -- Favoritos: conectados primero
+        -- Los de fuera de la hermandad: si están en tu lista de amigos se sabe si están conectados
+        local function FriendInfo(fullName)
+            if not (C_FriendList and C_FriendList.GetFriendInfo) then return nil end
+            local short = string.match(fullName, "^([^-]+)") or fullName
+            return C_FriendList.GetFriendInfo(fullName) or C_FriendList.GetFriendInfo(short)
+        end
         local favorites = {}
         for _, fullName in ipairs(F.GetAll()) do
-            table.insert(favorites, { name = fullName, data = GuildControlDB.members[fullName] })
+            local m = GuildControlDB.members[fullName]
+            local friend = not m and FriendInfo(fullName) or nil
+            table.insert(favorites, { name = fullName, data = m, friend = friend,
+                                      online = (m and m.isOnline) or (friend and friend.connected) or false })
         end
+        -- Conectados primero, luego los de la hermandad y al final los de fuera
         table.sort(favorites, function(a, b)
-            local oa, ob = a.data and a.data.isOnline or false, b.data and b.data.isOnline or false
-            if oa ~= ob then return oa end
+            if a.online ~= b.online then return a.online end
+            local ga, gb = a.data ~= nil, b.data ~= nil
+            if ga ~= gb then return ga end
             return a.name < b.name
         end)
         for _, row in ipairs(favBox.rows) do row:Hide() end
@@ -7452,8 +7509,17 @@ local function BuildFavoritesView(parent)
             local m = entry.data
             local short = string.match(entry.name, "^([^-]+)") or entry.name
             local text
+            local outside = L[" |cFF66B3FF[fuera de la hermandad]|r"]
             if not m then
-                text = "|cFF808080" .. short .. L[" (ya no está en la hermandad)"] .. "|r"
+                local friend = entry.friend
+                if friend and friend.connected then
+                    text = "|TInterface\\COMMON\\Indicator-Green:12:12|t |cFFFFFFFF"
+                        .. short .. "|r" .. outside .. ((friend.area and friend.area ~= "") and (" |cFF808080· " .. friend.area .. "|r") or "")
+                elseif friend then
+                    text = "|TInterface\\COMMON\\Indicator-Gray:12:12|t |cFF808080" .. short .. "|r" .. outside
+                else
+                    text = "|cFFBFBFBF" .. short .. "|r" .. outside
+                end
             elseif m.isOnline then
                 text = "|TInterface\\COMMON\\Indicator-Green:12:12|t |cFF" .. addonTable.GetClassColorHex(m.class) .. short .. "|r"
                     .. ((m.zone and m.zone ~= "") and (" |cFF808080· " .. m.zone .. "|r") or "")
@@ -7462,7 +7528,8 @@ local function BuildFavoritesView(parent)
                     .. (addonTable.FormatLastOnline(m.lastOnline) or "") .. "|r"
             end
             row.text:SetText(text)
-            local online = m and m.isOnline
+            -- Sin datos de conexión (fuera de la hermandad y no es tu amigo) se deja probar
+            local online = entry.online or (not m and not entry.friend)
             row.buttons.whisper:SetEnabled(online == true)
             row.buttons.whisper:SetScript("OnClick", function() WhisperTo(entry.name) end)
             row.buttons.invite:SetEnabled(online == true)
@@ -7476,7 +7543,7 @@ local function BuildFavoritesView(parent)
         end
         favBox.child:SetHeight(math.max(1, #favorites * (FAV_ROW_HEIGHT + 2)))
         favBox.empty:SetShown(#favorites == 0)
-        favBox.empty:SetText(L["Todavía no tienes favoritos. Añádelos aquí abajo o con clic derecho en Miembros; te avisa cuando se conectan."])
+        favBox.empty:SetText(L["Todavía no tienes favoritos. Añádelos aquí abajo (de la hermandad o de fuera) o con clic derecho en Miembros; te avisa cuando se conectan."])
 
         -- Amigos BattleTag, conectados primero
         local tags = {}
@@ -7497,7 +7564,7 @@ local function BuildFavoritesView(parent)
     -- La lista de amigos cambia a menudo: se refresca como mucho una vez por segundo
     local refreshPending = false
     local bnetFrame = CreateFrame("Frame")
-    for _, event in ipairs({ "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE" }) do
+    for _, event in ipairs({ "BN_FRIEND_INFO_CHANGED", "BN_FRIEND_LIST_SIZE_CHANGED", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE", "FRIENDLIST_UPDATE" }) do
         pcall(bnetFrame.RegisterEvent, bnetFrame, event)
     end
     bnetFrame:SetScript("OnEvent", function()

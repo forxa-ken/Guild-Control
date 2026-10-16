@@ -12,6 +12,8 @@ addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true))
 -- Enlace de donación al autor (botón "Donar" del encabezado). Vacío = el botón avisa de que
 -- aún no hay enlace.
 addonTable.DONATE_URL = "https://paypal.me/Forxaken"
+-- Perfil del autor en CurseForge (botón "Más addons" del encabezado)
+addonTable.MORE_ADDONS_URL = "https://www.curseforge.com/members/forxaken/projects"
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}
@@ -262,6 +264,32 @@ local function ScheduleScan(delay)
     end)
 end
 
+-- Miembros de la hermandad en C_Club (puntuación M+ y profesiones). Recorrer la lista es caro
+-- en hermandades grandes: se hace una vez y la usan los dos módulos. maxAge = segundos que
+-- vale la copia (55 por defecto).
+local clubCache, clubCacheAt = nil, -1000
+function addonTable.GetClubMemberInfos(maxAge)
+    if clubCache and GetTime() - clubCacheAt < (maxAge or 55) then return clubCache end
+    if not (C_Club and C_Club.GetGuildClubId and C_Club.GetClubMembers and C_Club.GetMemberInfo) then return nil end
+    local clubId = C_Club.GetGuildClubId()
+    if not clubId then return nil end
+    local ok, memberIds = pcall(C_Club.GetClubMembers, clubId)
+    if not ok or type(memberIds) ~= "table" then return nil end
+    local list = {}
+    for _, memberId in ipairs(memberIds) do
+        local okInfo, info = pcall(C_Club.GetMemberInfo, clubId, memberId)
+        if okInfo and info then list[#list + 1] = info end
+    end
+    clubCache, clubCacheAt = list, GetTime()
+    return list
+end
+
+-- Al entrar en el juego se hace lo mínimo: los recorridos caros (C_Club para profesiones y
+-- Míticas+) esperan unos segundos para no provocar una caída de FPS al cargar
+local LOGIN_QUIET_SECONDS = 20
+local loadedAt = GetTime()
+local function IsLoginQuiet() return GetTime() - loadedAt < LOGIN_QUIET_SECONDS end
+
 function addonTable.ScanGuildRosterForChanges()
     local currentTime = GetTime()
     if not IsInGuild() or isSyncingRoster then return end
@@ -363,12 +391,14 @@ function addonTable.ScanGuildRosterForChanges()
         end
     end
 
-    if addonTable.Professions and addonTable.Professions.Scan then
-        addonTable.Professions.Scan()
-    end
-    -- Puntuación Mítica+ de cada miembro (lista de la hermandad del juego)
-    if addonTable.MythicPlus and addonTable.MythicPlus.UpdateScores then
-        addonTable.MythicPlus.UpdateScores()
+    if not IsLoginQuiet() then
+        if addonTable.Professions and addonTable.Professions.Scan then
+            addonTable.Professions.Scan()
+        end
+        -- Puntuación Mítica+ de cada miembro (lista de la hermandad del juego)
+        if addonTable.MythicPlus and addonTable.MythicPlus.UpdateScores then
+            addonTable.MythicPlus.UpdateScores()
+        end
     end
 
     -- Roles declarados por otros personajes de esta cuenta (comparten SavedVariables)
@@ -406,6 +436,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         addonTable.InitDB()
         addonTable.CreateMinimapButton()
         C_GuildInfo.GuildRoster()
+        -- Profesiones y Míticas+ pasado el arranque (ver LOGIN_QUIET_SECONDS)
+        C_Timer.After(LOGIN_QUIET_SECONDS + 2, function()
+            lastExecutionTimestamp = 0
+            addonTable.ScanGuildRosterForChanges()
+        end)
         print("|cFF00FFFF[GuildControl]|r v" .. addonTable.VERSION .. L[" cargado. Usa /gct para abrir la interfaz."])
     elseif event == "PLAYER_ENTERING_WORLD" or event == "GUILD_ROSTER_UPDATE" then
         addonTable.ScanGuildRosterForChanges()

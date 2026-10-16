@@ -2,6 +2,11 @@
 
 ## Próxima versión
 
+- **Favoritos** de fuera de la hermandad (marcados aparte; si son tus amigos se ve si están conectados).
+- Ayuda de **Botín** en la vista previa con viñetas, para +1 y para DKP.
+- Con el sistema +1, el DKP queda en reposo (no gasta recursos).
+- Botón **Más addons** con el perfil de CurseForge del autor.
+- **Rendimiento al entrar**: los recorridos de la lista de la hermandad (profesiones y Míticas+) se hacen una sola vez, compartidos, y 20 s después de cargar, para evitar la caída de FPS al iniciar el juego.
 - **Jefes de la banda programada**: el addon detecta los jefes que mueren en una banda programada en Raid y los apunta en ella. Los DKP por jefe solo se dan por esos jefes.
 - **Historial de bandas** en Raid: bandas anteriores con sus jefes (muertos y pendientes) y la asistencia.
 - El botón **Donar** ya tiene enlace: https://paypal.me/Forxaken
