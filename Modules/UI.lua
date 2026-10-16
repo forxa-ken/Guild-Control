@@ -3880,7 +3880,7 @@ local function BuildMyProfileView(parent)
         return table.concat(lines, "\n")
     end
 
- - 150 - 140 - GAP * 2)
+    local officerBox = CreateColoredPanel(view, L["Oficiales"], PANEL_COLORS.blue, 310, 470 - 150 - 140 - GAP * 2)
     officerBox:SetPoint("TOPLEFT", progressBox, "BOTTOMLEFT", 0, -GAP)
 
     local officerText = officerBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
