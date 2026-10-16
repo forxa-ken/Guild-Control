@@ -56,7 +56,9 @@ function newsModule.AddListener(fn)
     table.insert(listeners, fn)
 end
 
+local feedCache, feedCacheAt = nil, -1   -- noticias completas (ver BuildFullFeed)
 local function Notify()
+    feedCache = nil
     for _, fn in ipairs(listeners) do fn() end
 end
 
@@ -140,6 +142,7 @@ end
 local cachedNews = nil
 function newsModule.InvalidateCache()
     cachedNews = nil
+    feedCache = nil
     Notify()
 end
 
@@ -427,10 +430,11 @@ local function ChatAchievementItems()
     return items
 end
 
--- Noticias combinadas, más recientes primero, según el filtro ("all" por defecto)
-function newsModule.GetFeed(filter)
+-- Lista completa sin filtrar (se guarda 1 s: la vista y los filtros la piden varias veces seguidas)
+local function BuildFullFeed()
+    if feedCache and GetTime() - feedCacheAt < 1 then return feedCache end
     local feed = {}
-    local allowed = FILTER_KINDS[filter or "all"]
+    local allowed = nil
     local bosses = BossKillItems()
     -- Un jefe que ya registró el addon no se repite con la noticia del juego del mismo día
     local seenBoss = {}
@@ -450,6 +454,19 @@ function newsModule.GetFeed(filter)
         end
     end
     table.sort(feed, function(a, b) return (a.sortKey or "") > (b.sortKey or "") end)
+    feedCache, feedCacheAt = feed, GetTime()
+    return feed
+end
+
+-- Noticias combinadas, más recientes primero, según el filtro ("all" por defecto)
+function newsModule.GetFeed(filter)
+    local all = BuildFullFeed()
+    local allowed = FILTER_KINDS[filter or "all"]
+    if not allowed then return all end
+    local feed = {}
+    for _, item in ipairs(all) do
+        if allowed[item.kind] then table.insert(feed, item) end
+    end
     return feed
 end
 

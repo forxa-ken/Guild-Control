@@ -2,6 +2,7 @@
 
 ## Próxima versión
 
+- **Rendimiento**: la ventana de buffos solo escucha los eventos de auras mientras está abierta; la llave solo se revisa cuando cambian las bolsas (con 2 s de espera) y si cambió; las noticias se calculan una vez por refresco; Warning y el buscador de recetas no se recalculan con cada mensaje o tecla.
 - Nueva pestaña **Para mí**: lista de deseos (con Shift+clic o pegando un enlace de Wowhead) (avisa cuando cae y la ven los oficiales), próximas bandas con cuenta atrás y aviso 15 min antes, historial personal de DKP, objetos y bandas, e insignias.
 - Nueva pestaña **Comunidad**: buscar grupo, récords de la hermandad y artesanos (quién conoce cada receta).
 - **Avisos personales** en pantalla (objeto asignado, banda nueva, cambios de roster, DKP y llave), desactivables en Configuración.

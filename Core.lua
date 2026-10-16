@@ -457,6 +457,7 @@ end)
 -- ahora de Warning) pide que respondan todos los conectados que lo usan.
 local HI_PREFIX = "GuildControlHi"
 local lastHello = 0
+local warningsRefreshPending = false
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     C_ChatInfo.RegisterAddonMessagePrefix(HI_PREFIX)
 end
@@ -576,7 +577,14 @@ presenceFrame:SetScript("OnEvent", function(_, event, ...)
                 C_Timer.After(1 + math.random() * 6, SendHello)
             end
         end
-        if addonTable.UI and addonTable.UI.RefreshWarnings then addonTable.UI.RefreshWarnings() end
+        -- Tras "Comprobar ahora" llegan muchas respuestas: Warning se refresca una sola vez
+        if not warningsRefreshPending and addonTable.UI and addonTable.UI.RefreshWarnings then
+            warningsRefreshPending = true
+            C_Timer.After(1, function()
+                warningsRefreshPending = false
+                if addonTable.UI.RefreshWarnings then addonTable.UI.RefreshWarnings() end
+            end)
+        end
     else
         addonTable.MarkAddonUser(fullName)
     end

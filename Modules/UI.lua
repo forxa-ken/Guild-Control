@@ -9908,9 +9908,15 @@ local function BuildCommunityView(parent)
             or L["Nadie de la hermandad ha compartido esa receta todavía."])
         craftInfo:SetText(string.format(L["%d artesanos"], C.CountCrafters()))
     end
+    local searchTimer = nil
     searchInput:SetScript("OnTextChanged", function(self)
         searchPlaceholder:SetShown((self:GetText() or "") == "")
-        RefreshCrafts()
+        -- Se busca 0,3 s después de la última tecla (puede haber miles de recetas)
+        if searchTimer then searchTimer:Cancel() end
+        searchTimer = C_Timer.NewTimer(0.3, function()
+            searchTimer = nil
+            RefreshCrafts()
+        end)
     end)
 
     Refresh = function()
@@ -10441,15 +10447,16 @@ local function CreateBuffFrame()
             frame.Refresh()
         end)
     end
+    -- Los eventos (UNIT_AURA llega sin parar en banda) solo se escuchan con la ventana abierta
+    local BUFF_EVENTS = { "GROUP_ROSTER_UPDATE", "UNIT_AURA", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "BAG_UPDATE_DELAYED" }
     local events = CreateFrame("Frame")
-    events:RegisterEvent("GROUP_ROSTER_UPDATE")
-    events:RegisterEvent("UNIT_AURA")
-    events:RegisterEvent("PLAYER_REGEN_ENABLED")
-    events:RegisterEvent("PLAYER_REGEN_DISABLED")
-    events:RegisterEvent("BAG_UPDATE_DELAYED")
     events:SetScript("OnEvent", QueueRefresh)
     T.AddListener(QueueRefresh)
-    frame:SetScript("OnShow", frame.Refresh)
+    frame:SetScript("OnShow", function()
+        for _, event in ipairs(BUFF_EVENTS) do events:RegisterEvent(event) end
+        frame.Refresh()
+    end)
+    frame:SetScript("OnHide", function() events:UnregisterAllEvents() end)
     return frame
 end
 

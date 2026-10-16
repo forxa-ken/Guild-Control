@@ -160,7 +160,7 @@ function blacklistModule.CheckJoin(fullName)
 end
 
 local function CheckGroup()
-    if not IsInGroup() then return end
+    if not IsInGroup() or type(GuildControlDB.blacklist) ~= "table" or next(GuildControlDB.blacklist) == nil then return end
     local units = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do table.insert(units, "raid" .. i) end

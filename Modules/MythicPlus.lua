@@ -272,6 +272,7 @@ end
 -- =========================================================================
 -- EVENTOS
 -- =========================================================================
+local keyCheckPending, lastStoredKey = false, nil
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
@@ -304,10 +305,20 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHALLENGE_MODE_COMPLETED" then
             C_Timer.After(5, function() mplusModule.BroadcastWeeklyBest(); Notify() end)
         end
-        -- La llave cambia al terminar una mítica o al recibir una nueva
-        StoreMyKeystone()
-        mplusModule.BroadcastKeystone(false)
-        Notify()
+        -- La llave cambia al terminar una mítica o al recibir una nueva. Las bolsas cambian a
+        -- menudo (botín, vendedor): se espera 2 s y solo se avisa si la llave es otra.
+        if keyCheckPending then return end
+        keyCheckPending = true
+        C_Timer.After(2, function()
+            keyCheckPending = false
+            local mapID, level = mplusModule.GetMyKeystone()
+            local current = mapID and (mapID .. ":" .. level) or "none"
+            if current == lastStoredKey then return end
+            lastStoredKey = current
+            StoreMyKeystone()
+            mplusModule.BroadcastKeystone(false)
+            Notify()
+        end)
         return
     elseif event == "CHALLENGE_MODE_MAPS_UPDATE" or event == "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE" then
         Notify()
