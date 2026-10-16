@@ -100,7 +100,7 @@ La vista previa y el tooltip de cada integrante muestran su asistencia (de las b
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
-La pestaña **Mi perfil** se organiza en paneles azules: **Roles**, **Personaje** (principal o alter y enfoque), **Especialización**, **Nota y envío**, y a la derecha **Tu ficha en la hermandad** y, para oficiales, **Oficiales**.
+La pestaña **Mi perfil** se organiza en paneles azules: **Roles**, **Personaje** (principal o alter y enfoque), **Especialización**, **Nota y envío**, y a la derecha **Tu ficha en la hermandad**, **Tu progreso** (tus DKP y tu puesto, o tus +1; tu antigüedad; los objetos que has ganado y tu asistencia) y, para oficiales, **Oficiales**.
 
 - La pestaña **Mi perfil** (debajo de Logros) permite a cada jugador declarar su **rol principal**, un **rol secundario**, su **especialización** (elegida entre las de su clase, con icono; al elegirla se ajusta el rol principal), una **especialización off** (solo si tiene equipo para ella; se ve en la vista previa de Miembros), si es su **personaje principal o un alter** (y de quién), su **enfoque** (PvE, PvP o Social) y una **nota para los oficiales**. Al pulsar **Guardar y enviar** se envía a los miembros que usan GuildControl.
 - Los oficiales ven el rol declarado en la vista previa de Miembros y en los candidatos del roster. Si un oficial no ha fijado el rol a mano, el rol de la ficha pasa a ser el declarado; si lo fijó, prevalece el del oficial (clic derecho en el candidato > **Usar rol declarado** para volver a él).

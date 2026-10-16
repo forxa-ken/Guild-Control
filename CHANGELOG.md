@@ -2,6 +2,9 @@
 
 ## Próxima versión
 
+- **Mi perfil**: panel **Tu progreso** con tus DKP (y tu puesto) o tus +1, tu antigüedad, los objetos ganados y tu asistencia.
+- **Configuración**: los jugadores ya no ven la sección Hermandad (Discord e icono).
+- **Resumen**: el filtro Bajas lleva la cabecera «¡Abandonan el barco!».
 - **Ocupado en un jefe**: si susurras desde el addon a alguien que está con un jefe de mazmorra o banda, te avisa de con qué jefe está.
 - **Anuncios**: la cuenta atrás ya no se reinicia con /reload ni al cambiar de personaje.
 - **Profesiones**: botón **Mi profesión** que abre la ventana de profesiones del juego.

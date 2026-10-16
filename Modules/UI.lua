@@ -3832,8 +3832,56 @@ local function BuildMyProfileView(parent)
     sideText:SetJustifyH("LEFT")
     sideText:SetSpacing(2)
 
-    local officerBox = CreateColoredPanel(view, L["Oficiales"], PANEL_COLORS.blue, 310, 470 - 150 - GAP)
-    officerBox:SetPoint("TOPLEFT", side, "BOTTOMLEFT", 0, -GAP)
+    -- Tu progreso: DKP o +1, antigüedad, objetos ganados y asistencia
+    local progressBox = CreateColoredPanel(view, L["Tu progreso"], PANEL_COLORS.blue, 310, 140)
+    progressBox:SetPoint("TOPLEFT", side, "BOTTOMLEFT", 0, -GAP)
+    local progressText = progressBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    progressText:SetPoint("TOPLEFT", progressBox, "TOPLEFT", 12, -32)
+    progressText:SetWidth(286)
+    progressText:SetJustifyH("LEFT")
+    progressText:SetSpacing(3)
+
+    local function ProgressLines(me)
+        local lines = {}
+        local D, LT = addonTable.Dkp, addonTable.Loot
+        if D and D.IsActive() then
+            local balance = D.GetBalance(me)
+            local list, position = D.GetList(), nil
+            for i, entry in ipairs(list) do if entry.name == me then position = i end end
+            table.insert(lines, L["DKP: |cFFFFD100"] .. balance .. "|r"
+                .. (position and (L["   |cFF808080(puesto "] .. position .. L[" de "] .. #list .. ")|r") or ""))
+        elseif LT then
+            table.insert(lines, L["Tus +1: |cFFFFD100"] .. LT.GetPoints(me) .. "|r")
+        end
+        local since = D and D.GetSince(me)
+        if since then
+            table.insert(lines, L["Antigüedad: |cFFFFD100"] .. D.GetSeniorityDays(me) .. L[" días|r |cFF808080(desde el "] .. date("%d/%m/%Y", since) .. ")|r")
+        else
+            table.insert(lines, L["Antigüedad: |cFF808080empieza al guardar tu perfil|r"])
+        end
+        if LT then
+            local won, last = 0, nil
+            for _, entry in ipairs(LT.GetHistory()) do
+                if entry.winner == me then
+                    won = won + 1
+                    last = last or entry
+                end
+            end
+            table.insert(lines, L["Objetos ganados: |cFFFFD100"] .. won .. "|r"
+                .. (last and ("  " .. LT.DisplayLink(last.link)) or ""))
+        end
+        local E = addonTable.RaidEvents
+        local stats = E and E.GetAttendanceStats and E.GetAttendanceStats(nil, me)
+        if stats and stats.percent then
+            table.insert(lines, L["Asistencia: |cFFFFD100"] .. stats.percent .. "%|r |cFF808080(" .. stats.counted .. L[" bandas)|r"])
+        else
+            table.insert(lines, L["Asistencia: |cFF808080sin bandas con lista todavía|r"])
+        end
+        return table.concat(lines, "\n")
+    end
+
+ - 150 - 140 - GAP * 2)
+    officerBox:SetPoint("TOPLEFT", progressBox, "BOTTOMLEFT", 0, -GAP)
 
     local officerText = officerBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     officerText:SetPoint("TOPLEFT", officerBox, "TOPLEFT", 12, -32)
@@ -3869,11 +3917,13 @@ local function BuildMyProfileView(parent)
         end
     end)
 
-    local rankHint = officerBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    rankHint:SetPoint("TOPLEFT", dropRank, "BOTTOMLEFT", 0, -6)
-    rankHint:SetWidth(286)
-    rankHint:SetJustifyH("LEFT")
-    rankHint:SetText(L["Ese rango y los superiores ven todas las pestañas. Quien tenga el permiso de chat de oficiales del juego también es oficial. Es un ajuste de tu cliente: cada oficial lo configura en el suyo."])
+    dropRank:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["Perfil de oficial hasta el rango:"], 1, 1, 1)
+        GameTooltip:AddLine(L["Ese rango y los superiores ven todas las pestañas. Quien tenga el permiso de chat de oficiales del juego también es oficial. Es un ajuste de tu cliente: cada oficial lo configura en el suyo."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    dropRank:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     view:SetScript("OnShow", function()
         local profile = P.GetMyProfile()
@@ -3907,6 +3957,7 @@ local function BuildMyProfileView(parent)
             .. L["Profesiones: "] .. (m.prof1 or L["Ninguna"]) .. ", " .. (m.prof2 or L["Ninguna"]) .. "\n\n"
             .. L["|cFF808080Esto es lo que guarda tu cliente. Cada oficial tiene su propia copia.|r"])
 
+        progressText:SetText(ProgressLines(P.GetMyFullName()))
         officerBox:SetShown(isOfficer)
         if isOfficer then
             local declared, total = P.CountDeclared()
@@ -4754,6 +4805,17 @@ local function BuildSummaryView(parent)
                 local header = AcquireCard(index)
                 header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, 0)
                 SetupCard(header, nil, L["¡Bienvenidos a la hermandad!"], L["Las 5 últimas incorporaciones"])
+                y = BIG_HEADER_HEIGHT + 6
+                lastWeek = false
+            end
+        elseif currentFilter == "leave" then
+            -- Bajas: cabecera grande y la lista sin agrupar por semanas
+            feed = N.GetFeed("leave")
+            if #feed > 0 then
+                index = 1
+                local header = AcquireCard(index)
+                header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, 0)
+                SetupCard(header, nil, L["¡Abandonan el barco!"], L["Bajas de los últimos 30 días"])
                 y = BIG_HEADER_HEIGHT + 6
                 lastWeek = false
             end
@@ -8939,6 +9001,11 @@ local function BuildConfigView(parent)
         discordInput:SetText(s.discordLink or "")
         RefreshIconFields()
         ApplyGuildEditPermissions()
+        -- Los jugadores no ven la sección Hermandad (Discord e icono los ponen los oficiales)
+        local officerView = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        guildBox:SetShown(officerView)
+        windowBox:ClearAllPoints()
+        windowBox:SetPoint("TOPLEFT", content, "TOPLEFT", officerView and 578 or 10, -6)
         chkOnTop:SetChecked(s.windowOnTop)
         chkGreet:SetChecked(s.autoGreet)
         chkWelcome:SetChecked(s.welcomeNew)

@@ -1245,4 +1245,18 @@ L["Mi profesión"] = "My profession"
 L["un jefe"] = "a boss"
 L["|cFFFF7F00%s está en un encuentro con %s y ahora está ocupado.|r"] = "|cFFFF7F00%s is in an encounter with %s and is busy right now.|r"
 
+-- Mi perfil: Tu progreso, y cabecera de Bajas
+L["   |cFF808080(puesto "] = "   |cFF808080(rank "
+L[" bandas)|r"] = " raids)|r"
+L[" días|r |cFF808080(desde el "] = " days|r |cFF808080(since "
+L["Antigüedad: |cFF808080empieza al guardar tu perfil|r"] = "Seniority: |cFF808080starts when you save your profile|r"
+L["Antigüedad: |cFFFFD100"] = "Seniority: |cFFFFD100"
+L["Asistencia: |cFF808080sin bandas con lista todavía|r"] = "Attendance: |cFF808080no raids with attendance yet|r"
+L["Asistencia: |cFFFFD100"] = "Attendance: |cFFFFD100"
+L["Bajas de los últimos 30 días"] = "Leaves in the last 30 days"
+L["DKP: |cFFFFD100"] = "DKP: |cFFFFD100"
+L["Objetos ganados: |cFFFFD100"] = "Items won: |cFFFFD100"
+L["Tu progreso"] = "Your progress"
+L["¡Abandonan el barco!"] = "Abandoning ship!"
+
 addonTable.RegisterLocale("enUS", "English", L)
