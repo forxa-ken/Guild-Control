@@ -60,8 +60,13 @@ end
 -- =========================================================================
 -- LISTA DE DESEOS
 -- =========================================================================
+-- Identificador del objeto a partir de un enlace del juego ("item:ID"), un enlace de Wowhead
+-- ("...wowhead.com/es/item=ID/nombre") o el número solo
 local function ItemIdFromLink(link)
-    return tonumber(string.match(link or "", "item:(%d+)"))
+    link = strtrim(tostring(link or ""))
+    return tonumber(string.match(link, "item:(%d+)"))
+        or tonumber(string.match(link, "[Ii][Tt][Ee][Mm]=(%d+)"))
+        or tonumber(string.match(link, "^(%d+)$"))
 end
 personalModule.ItemIdFromLink = ItemIdFromLink
 
@@ -102,6 +107,8 @@ function personalModule.ToggleWish(itemID)
     itemID = tonumber(itemID)
     if not itemID then return false end
     local list = personalModule.GetMyWishlist()
+    -- Pide los datos del objeto al juego (los enlaces de Wowhead llegan sin ellos)
+    if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, itemID) end
     if list[itemID] then
         list[itemID] = nil
     else

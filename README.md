@@ -81,7 +81,7 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 
 La pestaña **Para mí** reúne lo que le interesa a cada jugador:
 
-- **Mi lista de deseos**: los objetos que buscas (Shift+clic para añadirlos, hasta 40). Cuando caen en la banda te avisa, se comparten con la hermandad y en Botín aparece una estrella `*` junto a quien los quiere.
+- **Mi lista de deseos**: los objetos que buscas (Shift+clic en el objeto o pegando un enlace de Wowhead, hasta 40). Cuando caen en la banda te avisa, se comparten con la hermandad y en Botín aparece una estrella `*` junto a quien los quiere.
 - **Mis próximas bandas**: con cuenta atrás, tu respuesta y un botón **Apuntarme** (con el rol de Mi perfil). Si estás apuntado, te avisa 15 minutos antes.
 - **Mi historial**: tus DKP ganados y gastados línea a línea, los objetos que has ganado y las bandas a las que has ido.
 - **Mis insignias**: Veterano, Nunca falta, Asesino de Mítica, Maestro de llaves, Coleccionista, Afortunado, Artesano y Al día. Las que te faltan se ven en gris como objetivo; las de los demás salen en la vista previa de Miembros.

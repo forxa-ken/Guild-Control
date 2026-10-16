@@ -9496,12 +9496,13 @@ local function BuildForMeView(parent)
     wishBox.scroll:SetPoint("BOTTOMRIGHT", wishBox, "BOTTOMRIGHT", -28, 36)
     local wishInput = CreateFrame("EditBox", nil, wishBox, "InputBoxTemplate")
     wishInput:SetSize(300, 20)
+    wishInput:SetMaxLetters(0)
     wishInput:SetPoint("BOTTOMLEFT", wishBox, "BOTTOMLEFT", 16, 10)
     wishInput:SetAutoFocus(false)
     wishInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local wishPlaceholder = wishInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     wishPlaceholder:SetPoint("LEFT", wishInput, "LEFT", 2, 0)
-    wishPlaceholder:SetText(L["Shift+clic en un objeto para añadirlo"])
+    wishPlaceholder:SetText(L["Shift+clic en un objeto o pega un enlace de Wowhead"])
     wishInput:SetScript("OnTextChanged", function(self) wishPlaceholder:SetShown((self:GetText() or "") == "") end)
     local btnWishAdd = CreateFrame("Button", nil, wishBox, "UIPanelButtonTemplate")
     btnWishAdd:SetSize(90, 22)
@@ -9510,7 +9511,7 @@ local function BuildForMeView(parent)
     local function AddWish()
         local id = PM.ItemIdFromLink(wishInput:GetText())
         if not id then
-            PrintGC(L["|cFFFF3333Pega el enlace del objeto con Shift+clic.|r"])
+            PrintGC(L["|cFFFF3333Pega el enlace del objeto con Shift+clic o un enlace de Wowhead (wowhead.com/item=...).|r"])
             return
         end
         if not PM.GetMyWishlist()[id] then PM.ToggleWish(id) end
