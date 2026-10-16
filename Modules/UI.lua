@@ -79,6 +79,13 @@ local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Comunidad", "Logros"
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
+-- ¿Ve este perfil la pestaña? Invitar también la ven los jugadores si un oficial lo permite
+local function IsTabAllowed(tabName, isOfficer)
+    if isOfficer then return not PLAYER_ONLY_TABS[tabName] end
+    if tabName == "Invitar" and GuildControlDB.settings and GuildControlDB.settings.playerInvite then return true end
+    return not OFFICER_ONLY_TABS[tabName]
+end
+
 -- Iconos de rol del juego (atlas) para usar dentro de textos
 local ROLE_ICON_ATLAS = {
     Tanque = "roleicon-tiny-tank", Sanador = "roleicon-tiny-healer", DPS = "roleicon-tiny-dps",
@@ -596,7 +603,7 @@ function uiModule.ApplyProfile()
     local yOffset = -15
     for _, tabName in ipairs(SIDEBAR_TABS) do
         local btn = sidebar.tabButtons[tabName]
-        local allowed = (isOfficer and not PLAYER_ONLY_TABS[tabName]) or (not isOfficer and not OFFICER_ONLY_TABS[tabName])
+        local allowed = IsTabAllowed(tabName, isOfficer)
         btn:SetShown(allowed)
         if allowed then
             btn:ClearAllPoints()
@@ -615,7 +622,7 @@ function uiModule.ApplyProfile()
         end
     end
 
-    if (not isOfficer and OFFICER_ONLY_TABS[activeTab]) or (isOfficer and PLAYER_ONLY_TABS[activeTab]) then SwitchTab("Miembros") end
+    if containers.views[activeTab] and not IsTabAllowed(activeTab, isOfficer) then SwitchTab("Miembros") end
 end
 
 -- =========================================================================
@@ -8631,7 +8638,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.1 Hermandad: Discord e icono (los definen los oficiales y se comparten)
     -- ---------------------------------------------------------------------
-    local guildBox = Section(L["Hermandad"], 10, -36, 560, 236)
+    local guildBox = Section(L["Hermandad"], 10, -36, 560, 266)
     local G = addonTable.GuildConfig
     local officerOnly = {}   -- controles que solo pueden usar los oficiales
 
@@ -8732,6 +8739,16 @@ local function BuildConfigView(parent)
     iconHint:SetText(L["Imagen propia: copia un archivo TGA o BLP de 64×64 o 128×128 en Interface\\AddOns\\GuildControl\\Media\\ (reinicia el juego) y escribe su ruta, p. ej. Interface\\AddOns\\GuildControl\\Media\\logo. Cada jugador necesita el archivo para verla."])
     table.insert(officerOnly, iconHint)
 
+    -- Permiso compartido: los jugadores pueden usar la pestaña Invitar
+    local chkPlayerInvite = CreateFrame("CheckButton", "GC_CfgPlayerInvite", guildBox, "UICheckButtonTemplate")
+    chkPlayerInvite:SetPoint("TOPLEFT", guildBox, "TOPLEFT", 10, -226)
+    _G[chkPlayerInvite:GetName() .. "Text"]:SetText(L["Los jugadores pueden usar Invitar (reclutar)"])
+    chkPlayerInvite:SetScript("OnClick", function(self)
+        if G and G.SetPlayerInvite then G.SetPlayerInvite(self:GetChecked()) end
+        uiModule.ApplyProfile()
+    end)
+    chkPlayerInvite:SetScript("OnShow", function(self) self:SetChecked(settings().playerInvite == true) end)
+
     -- Los jugadores ven lo que definieron los oficiales, sin poder cambiarlo
     local function ApplyGuildEditPermissions()
         local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
@@ -8745,7 +8762,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.2 Ventana
     -- ---------------------------------------------------------------------
-    local windowBox = Section(L["Ventana"], 578, -36, 312, 236)
+    local windowBox = Section(L["Ventana"], 578, -36, 312, 266)
 
     local chkOnTop = CreateFrame("CheckButton", "GC_CfgWindowOnTop", windowBox, "UICheckButtonTemplate")
     chkOnTop:SetPoint("TOPLEFT", windowBox, "TOPLEFT", 10, -30)
@@ -9026,11 +9043,34 @@ local function BuildConfigView(parent)
         discordInput:SetText(s.discordLink or "")
         RefreshIconFields()
         ApplyGuildEditPermissions()
-        -- Los jugadores no ven la sección Hermandad (Discord e icono los ponen los oficiales)
+        -- Distribución según el perfil. Los jugadores no ven la sección Hermandad (Discord, icono
+        -- y permisos los ponen los oficiales) y los canales de reclutamiento solo si pueden invitar.
         local officerView = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        local function Place(box, x, y, width)
+            box:ClearAllPoints()
+            box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y + 30)
+            if width then box:SetWidth(width) end
+        end
         guildBox:SetShown(officerView)
-        windowBox:ClearAllPoints()
-        windowBox:SetPoint("TOPLEFT", content, "TOPLEFT", officerView and 578 or 10, -6)
+        channelsBox:Show()
+        if officerView then
+            Place(windowBox, 578, -36)
+            Place(greetBox, 10, -308)
+            Place(welcomeBox, 10, -542)
+            Place(channelsBox, 10, -660, 430)
+            Place(soundBox, 448, -660, 442)
+            content:SetHeight(802)
+        else
+            -- Arriba: Ventana a la izquierda; a la derecha, sonido y (si puede invitar) canales
+            local canInvite = s.playerInvite == true
+            Place(windowBox, 10, -36)
+            Place(soundBox, 328, -36, 562)
+            channelsBox:SetShown(canInvite)
+            if canInvite then Place(channelsBox, 328, -172, 562) end
+            Place(greetBox, 10, -308)
+            Place(welcomeBox, 10, -542)
+            content:SetHeight(672)
+        end
         chkOnTop:SetChecked(s.windowOnTop)
         chkGreet:SetChecked(s.autoGreet)
         chkWelcome:SetChecked(s.welcomeNew)

@@ -9,6 +9,7 @@ local cfgModule = addonTable.GuildConfig
 -- guildConfigAt, la hora del servidor del último cambio) y se comparten con el prefijo
 -- GuildControlCfg en el canal de hermandad:
 --   "C;hora;icono;discord"  configuración (solo se acepta de oficiales y si es más reciente)
+--   "P;hora;1|0"            los jugadores pueden usar Invitar (settings.playerInvite, playerInviteAt)
 --   "Q"                     petición al entrar (responde un oficial con la suya)
 
 local PREFIX = "GuildControlCfg"
@@ -24,6 +25,8 @@ local function Settings() return GuildControlDB.settings end
 local function Notify()
     for _, fn in ipairs(listeners) do fn() end
     if addonTable.UI and addonTable.UI.UpdateHeader then addonTable.UI.UpdateHeader() end
+    -- El permiso de Invitar cambia las pestañas que ve el jugador
+    if addonTable.UI and addonTable.UI.ApplyProfile and addonTable.UI.IsShown and addonTable.UI.IsShown() then addonTable.UI.ApplyProfile() end
 end
 
 function cfgModule.AddListener(fn)
@@ -65,8 +68,27 @@ end
 
 function cfgModule.Broadcast()
     local s = Settings()
-    if not s.guildConfigAt or s.guildConfigAt == 0 then return end
-    Send(table.concat({ "C", s.guildConfigAt, tostring(s.guildIcon or ""), s.discordLink or "" }, ";"))
+    if s.guildConfigAt and s.guildConfigAt > 0 then
+        Send(table.concat({ "C", s.guildConfigAt, tostring(s.guildIcon or ""), s.discordLink or "" }, ";"))
+    end
+    if s.playerInviteAt and s.playerInviteAt > 0 then
+        Send("P;" .. s.playerInviteAt .. ";" .. (s.playerInvite and "1" or "0"))
+    end
+end
+
+-- Solo oficiales: los jugadores pueden (o no) usar la pestaña Invitar
+function cfgModule.SetPlayerInvite(enabled)
+    if not IsOfficer() then return false end
+    local s = Settings()
+    s.playerInvite = enabled and true or false
+    s.playerInviteAt = GetServerTime()
+    Send("P;" .. s.playerInviteAt .. ";" .. (s.playerInvite and "1" or "0"))
+    Notify()
+    return true
+end
+
+function cfgModule.CanPlayersInvite()
+    return Settings().playerInvite == true
 end
 
 -- Solo oficiales: cambia el Discord o el icono (nil = no se toca) y lo envía a la hermandad
@@ -115,7 +137,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
     if msg == "Q" then
         -- Responde un solo oficial: el que espere menos; los demás se callan al ver su respuesta
-        if not IsOfficer() or replyTimer or not Settings().guildConfigAt then return end
+        if not IsOfficer() or replyTimer or not (Settings().guildConfigAt or Settings().playerInviteAt) then return end
         replyTimer = C_Timer.NewTimer(2 + math.random() * 4, function()
             replyTimer = nil
             cfgModule.Broadcast()
@@ -123,5 +145,16 @@ frame:SetScript("OnEvent", function(_, event, ...)
     elseif string.sub(msg, 1, 2) == "C;" then
         if replyTimer then replyTimer:Cancel(); replyTimer = nil end
         OnConfig(fullSender, msg)
+    elseif string.sub(msg, 1, 2) == "P;" then
+        if replyTimer then replyTimer:Cancel(); replyTimer = nil end
+        if addonTable.Profiles and addonTable.Profiles.IsOfficerName and not addonTable.Profiles.IsOfficerName(fullSender) then return end
+        local _, at, value = strsplit(";", msg)
+        at = tonumber(at)
+        local s = Settings()
+        if at and at > (s.playerInviteAt or 0) then
+            s.playerInviteAt = at
+            s.playerInvite = value == "1"
+            Notify()
+        end
     end
 end)

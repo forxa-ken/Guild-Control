@@ -1332,4 +1332,7 @@ L["Farmeo"] = "Farming"
 -- Lista de deseos con enlaces de Wowhead
 L["Shift+clic en un objeto o pega un enlace de Wowhead"] = "Shift+click an item or paste a Wowhead link"
 L["|cFFFF3333Pega el enlace del objeto con Shift+clic o un enlace de Wowhead (wowhead.com/item=...).|r"] = "|cFFFF3333Shift+click the item or paste a Wowhead link (wowhead.com/item=...).|r"
+
+-- Permiso de Invitar para jugadores
+L["Los jugadores pueden usar Invitar (reclutar)"] = "Players can use Invite (recruiting)"
 addonTable.RegisterLocale("enUS", "English", L)
