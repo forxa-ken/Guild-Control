@@ -2,6 +2,7 @@
 
 ## Próxima versión
 
+- **DKP con precio fijo** (reparto por defecto): tabla de precios por hueco y dificultad, botón Precio para cambiar el de un objeto, Main-spec / Off-spec (50 %), gana quien tenga más DKP, mínimo de 20 DKP para piezas de Mítica y asistencia mínima opcional. La subasta abierta sigue disponible en Ajustes.
 - **Favoritos** de fuera de la hermandad (marcados aparte; si son tus amigos se ve si están conectados).
 - Ayuda de **Botín** en la vista previa con viñetas, para +1 y para DKP.
 - Con el sistema +1, el DKP queda en reposo (no gasta recursos).

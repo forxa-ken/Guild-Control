@@ -34,8 +34,48 @@ local BOSS_KEY_DAYS = 7
 local WEEK = 7 * 86400
 
 dkpModule.SYSTEMS = { plusone = true, dkp = true }
-dkpModule.DEFAULTS = { boss = 10, raid = 20, seniority = 5, decay = 10, minBid = 1 }
-dkpModule.LIMITS = { boss = { 0, 1000 }, raid = { 0, 1000 }, seniority = { 0, 1000 }, decay = { 0, 90 }, minBid = { 1, 1000 } }
+dkpModule.DEFAULTS = { boss = 10, raid = 20, seniority = 5, decay = 10, minBid = 1, offspec = 50, gate = 20, minAttendance = 0 }
+dkpModule.LIMITS = { boss = { 0, 1000 }, raid = { 0, 1000 }, seniority = { 0, 1000 }, decay = { 0, 90 }, minBid = { 1, 1000 },
+                     offspec = { 0, 100 }, gate = { 0, 10000 }, minAttendance = { 0, 100 } }
+
+-- Reparto: "fixed" = precio fijo por objeto (Main-spec paga el precio, Off-spec un % si nadie lo
+-- pide como Main-spec, gana quien tenga más DKP) o "auction" = subasta abierta (el precio es la
+-- puja mínima)
+dkpModule.MODES = { fixed = true, auction = true }
+
+-- Precio predeterminado de un objeto: según su hueco (categoría) y la dificultad en la que cayó.
+-- Valores de partida pensados para lo que se gana por defecto (unos 100 DKP por noche: 8 jefes x 10
+-- + 20 de banda): una pieza normal cuesta media noche y un arma de Mítica unas dos noches.
+dkpModule.ITEM_CATEGORIES = {
+    { key = "weapon2h", label = "Armas de 2 manos" },
+    { key = "weapon1h", label = "Armas de 1 mano y mano izquierda" },
+    { key = "trinket", label = "Abalorios" },
+    { key = "major", label = "Set, pecho, cabeza y piernas" },
+    { key = "medium", label = "Hombros, guantes, botas y escudos" },
+    { key = "minor", label = "Cinturón, brazales, capa y anillos" },
+    { key = "other", label = "Cuello, reliquias y otros" },
+}
+dkpModule.TIERS = { "normal", "heroic", "mythic" }
+dkpModule.DEFAULT_PRICES = {
+    weapon2h = { normal = 100, heroic = 150, mythic = 220 },
+    weapon1h = { normal = 60, heroic = 90, mythic = 130 },
+    trinket = { normal = 80, heroic = 120, mythic = 180 },
+    major = { normal = 50, heroic = 75, mythic = 110 },
+    medium = { normal = 40, heroic = 60, mythic = 90 },
+    minor = { normal = 25, heroic = 40, mythic = 60 },
+    other = { normal = 15, heroic = 25, mythic = 40 },
+}
+
+-- Hueco del objeto -> categoría de precio
+local SLOT_CATEGORY = {
+    INVTYPE_2HWEAPON = "weapon2h", INVTYPE_RANGED = "weapon2h", INVTYPE_RANGEDRIGHT = "weapon2h",
+    INVTYPE_WEAPON = "weapon1h", INVTYPE_WEAPONMAINHAND = "weapon1h", INVTYPE_WEAPONOFFHAND = "weapon1h",
+    INVTYPE_TRINKET = "trinket",
+    INVTYPE_CHEST = "major", INVTYPE_ROBE = "major", INVTYPE_HEAD = "major", INVTYPE_LEGS = "major",
+    INVTYPE_SHOULDER = "medium", INVTYPE_HAND = "medium", INVTYPE_FEET = "medium", INVTYPE_SHIELD = "medium", INVTYPE_HOLDABLE = "medium",
+    INVTYPE_WAIST = "minor", INVTYPE_WRIST = "minor", INVTYPE_CLOAK = "minor", INVTYPE_FINGER = "minor",
+    INVTYPE_NECK = "other",
+}
 
 local listeners = {}
 
@@ -83,6 +123,15 @@ local function State()
     if type(db.settings) ~= "table" then db.settings = {} end
     for key, value in pairs(dkpModule.DEFAULTS) do
         if type(db.settings[key]) ~= "number" then db.settings[key] = value end
+    end
+    if not dkpModule.MODES[db.settings.mode] then db.settings.mode = "fixed" end
+    if type(db.settings.prices) ~= "table" then db.settings.prices = {} end
+    for category, defaults in pairs(dkpModule.DEFAULT_PRICES) do
+        local row = db.settings.prices[category]
+        if type(row) ~= "table" then row = {}; db.settings.prices[category] = row end
+        for tier, value in pairs(defaults) do
+            if type(row[tier]) ~= "number" then row[tier] = value end
+        end
     end
     if type(db.balances) ~= "table" then db.balances = {} end
     if type(db.since) ~= "table" then db.since = {} end
@@ -272,6 +321,86 @@ function dkpModule.AwardRaid()
 end
 
 -- =========================================================================
+-- PRECIOS DE LOS OBJETOS
+-- =========================================================================
+function dkpModule.GetMode() return State().settings.mode end
+function dkpModule.GetPrices() return State().settings.prices end
+
+-- Categoría de precio de un objeto (por su hueco; las piezas de set y las fichas de set van con
+-- las piezas grandes)
+function dkpModule.GetItemCategory(link)
+    if not link or not (C_Item and C_Item.GetItemInfoInstant) then return "other" end
+    local ok, _, _, _, equipLoc, _, classID = pcall(C_Item.GetItemInfoInstant, link)
+    if not ok then return "other" end
+    local getInfo = C_Item.GetItemInfo or GetItemInfo
+    local setID = getInfo and select(16, getInfo(link))
+    if setID and setID > 0 and (equipLoc == "INVTYPE_CHEST" or equipLoc == "INVTYPE_ROBE" or equipLoc == "INVTYPE_HEAD"
+        or equipLoc == "INVTYPE_LEGS" or equipLoc == "INVTYPE_SHOULDER" or equipLoc == "INVTYPE_HAND") then
+        return "major"
+    end
+    if SLOT_CATEGORY[equipLoc or ""] then return SLOT_CATEGORY[equipLoc] end
+    -- Fichas de set (Misceláneo) cuentan como piezas de set
+    if classID == 15 then return "major" end
+    return "other"
+end
+
+-- Dificultad de la banda -> nivel de precio
+function dkpModule.GetTier(difficultyID)
+    if difficultyID == 16 then return "mythic" end
+    if difficultyID == 15 then return "heroic" end
+    return "normal"
+end
+
+-- Precio predeterminado: tabla de precios (categoría x dificultad)
+function dkpModule.GetDefaultPrice(link, difficultyID)
+    local category, tier = dkpModule.GetItemCategory(link), dkpModule.GetTier(difficultyID)
+    local row = State().settings.prices[category] or {}
+    return row[tier] or 0, category, tier
+end
+
+-- Lo que paga quien lo pide como Off-spec
+function dkpModule.GetOffspecPrice(price)
+    return math.floor((price or 0) * State().settings.offspec / 100 + 0.5)
+end
+
+-- ¿Puede optar al objeto? (asistencia mínima y mínimo de DKP para piezas de Mítica)
+function dkpModule.CheckEligible(name, tier)
+    local settings = State().settings
+    if settings.minAttendance > 0 and addonTable.RaidEvents and addonTable.RaidEvents.GetAttendanceStats then
+        local stats = addonTable.RaidEvents.GetAttendanceStats(nil, name)
+        if stats.percent and stats.percent < settings.minAttendance then return false, "attendance" end
+    end
+    if tier == "mythic" and settings.gate > 0 and dkpModule.GetBalance(name) < settings.gate then
+        return false, "gate"
+    end
+    return true
+end
+
+function dkpModule.SetMode(mode)
+    if not IsOfficer() or not dkpModule.MODES[mode] then return false end
+    State().settings.mode = mode
+    Touch()
+    return true
+end
+
+-- prices = { [categoría] = { normal, heroic, mythic } } (nil = valores recomendados)
+function dkpModule.SetPrices(prices)
+    if not IsOfficer() then return false end
+    local settings = State().settings
+    settings.prices = {}
+    for _, category in ipairs(dkpModule.ITEM_CATEGORIES) do
+        local source = prices and prices[category.key] or dkpModule.DEFAULT_PRICES[category.key]
+        local row = {}
+        for _, tier in ipairs(dkpModule.TIERS) do
+            row[tier] = math.max(0, math.min(100000, math.floor(tonumber(source[tier]) or dkpModule.DEFAULT_PRICES[category.key][tier])))
+        end
+        settings.prices[category.key] = row
+    end
+    Touch()
+    return true
+end
+
+-- =========================================================================
 -- ANTIGÜEDAD (DESDE QUE SE RELLENA MI PERFIL)
 -- =========================================================================
 -- Toma la fecha de la declaración de Mi perfil de cada miembro; se queda con la más antigua
@@ -416,6 +545,17 @@ local function ApplyIncoming(payload, sender)
     if type(payload.settings) == "table" then
         for key, limits in pairs(dkpModule.LIMITS) do
             db.settings[key] = Num(payload.settings[key], limits[1], limits[2], db.settings[key])
+        end
+        if dkpModule.MODES[payload.settings.mode] then db.settings.mode = payload.settings.mode end
+        if type(payload.settings.prices) == "table" then
+            for _, category in ipairs(dkpModule.ITEM_CATEGORIES) do
+                local row = payload.settings.prices[category.key]
+                if type(row) == "table" then
+                    for _, tier in ipairs(dkpModule.TIERS) do
+                        db.settings.prices[category.key][tier] = Num(row[tier], 0, 100000, db.settings.prices[category.key][tier])
+                    end
+                end
+            end
         end
     end
     local balances, since, bossKeys = {}, {}, {}

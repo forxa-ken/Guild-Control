@@ -48,20 +48,19 @@ local TAB_HELP_DKP = {
         .. "|cFFFFD100•|r Por cada jefe de una banda programada en Raid.\n"
         .. "|cFFFFD100•|r Por banda completada (botón DKP de banda).\n"
         .. "|cFFFFD100•|r Cada semana por antigüedad.\n"
-        .. "\n|cFF40D959Antigüedad|r\n"
-        .. "|cFFFFD100•|r Cuenta desde que se rellena Mi perfil.\n"
-        .. "|cFFFFD100•|r Da DKP cada semana y desempata las pujas.\n"
-        .. "\n|cFFFF7F00Decay|r\n"
+        .. "\n|cFF40D959Antigüedad y decay|r\n"
+        .. "|cFFFFD100•|r La antigüedad cuenta desde que se rellena Mi perfil.\n"
         .. "|cFFFFD100•|r Cada semana los DKP pierden un % para evitar la inflación.\n"
-        .. "\n|cFFB380FFSubasta|r\n"
-        .. "|cFFFFD100•|r Al pulsar Subastar sale la ventana de puja.\n"
-        .. "|cFFFFD100•|r Puja desde la mínima hasta tus DKP, o pasa.\n"
-        .. "|cFFFFD100•|r Todos ven las pujas y se pueden subir.\n"
-        .. "|cFFFFD100•|r Gana la más alta (a igualdad, más antigüedad) y paga lo que pujó.\n"
-        .. "|cFFFFD100•|r Solo un oficial asigna el objeto.\n"
+        .. "\n|cFFB380FFPrecio fijo|r\n"
+        .. "|cFFFFD100•|r Cada objeto tiene un precio según su hueco y la dificultad (botón Precios).\n"
+        .. "|cFFFFD100•|r Main-spec paga el precio; Off-spec paga un % si nadie lo pide como Main-spec.\n"
+        .. "|cFFFFD100•|r Gana quien tenga más DKP; a igualdad, más antigüedad.\n"
+        .. "|cFFFFD100•|r Las piezas de Mítica piden un mínimo de DKP.\n"
+        .. "\n|cFFFF7F00Subasta (se elige en Ajustes)|r\n"
+        .. "|cFFFFD100•|r Gana la puja más alta y paga lo que pujó; el precio es la puja mínima.\n"
         .. "\n|cFFFFBF33DKP de la hermandad|r\n"
         .. "|cFFFFD100•|r Saldos y días de antigüedad.\n"
-        .. "|cFFFFD100•|r Oficiales: clic derecho para sumar o restar, y valores en Ajustes.",
+        .. "|cFFFFD100•|r Oficiales: clic derecho para sumar o restar; Precio cambia el de un objeto.",
 }
 
 local function TabHelp(tabName)
@@ -7696,18 +7695,31 @@ function uiModule.ShowLootRollPopup(key)
     frame.itemButton.text:SetText(link)
     local wins = LT.GetSessionWins(me)
     local dkp = LT.IsDkp()
-    for _, btn in pairs(frame.buttons) do btn:SetShown(not dkp) end
-    frame.bidInput:SetShown(dkp)
-    frame.bidButton:SetShown(dkp)
-    frame.bidPass:SetShown(dkp)
-    frame.title:SetText(dkp and L["Subasta DKP"] or L["Tirada de botín"])
+    local fixed = dkp and LT.IsFixed()
+    local auction = dkp and not fixed
+    for _, btn in pairs(frame.buttons) do btn:SetShown(not auction) end
+    frame.bidInput:SetShown(auction)
+    frame.bidButton:SetShown(auction)
+    frame.bidPass:SetShown(auction)
+    frame.title:SetText(fixed and L["Botín DKP"] or (auction and L["Subasta DKP"] or L["Tirada de botín"]))
     local winsText = wins > 0 and (L["   |cFFFF7F00Ya ganaste "] .. wins .. L[" objeto(s) en esta banda|r"]) or ""
-    if dkp then
+    if fixed then
+        -- Precio fijo: Main-spec paga el precio y Off-spec un %
         local D = addonTable.Dkp
-        local minBid = D.GetSettings().minBid
+        local price = LT.GetItemPrice(item)
+        frame.buttons.need:SetText(L["Main-spec"] .. " (" .. price .. ")")
+        frame.buttons.offspec:SetText(L["Off-spec"] .. " (" .. D.GetOffspecPrice(price) .. ")")
+        local ok, reason = D.CheckEligible(me, LT.GetItemTier(item))
+        local warning = ok and "" or (reason == "gate" and L["\n|cFFFF3333Necesitas al menos "] .. D.GetSettings().gate .. L[" DKP para piezas de Mítica.|r"]
+            or L["\n|cFFFF3333No llegas a la asistencia mínima.|r"])
+        frame.info:SetText(L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. L["|r   Precio: |cFFFFD100"] .. price .. "|r" .. winsText .. warning)
+    elseif auction then
+        local D = addonTable.Dkp
+        local minBid = LT.GetMinBid(item)
         frame.bidInput:SetText(tostring(minBid))
         frame.info:SetText(L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. L["|r   Puja mínima: |cFFFFD100"] .. minBid .. "|r" .. winsText)
     else
+        for kind, btn in pairs(frame.buttons) do btn:SetText(L[LT.KINDS[kind]]) end
         frame.info:SetText(L["Tus +1: |cFFFFD100"] .. LT.GetPoints(me) .. "|r" .. winsText)
     end
     frame:Show()
@@ -7906,6 +7918,13 @@ local function BuildLootView(parent)
     local bidControls = { bidInput, btnBid, btnBidPass }
 
     local MAX_ROLL_ROWS = 4   -- filas de tirada que caben en el panel
+    -- Precio del objeto elegido (oficiales, DKP)
+    local btnPrice = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
+    btnPrice:SetSize(90, 20)
+    btnPrice:SetPoint("TOPRIGHT", rollBox, "TOPRIGHT", -8, -3)
+    btnPrice:SetText(L["Precio"])
+    btnPrice:SetScript("OnClick", function() if selectedKey and uiModule.ShowItemPrice then uiModule.ShowItemPrice(selectedKey) end end)
+
     local ROLL_COLS = { name = 0, kind = 130, roll = 230, points = 280, wins = 320 }
     local rollHeader = CreateFrame("Frame", nil, rollBox)
     rollHeader:SetSize(420, 14)
@@ -8021,6 +8040,11 @@ local function BuildLootView(parent)
         GameTooltip:Show()
     end)
     btnRaidDkp:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local btnPrices = CreateFrame("Button", nil, pointsBox, "UIPanelButtonTemplate")
+    btnPrices:SetSize(70, 20)
+    btnPrices:SetPoint("RIGHT", btnRaidDkp, "LEFT", -4, 0)
+    btnPrices:SetText(L["Precios"])
+    btnPrices:SetScript("OnClick", function() if uiModule.ShowDkpPrices then uiModule.ShowDkpPrices() end end)
 
     local function SimpleRow(box, index)
         local row = box.rows[index]
@@ -8056,11 +8080,17 @@ local function BuildLootView(parent)
         btnReset:SetShown(isOfficer and not dkp)
         btnDkpSettings:SetShown(isOfficer and dkp)
         btnRaidDkp:SetShown(isOfficer and dkp)
+        btnPrices:SetShown(isOfficer and dkp)
+        local fixed = dkp and LT.IsFixed()
         dropSystem:SetText(dkp and "DKP" or "+1")
         pointsBox.title:SetText(dkp and L["DKP de la hermandad"] or L["+1 de la hermandad"])
-        rollHeader.labels.kind:SetText(dkp and L["Puja"] or L["Pide"])
-        rollHeader.labels.roll:SetText(dkp and "DKP" or L["Tirada"])
-        rollHeader.labels.points:SetText(dkp and L["Antig."] or "+1")
+        rollHeader.labels.kind:SetText(fixed and L["Pide"] or (dkp and L["Puja"] or L["Pide"]))
+        rollHeader.labels.roll:SetText(fixed and L["Paga"] or (dkp and "DKP" or L["Tirada"]))
+        rollHeader.labels.points:SetText(fixed and "DKP" or (dkp and L["Antig."] or "+1"))
+        -- En precio fijo los botones de pedir son Main-spec y Off-spec
+        for kind, btn in pairs(chooseButtons) do
+            btn:SetText(fixed and (kind == "need" and L["Main-spec"] or (kind == "offspec" and L["Off-spec"] or L["Pasar"])) or L[LT.KINDS[kind]])
+        end
         local function WinnerText(it)
             if it.kind == "bid" then return " |cFFFFD100" .. tostring(it.roll or 0) .. " DKP|r" end
             return it.kind == "need" and " |cFFFFD100+1|r" or L[" |cFF66B3FF(off-spec)|r"]
@@ -8085,7 +8115,8 @@ local function BuildLootView(parent)
             local state = item.state == "done"
                 and (L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. WinnerText(item))
                 or STATE_TEXT[item.state] or ""
-            row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. "   " .. state)
+            local priceText = (dkp and item.state ~= "done") and ("   |cFFFFD100" .. LT.GetItemPrice(item) .. " DKP|r") or ""
+            row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. priceText .. "   " .. state)
             row.action:SetShown(canManage and item.state ~= "done")
             row.action:SetText(item.state == "rolling" and L["Asignar"] or (dkp and L["Subastar"] or L["Tirar"]))
             row.action:SetScript("OnClick", function()
@@ -8107,6 +8138,7 @@ local function BuildLootView(parent)
         for _, btn in pairs(chooseButtons) do btn:SetShown(false) end
         for _, w in ipairs(bidControls) do w:SetShown(false) end
         btnStartRoll:SetShown(false); btnAward:SetShown(false); btnCancelRoll:SetShown(false)
+        btnPrice:SetShown(hasItem and dkp and isOfficer and item.state ~= "done")
         if hasItem then
             local link = LT.DisplayLink(item.link)
             rollItem.link = link
@@ -8114,12 +8146,17 @@ local function BuildLootView(parent)
             rollItem.text:SetText(link)
             local myChoice = LT.GetMyChoice(item.key)
             local me = addonTable.Profiles.GetMyFullName()
-            if item.state == "rolling" and dkp then
+            local price = dkp and LT.GetItemPrice(item) or 0
+            if item.state == "rolling" and fixed then
+                rollState:SetText(L["|cFF00FF00Abierto.|r "] .. L["Precio: |cFFFFD100"] .. price .. L["|r · Off-spec: |cFFFFD100"]
+                    .. D.GetOffspecPrice(price) .. "|r" .. (myChoice and (L["   Has pedido: "] .. (myChoice == "need" and L["Main-spec"] or (myChoice == "offspec" and L["Off-spec"] or L["Pasar"]))) or ""))
+                for _, btn in pairs(chooseButtons) do btn:SetShown(not myChoice) end
+            elseif item.state == "rolling" and dkp then
                 local mine = item.rolls[me]
                 rollState:SetText(L["|cFF00FF00Subasta abierta.|r "] .. L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. "|r"
                     .. ((mine and mine.kind == "bid") and (L["   Tu puja: |cFFFFD100"] .. mine.bid .. "|r") or ""))
                 for _, w in ipairs(bidControls) do w:SetShown(true) end
-                if not bidInput:HasFocus() then bidInput:SetText(tostring(D.GetSettings().minBid)) end
+                if not bidInput:HasFocus() then bidInput:SetText(tostring(LT.GetMinBid(item))) end
             elseif item.state == "rolling" then
                 rollState:SetText(L["|cFF00FF00Tirada abierta.|r "] .. (myChoice and (L["Has pedido: "] .. L[LT.KINDS[myChoice]]) or L["Elige qué pides:"]))
                 for _, btn in pairs(chooseButtons) do btn:SetShown(not myChoice) end
@@ -8127,7 +8164,7 @@ local function BuildLootView(parent)
                 rollState:SetText(L["|cFF00FF00Ganador:|r "] .. ClassName(item.winner) .. WinnerText(item)
                     .. (item.kind == "bid" and "" or (L["  ·  tirada "] .. tostring(item.roll or "-"))))
             else
-                rollState:SetText(L["|cFFBFBFBFPendiente de tirar.|r"])
+                rollState:SetText(dkp and (L["|cFFBFBFBFPendiente.|r "] .. L["Precio: |cFFFFD100"] .. price .. " DKP|r") or L["|cFFBFBFBFPendiente de tirar.|r"])
             end
             local list = LT.GetRollList(item)
             for i, entry in ipairs(list) do
@@ -8137,7 +8174,12 @@ local function BuildLootView(parent)
                 row.playerName = entry.name
                 local color = LT.KIND_COLORS[entry.kind] or "FFFFFF"
                 row.cells.name:SetText((i == 1 and item.state == "rolling" and "|cFFFFD100>|r " or "") .. ClassName(entry.name))
-                if entry.kind == "bid" then
+                if fixed and (entry.kind == "need" or entry.kind == "offspec") then
+                    -- Precio fijo: lo que pide, lo que pagaría y sus DKP; si no puede optar, el motivo
+                    row.cells.kind:SetText("|cFF" .. color .. (entry.kind == "need" and L["Main-spec"] or L["Off-spec"]) .. "|r")
+                    row.cells.roll:SetText((entry.valid and "|cFFFFD100" or "|cFFFF3333") .. entry.price .. "|r")
+                    row.cells.points:SetText(tostring(entry.balance))
+                elseif entry.kind == "bid" then
                     -- Puja, DKP del jugador (en rojo si la puja los supera) y días de antigüedad
                     row.cells.kind:SetText((entry.valid and "|cFFFFD100" or "|cFFFF3333") .. entry.bid .. "|r")
                     row.cells.roll:SetText(tostring(entry.balance))
@@ -8147,7 +8189,11 @@ local function BuildLootView(parent)
                     row.cells.roll:SetText(entry.roll and tostring(entry.roll) or "|cFF808080...|r")
                     row.cells.points:SetText(tostring(entry.points))
                 end
-                row.cells.wins:SetText(entry.wins > 0 and ("|cFFFF7F00" .. L["Ya ganó "] .. entry.wins .. "|r") or "")
+                if entry.valid == false and entry.reason then
+                    row.cells.wins:SetText(entry.reason == "gate" and L["|cFFFF3333Mín. DKP|r"] or L["|cFFFF3333Asistencia|r"])
+                else
+                    row.cells.wins:SetText(entry.wins > 0 and ("|cFFFF7F00" .. L["Ya ganó "] .. entry.wins .. "|r") or "")
+                end
                 row:Show()
             end
             local passes = LT.GetPassList(item)
@@ -9814,6 +9860,9 @@ local DKP_SETTING_FIELDS = {
     { key = "seniority", label = "DKP semanales por antigüedad" },
     { key = "decay", label = "Decay semanal (%)" },
     { key = "minBid", label = "Puja mínima" },
+    { key = "offspec", label = "Off-spec paga (% del precio)" },
+    { key = "gate", label = "DKP mínimos para piezas de Mítica" },
+    { key = "minAttendance", label = "Asistencia mínima (%; 0 = no)" },
 }
 
 function uiModule.ShowDkpSettings()
@@ -9821,7 +9870,7 @@ function uiModule.ShowDkpSettings()
     if not D or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return end
     if not dkpSettingsFrame then
         local frame = CreateFrame("Frame", "GuildControlDkpSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
-        frame:SetSize(320, 250)
+        frame:SetSize(320, 370)
         frame:SetPoint("CENTER")
         frame:SetFrameStrata("DIALOG")
         frame:SetToplevel(true)
@@ -9835,14 +9884,27 @@ function uiModule.ShowDkpSettings()
         frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
         frame.title:SetText(L["Ajustes de DKP"])
 
+        -- Reparto: precio fijo o subasta
+        frame.modeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.modeButton:SetSize(284, 22)
+        frame.modeButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -34)
+        local function ModeText()
+            frame.modeButton:SetText(L["Reparto: "] .. (frame.mode == "auction" and L["Subasta abierta"] or L["Precio fijo"]))
+        end
+        frame.ModeText = ModeText
+        frame.modeButton:SetScript("OnClick", function()
+            frame.mode = frame.mode == "auction" and "fixed" or "auction"
+            ModeText()
+        end)
+
         frame.inputs = {}
         for i, field in ipairs(DKP_SETTING_FIELDS) do
             local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -40 - (i - 1) * 28)
+            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -70 - (i - 1) * 28)
             label:SetText(L[field.label])
             local input = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
             input:SetSize(60, 20)
-            input:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -22, -36 - (i - 1) * 28)
+            input:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -22, -66 - (i - 1) * 28)
             input:SetAutoFocus(false)
             input:SetNumeric(true)
             input:SetMaxLetters(4)
@@ -9851,7 +9913,7 @@ function uiModule.ShowDkpSettings()
         end
 
         local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -182)
+        hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -294)
         hint:SetWidth(284)
         hint:SetJustifyH("LEFT")
         hint:SetText(L["La antigüedad cuenta desde que cada jugador rellena Mi perfil. El decay y los DKP de antigüedad se aplican en cada reinicio semanal."])
@@ -9864,6 +9926,7 @@ function uiModule.ShowDkpSettings()
             local values = {}
             for key, input in pairs(frame.inputs) do values[key] = input:GetText() end
             if D.SetSettings(values) then
+                if frame.mode ~= D.GetMode() then D.SetMode(frame.mode) end
                 PrintGC(L["Ajustes de DKP guardados y enviados a la hermandad."])
                 frame:Hide()
             end
@@ -9872,6 +9935,8 @@ function uiModule.ShowDkpSettings()
     end
     local settings = D.GetSettings()
     for key, input in pairs(dkpSettingsFrame.inputs) do input:SetText(tostring(settings[key] or 0)) end
+    dkpSettingsFrame.mode = D.GetMode()
+    dkpSettingsFrame.ModeText()
     dkpSettingsFrame:Show()
 end
 
@@ -9914,6 +9979,141 @@ function uiModule.ShowDkpAdjust(fullName)
     StaticPopup_Show("GUILDCONTROL_DKP_ADJUST",
         L["DKP para "] .. short .. L[" (ahora "] .. addonTable.Dkp.GetBalance(fullName) .. L["). Escribe la cantidad (usa - para restar):"],
         nil, fullName)
+end
+
+-- Precio de un objeto concreto (botón Precio de Tirada, oficiales). "Predeterminado" vuelve al
+-- de la tabla de precios.
+StaticPopupDialogs["GUILDCONTROL_ITEM_PRICE"] = {
+    text = "%s",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    button3 = "",
+    hasEditBox = true,
+    maxLetters = 6,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self, data)
+        data = data or self.data
+        local box = self.EditBox or self.editBox
+        if box then box:SetNumeric(true); box:SetText(tostring(data and data.price or "")); box:SetFocus(); box:HighlightText() end
+        local third = self.button3 or (self.GetButton and self:GetButton(3))
+        if third then third:SetText(L["Predeterminado"]) end
+    end,
+    OnAccept = function(self, data)
+        local box = self.EditBox or self.editBox
+        local price = box and tonumber(box:GetText())
+        if data and price and addonTable.Loot then addonTable.Loot.SetItemPrice(data.key, price) end
+    end,
+    OnAlt = function(self, data)
+        if data and addonTable.Loot then addonTable.Loot.SetItemPrice(data.key, nil) end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["GUILDCONTROL_ITEM_PRICE"].OnAccept(parent, parent.data)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
+
+function uiModule.ShowItemPrice(key)
+    local LT, D = addonTable.Loot, addonTable.Dkp
+    if not LT or not D or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return end
+    local item = LT.GetItem(key)
+    if not item then return end
+    local default = D.GetDefaultPrice(item.link, item.difficultyID)
+    StaticPopup_Show("GUILDCONTROL_ITEM_PRICE",
+        L["Precio en DKP de "] .. LT.DisplayLink(item.link) .. L[" (predeterminado: "] .. default .. "):",
+        nil, { key = key, price = LT.GetItemPrice(item) })
+end
+
+-- Tabla de precios por hueco y dificultad (oficiales)
+local dkpPricesFrame = nil
+local PRICE_TIER_LABELS = { normal = "Normal", heroic = "Heroica", mythic = "Mítica" }
+
+function uiModule.ShowDkpPrices()
+    local D = addonTable.Dkp
+    if not D or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return end
+    if not dkpPricesFrame then
+        local frame = CreateFrame("Frame", "GuildControlDkpPricesFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:SetSize(520, 340)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame:SetToplevel(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        tinsert(UISpecialFrames, "GuildControlDkpPricesFrame")
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["Precios de los objetos (DKP)"])
+
+        local COLS = { normal = 296, heroic = 366, mythic = 436 }
+        for tier, x in pairs(COLS) do
+            local head = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            head:SetPoint("TOP", frame, "TOPLEFT", x + 30, -36)
+            head:SetText(L[PRICE_TIER_LABELS[tier]])
+        end
+        frame.inputs = {}
+        for i, category in ipairs(D.ITEM_CATEGORIES) do
+            local y = -58 - (i - 1) * 28
+            local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, y - 4)
+            label:SetWidth(270)
+            label:SetJustifyH("LEFT")
+            label:SetText(L[category.label])
+            frame.inputs[category.key] = {}
+            for tier, x in pairs(COLS) do
+                local input = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+                input:SetSize(56, 20)
+                input:SetPoint("TOPLEFT", frame, "TOPLEFT", x + 6, y)
+                input:SetAutoFocus(false)
+                input:SetNumeric(true)
+                input:SetMaxLetters(6)
+                input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+                frame.inputs[category.key][tier] = input
+            end
+        end
+
+        local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -258)
+        hint:SetWidth(484)
+        hint:SetJustifyH("LEFT")
+        hint:SetText(L["El precio de cada objeto sale de esta tabla según su hueco y la dificultad en la que cayó. Con el botón Precio de Tirada se cambia el de un objeto concreto."])
+
+        local function Fill(prices)
+            for key, row in pairs(frame.inputs) do
+                for tier, input in pairs(row) do input:SetText(tostring(prices[key] and prices[key][tier] or 0)) end
+            end
+        end
+        frame.Fill = Fill
+
+        local btnSave = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnSave:SetSize(120, 22)
+        btnSave:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 12)
+        btnSave:SetText(L["Guardar"])
+        btnSave:SetScript("OnClick", function()
+            local prices = {}
+            for key, row in pairs(frame.inputs) do
+                prices[key] = {}
+                for tier, input in pairs(row) do prices[key][tier] = input:GetText() end
+            end
+            if D.SetPrices(prices) then
+                PrintGC(L["Precios guardados y enviados a la hermandad."])
+                frame:Hide()
+            end
+        end)
+        local btnDefaults = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnDefaults:SetSize(170, 22)
+        btnDefaults:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 12)
+        btnDefaults:SetText(L["Valores recomendados"])
+        btnDefaults:SetScript("OnClick", function() Fill(D.DEFAULT_PRICES) end)
+        dkpPricesFrame = frame
+    end
+    dkpPricesFrame.Fill(D.GetPrices())
+    dkpPricesFrame:Show()
 end
 
 -- =========================================================================

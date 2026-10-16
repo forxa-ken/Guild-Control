@@ -26,6 +26,7 @@ local lootModule = addonTable.Loot
 --
 -- Mensajes (prefijo GuildControlLoot):
 --   grupo:     S;clave;dueño;enlace (abre tirada)   K;clave;tipo[;puja] (lo que pido)   E;clave (cancela)
+--              V;clave;precio (precio DKP del objeto; se envía antes que S)
 --   hermandad: W;id;clave;ganador;tipo;tirada;hora;sesión;enlace (asignado)   Z;hora (reinicio de +1)
 --              Q (petición al entrar)   P;nombre;puntos;hora (puntos de un jugador, en respuesta)
 
@@ -204,10 +205,77 @@ end
 
 function lootModule.GetActiveKey() return activeKey end
 
+-- =========================================================================
+-- PRECIO DE LOS OBJETOS (DKP)
+-- =========================================================================
+local pendingPrices = {}   -- precio recibido antes que el objeto ("V" llega antes que "S")
+
+local function IsFixed()
+    return IsDkp() and addonTable.Dkp.GetMode() == "fixed"
+end
+lootModule.IsFixed = IsFixed
+
+-- Precio del objeto: el que puso un oficial o el de la tabla (hueco y dificultad)
+function lootModule.GetItemPrice(item)
+    if not item then return 0 end
+    if item.price then return item.price end
+    if not addonTable.Dkp then return 0 end
+    return (addonTable.Dkp.GetDefaultPrice(item.link, item.difficultyID))
+end
+
+-- ¿Es una pieza de Mítica? (para el mínimo de DKP de entrada)
+function lootModule.GetItemTier(item)
+    return addonTable.Dkp and addonTable.Dkp.GetTier(item and item.difficultyID) or "normal"
+end
+
+-- Un oficial cambia el precio (nil = volver al predeterminado). Si está en tirada se avisa al grupo.
+function lootModule.SetItemPrice(key, price)
+    local item = lootModule.GetItem(key)
+    if not item or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return false end
+    item.price = price and math.max(0, math.floor(tonumber(price) or 0)) or nil
+    if item.state == "rolling" then SendGroup("V;" .. key .. ";" .. lootModule.GetItemPrice(item)) end
+    Notify()
+    return true
+end
+
+-- Precio fijo: Main-spec antes que Off-spec (que paga un %), entre los que pueden optar al
+-- objeto; a igualdad gana quien tenga más DKP y luego más antigüedad.
+-- { {name, kind, price, balance, days, valid, reason, wins}, ... }
+local function GetFixedList(item)
+    local D = addonTable.Dkp
+    local price = lootModule.GetItemPrice(item)
+    local tier = lootModule.GetItemTier(item)
+    local list = {}
+    for name, r in pairs(item and item.rolls or {}) do
+        if r.kind == "need" or r.kind == "offspec" then
+            local valid, reason = D.CheckEligible(name, tier)
+            local balance = D.GetBalance(name)
+            local pay = r.kind == "offspec" and D.GetOffspecPrice(price) or price
+            table.insert(list, { name = name, kind = r.kind, price = pay, roll = pay, balance = balance, points = balance,
+                                 days = D.GetSeniorityDays(name), valid = valid, reason = reason,
+                                 wins = lootModule.GetSessionWins(name) })
+        end
+    end
+    local kindOrder = { need = 1, offspec = 2 }
+    table.sort(list, function(a, b)
+        if a.valid ~= b.valid then return a.valid end
+        if a.kind ~= b.kind then return kindOrder[a.kind] < kindOrder[b.kind] end
+        if a.balance ~= b.balance then return a.balance > b.balance end
+        local da, db = a.days or -1, b.days or -1
+        if da ~= db then return da > db end
+        return a.name < b.name
+    end)
+    return list
+end
+
 local function AddItem(key, link, owner)
     local session = EnsureSession()
     if session.items[key] then return session.items[key] end
-    local item = { key = key, link = link, owner = owner, at = GetServerTime(), state = "pending", rolls = {} }
+    -- Dificultad en la que cayó (para el precio predeterminado del DKP)
+    local _, instanceType, difficultyID = GetInstanceInfo()
+    local item = { key = key, link = link, owner = owner, at = GetServerTime(), state = "pending", rolls = {},
+                   difficultyID = (instanceType == "raid" or instanceType == "party") and difficultyID or nil }
+    if pendingPrices[key] then item.price, pendingPrices[key] = pendingPrices[key], nil end
     session.items[key] = item
     table.insert(session.order, key)
     return item
@@ -251,7 +319,10 @@ local function GetBidList(item)
 end
 
 function lootModule.GetRollList(item)
-    if IsDkp() then return GetBidList(item) end
+    if IsDkp() then
+        if IsFixed() then return GetFixedList(item) end
+        return GetBidList(item)
+    end
     local list = {}
     for name, r in pairs(item and item.rolls or {}) do
         if r.kind ~= "pass" then
@@ -299,10 +370,16 @@ function lootModule.StartRoll(key)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return false end
     OpenRoll(key)
+    -- Con DKP, el precio va antes que el objeto para que la ventanita ya lo muestre
+    if IsDkp() then SendGroup("V;" .. key .. ";" .. lootModule.GetItemPrice(item)) end
     SendGroup(table.concat({ "S", key, item.owner or "?", ShortLink(item.link) }, ";"))
     if lootModule.OnRollStarted then lootModule.OnRollStarted(key) end
-    if IsDkp() then
-        local minBid = addonTable.Dkp.GetSettings().minBid
+    if IsFixed() then
+        local price = lootModule.GetItemPrice(item)
+        Announce(item.link .. L[": Main-spec "] .. price .. L[" DKP, Off-spec "] .. addonTable.Dkp.GetOffspecPrice(price)
+            .. L[" DKP. Pídelo en GuildControl."])
+    elseif IsDkp() then
+        local minBid = lootModule.GetMinBid(item)
         Announce(L["Subasta DKP por "] .. item.link .. L[": puja en GuildControl (mínimo "] .. minBid .. L[" DKP)."])
     else
         Announce(L["Tirada por "] .. item.link .. L[": pulsa Necesidad (+1), Off-spec o Pasar en GuildControl, o escribe /roll."])
@@ -329,11 +406,18 @@ function lootModule.Choose(key, kind)
     item.rolls[me] = item.rolls[me] or {}
     item.rolls[me].kind = kind
     SendGroup("K;" .. key .. ";" .. kind)
-    if kind ~= "pass" then RandomRoll(1, 100) end
+    if kind ~= "pass" and not IsDkp() then RandomRoll(1, 100) end
     Notify()
 end
 
 function lootModule.GetMyChoice(key) return myChoice[key] end
+
+-- Subasta: la puja mínima es el precio del objeto (o la de los ajustes si no tiene precio)
+function lootModule.GetMinBid(item)
+    local price = lootModule.GetItemPrice(item)
+    if price and price > 0 then return price end
+    return addonTable.Dkp and addonTable.Dkp.GetSettings().minBid or 1
+end
 
 -- Mi puja (DKP). Se puede subir mientras la subasta siga abierta.
 function lootModule.Bid(key, amount)
@@ -342,7 +426,7 @@ function lootModule.Bid(key, amount)
     amount = math.floor(tonumber(amount) or 0)
     local D = addonTable.Dkp
     local me = MyName()
-    local minBid, balance = D.GetSettings().minBid, D.GetBalance(me)
+    local minBid, balance = lootModule.GetMinBid(item), D.GetBalance(me)
     if amount < minBid then
         print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333La puja mínima es "] .. minBid .. L[" DKP.|r"])
         return false
@@ -384,19 +468,27 @@ function lootModule.Award(key, winnerName)
         print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333Esa puja supera los DKP del jugador.|r"])
         return nil
     end
+    if IsFixed() and not winner.valid then
+        print("|cFF00FFFF[GuildControl]|r " .. (winner.reason == "gate" and L["|cFFFF3333No llega al mínimo de DKP para piezas de Mítica.|r"]
+            or L["|cFFFF3333No llega a la asistencia mínima.|r"]))
+        return nil
+    end
+    -- Con DKP se guarda como "bid" con lo que pagó (puja o precio)
+    local paid = IsDkp() and (winner.kind == "bid" and winner.bid or winner.price) or nil
     local session = EnsureSession()
     local at = GetServerTime()
     local id = (UnitName("player") or "?") .. "-" .. at .. "-" .. math.random(1000, 9999)
     local alreadyWon = lootModule.GetSessionWins(winner.name)
-    lootModule.ApplyAward({ id = id, key = key, winner = winner.name, kind = winner.kind, roll = winner.roll,
+    local kind, roll = paid and "bid" or winner.kind, paid or winner.roll
+    lootModule.ApplyAward({ id = id, key = key, winner = winner.name, kind = kind, roll = roll,
                             at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName() })
-    SendGuild(table.concat({ "W", id, key, winner.name, winner.kind, tostring(winner.roll or 0), at, session.id, ShortLink(item.link) }, ";"))
+    SendGuild(table.concat({ "W", id, key, winner.name, kind, tostring(roll or 0), at, session.id, ShortLink(item.link) }, ";"))
     SendGroup("E;" .. key)
-    if winner.kind == "bid" and addonTable.Dkp then addonTable.Dkp.Spend(winner.name, winner.bid, item.link) end
+    if paid and addonTable.Dkp then addonTable.Dkp.Spend(winner.name, paid, item.link) end
     local short = Ambiguate(winner.name, "none")
     local extra
-    if winner.kind == "bid" then
-        extra = " (" .. tostring(winner.bid) .. " DKP"
+    if paid then
+        extra = " (" .. tostring(paid) .. " DKP" .. (winner.kind == "offspec" and ", off-spec" or "")
     else
         extra = (winner.kind == "need" and L[" (+1, tirada "] or L[" (off-spec, tirada "]) .. tostring(winner.roll or "-")
     end
@@ -556,6 +648,18 @@ local function OnAddonMessage(msg, channel, sender)
         OpenRoll(key)
         if lootModule.OnRollStarted then lootModule.OnRollStarted(key) end
         Notify()
+    elseif kind == "V;" then
+        if not CanManageName(fullSender) then return end
+        local _, key, price = strsplit(";", msg)
+        price = tonumber(price)
+        if not key or not price then return end
+        local item = lootModule.GetItem(key)
+        if item then
+            item.price = price
+            Notify()
+        else
+            pendingPrices[key] = price
+        end
     elseif kind == "K;" then
         local _, key, choice, amount = strsplit(";", msg)
         local item = lootModule.GetItem(key)
