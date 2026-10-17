@@ -219,6 +219,27 @@ function profilesModule.SaveMyProfile(main, secondary, spec, note, charType, mai
     NotifyChange()
 end
 
+-- El enfoque se aplica al momento al elegirlo en Mi perfil (sin esperar a Guardar y enviar):
+-- a mi perfil, a mi ficha (columna Enfoque de Miembros) y, si ya hay rol guardado, a la hermandad
+function profilesModule.SetMyFocus(focus)
+    if not VALID_FOCUS[focus] then return end
+    local profile = profilesModule.GetMyProfile()
+    profile.focus = focus
+    local m = GuildControlDB.members[profilesModule.GetMyFullName()]
+    if m then
+        m.focus = focus
+        if type(m.declared) == "table" then m.declared.focus = focus end
+    end
+    if profile.main then
+        profile.savedAt = time()
+        if m and type(m.declared) == "table" then m.declared.at = profile.savedAt end
+        profilesModule.Broadcast(true)
+    end
+    -- Sin NotifyChange: recargaría Mi perfil y borraría lo que aún no se ha guardado
+    local UI = addonTable.UI
+    if UI and UI.RefreshList and UI.IsShown and UI.IsShown() then UI.RefreshList() end
+end
+
 local function SendRole(msg)
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
         C_ChatInfo.SendAddonMessage(ROLE_PREFIX, msg, "GUILD")

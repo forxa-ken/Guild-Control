@@ -3723,7 +3723,11 @@ local function BuildMyProfileView(parent)
     mainNameInput:Hide()
 
     -- Enfoque principal del jugador (columna Enfoque de Miembros)
-    local focusChoice = CreateRoleChoice(charBox, L["Enfoque"], -74, P.FOCUS)
+    -- Se aplica al pulsarlo (P.SetMyFocus), sin esperar a Guardar y enviar
+    local focusChoice
+    focusChoice = CreateRoleChoice(charBox, L["Enfoque"], -74, P.FOCUS, function()
+        if P.SetMyFocus then P.SetMyFocus(focusChoice.Get()) end
+    end)
 
     -- Especialización y especialización off, de la clase del personaje
     local SPEC_ROLE_TO_ROLE = { TANK = "Tanque", HEALER = "Sanador", DAMAGER = "DPS" }
