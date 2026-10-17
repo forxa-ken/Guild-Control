@@ -9420,7 +9420,7 @@ local function BuildConfigView(parent)
 
     local CHANNEL_ROWS = {
         { key = "english", label = L["lobosenglish (inglés)"] },
-        { key = "spanish", label = L["lobosespanol (español)"] },
+        { key = "spanish", label = L["lobosespañol (español)"] },
         { key = "officer", label = L["Oficiales (chat del juego)"], officer = true },
     }
     local channelChecks, officerRow = {}, {}
@@ -9538,7 +9538,7 @@ local CHAT_CHANNEL_TABS = {
     { key = "party", label = "Grupo" },
     { key = "officer", label = "Oficiales" },  -- chat de oficiales del juego (solo oficiales)
     { key = "english", label = "English" },    -- canal lobosenglish (GuildChat.lua)
-    { key = "spanish", label = "Español" },    -- canal lobosespanol (GuildChat.lua)
+    { key = "spanish", label = "Español" },    -- canal lobosespañol (GuildChat.lua)
 }
 local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true,
     officer = true, english = true, spanish = true }
@@ -9699,7 +9699,7 @@ local function BuildChatPanel(parent)
     local function UpdateTargetText()
         local channel, target = SendTarget()
         local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"], officer = L["Oficiales"],
-            english = "lobosenglish", spanish = "lobosespanol" }
+            english = "lobosenglish", spanish = "lobosespañol" }
         if channel == "whisper" then
             targetText:SetText(target and ("|cFFFF80FF" .. L["Susurro a "] .. target .. ":|r") or L["|cFF808080Sin destinatario|r"])
         else
@@ -9715,7 +9715,7 @@ local function BuildChatPanel(parent)
             if not addonTable.GuildChat.Send(text, channel, target) then
                 if channel == "english" or channel == "spanish" then
                     PrintGC(string.format(L["|cFFFF3333No estás en el canal %s. Actívalo en Configuración > Canales del chat.|r"],
-                        channel == "english" and "lobosenglish" or "lobosespanol"))
+                        channel == "english" and "lobosenglish" or "lobosespañol"))
                 elseif channel == "officer" then
                     PrintGC(L["|cFFFF3333Tu rango no puede escribir en el chat de oficiales.|r"])
                 else

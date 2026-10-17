@@ -60,7 +60,7 @@ chatFrame:RegisterEvent("CHAT_MSG_CHANNEL")
 chatFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 -- =========================================================================
--- CANALES DE IDIOMA (lobosenglish, lobosespanol) Y CHAT DE OFICIALES
+-- CANALES DE IDIOMA (lobosenglish, lobosespañol) Y CHAT DE OFICIALES
 -- =========================================================================
 -- Los canales personalizados se unen por NOMBRE, que es el mismo en cualquier idioma del
 -- cliente; el número (/5, /6...) lo asigna cada cliente según el orden en que entra en sus
@@ -72,7 +72,7 @@ chatFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 -- El chat de oficiales es el del juego (CHAT_MSG_OFFICER): solo lo leen los rangos con permiso.
 chatModule.LANG_CHANNELS = {
     { key = "english", name = "lobosenglish", locale = "en", label = "English" },
-    { key = "spanish", name = "lobosespanol", locale = "es", label = "Español" },
+    { key = "spanish", name = "lobosespañol", locale = "es", label = "Español" },
 }
 chatModule.ENGLISH_CHANNEL = "lobosenglish"
 
