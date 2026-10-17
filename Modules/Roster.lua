@@ -605,6 +605,14 @@ end
 
 -- Invitar al grupo a los titulares conectados. Con más de 4 se invita a los primeros,
 -- se convierte el grupo en banda cuando alguien acepta y después se invita al resto.
+-- Forever: se invita con el nombre del juego (con apellido), no con la clave interna
+local function InviteName(name)
+    local gameName = addonTable.GetGameName(name)
+    if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(gameName)
+    elseif InviteUnit then InviteUnit(gameName) end
+end
+rosterModule.InviteName = InviteName
+
 local pendingInvites = {}
 local inviteFrame = CreateFrame("Frame")
 inviteFrame:SetScript("OnEvent", function(self)
@@ -613,10 +621,10 @@ inviteFrame:SetScript("OnEvent", function(self)
         return
     end
     if not IsInRaid() and GetNumGroupMembers() > 1 and UnitIsGroupLeader("player") then
-        if C_PartyInfo and C_PartyInfo.ConvertToRaid then C_PartyInfo.ConvertToRaid() end
+        if C_PartyInfo and C_PartyInfo.ConvertToRaid then C_PartyInfo.ConvertToRaid() elseif ConvertToRaid then ConvertToRaid() end
     end
     if IsInRaid() then
-        for _, name in ipairs(pendingInvites) do C_PartyInfo.InviteUnit(name) end
+        for _, name in ipairs(pendingInvites) do InviteName(name) end
         wipe(pendingInvites)
         self:UnregisterEvent("GROUP_ROSTER_UPDATE")
     end
@@ -634,7 +642,7 @@ function rosterModule.InviteRoster(roster)
     local canInviteAll = IsInRaid() or #targets <= 4
     for i, name in ipairs(targets) do
         if canInviteAll or i <= 4 then
-            C_PartyInfo.InviteUnit(name)
+            InviteName(name)
         else
             table.insert(pendingInvites, name)
         end

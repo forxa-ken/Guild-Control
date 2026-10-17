@@ -94,6 +94,46 @@ function toolsModule.CancelPull()
     toolsModule.Pull(0)
 end
 
+-- Descanso: aviso de banda al empezar, a falta de 1 minuto y al terminar. La duración (en
+-- minutos) se configura en Configuración (settings.breakMinutes, 5 por defecto). Pulsarlo
+-- con un descanso en marcha lo cancela.
+toolsModule.BREAK_DEFAULT, toolsModule.BREAK_MIN, toolsModule.BREAK_MAX = 5, 1, 30
+local breakTimers = {}
+
+function toolsModule.GetBreakMinutes()
+    local value = GuildControlDB and GuildControlDB.settings and tonumber(GuildControlDB.settings.breakMinutes)
+    return math.max(toolsModule.BREAK_MIN, math.min(toolsModule.BREAK_MAX, math.floor(value or toolsModule.BREAK_DEFAULT)))
+end
+
+function toolsModule.IsOnBreak()
+    return #breakTimers > 0
+end
+
+function toolsModule.Break()
+    if not CanLead() then return end
+    local channel = (IsInRaid() and "RAID_WARNING") or "PARTY"
+    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+    local function Say(text) send(text, channel) end
+    if #breakTimers > 0 then
+        for _, timer in ipairs(breakTimers) do timer:Cancel() end
+        wipe(breakTimers)
+        Say(L["Descanso cancelado"])
+        Notify()
+        return
+    end
+    local minutes = toolsModule.GetBreakMinutes()
+    Say(string.format(L["Descanso de %d minutos. Volvemos a las %s."], minutes, date("%H:%M", time() + minutes * 60)))
+    if minutes > 1 then
+        table.insert(breakTimers, C_Timer.NewTimer((minutes - 1) * 60, function() Say(L["Queda 1 minuto de descanso."]) end))
+    end
+    table.insert(breakTimers, C_Timer.NewTimer(minutes * 60, function()
+        wipe(breakTimers)
+        Say(L["¡Fin del descanso! Todos a sus puestos."])
+        Notify()
+    end))
+    Notify()
+end
+
 -- =========================================================================
 -- CONSUMIBLES EN LAS BOLSAS (SOLO EL PROPIO PERSONAJE)
 -- =========================================================================

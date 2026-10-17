@@ -7,8 +7,9 @@ local communityModule = addonTable.Community
 -- Comunidad (sin frames; la UI está en UI.lua, pestaña "Comunidad"):
 --   - Buscar grupo: anuncios de la hermandad ("Busco gente para +12") a los que apuntarse.
 --     Viven en memoria (2 h) y se comparten con el prefijo GuildControlLFG:
---       N;id;hora;actividad;plazas;texto   anuncio nuevo o cambiado (del autor)
---       J;id   me apunto     L;id   me borro     X;id   el autor lo cierra
+--       N;id;hora;actividad;plazas;texto;roles   anuncio nuevo o cambiado (del autor);
+--                                              roles = letras de los que se buscan: t, h, d
+--       J;id;rol   me apunto (rol: tank|healer|dps)     L;id   me borro     X;id   el autor lo cierra
 --       Q      petición al entrar (cada uno reenvía sus anuncios abiertos)
 --   - Artesanos: cada jugador con GuildControl comparte las recetas que conoce de sus
 --     profesiones (al cerrar la ventana de profesión). GuildControlDB.recipes[Nombre-Reino] =
@@ -89,17 +90,36 @@ function communityModule.CountMembers(post)
     return count
 end
 
-local function SendPost(post)
-    Send(LFG_PREFIX, table.concat({ "N", post.id, post.at, post.activity, post.slots, post.text }, ";"))
+-- Roles que se buscan en un anuncio: { tank = true, ... } <-> "thd"
+communityModule.ROLES = { "tank", "healer", "dps" }
+local ROLE_LETTER = { tank = "t", healer = "h", dps = "d" }
+local LETTER_ROLE = { t = "tank", h = "healer", d = "dps" }
+local function RolesToString(roles)
+    local out = ""
+    for _, role in ipairs(communityModule.ROLES) do
+        if roles and roles[role] then out = out .. ROLE_LETTER[role] end
+    end
+    return out
+end
+local function RolesFromString(text)
+    local roles = {}
+    for letter in string.gmatch(text or "", "[thd]") do roles[LETTER_ROLE[letter]] = true end
+    if not next(roles) then roles = { tank = true, healer = true, dps = true } end
+    return roles
 end
 
-function communityModule.CreatePost(activity, slots, text)
+local function SendPost(post)
+    Send(LFG_PREFIX, table.concat({ "N", post.id, post.at, post.activity, post.slots, post.text, RolesToString(post.roles) }, ";"))
+end
+
+function communityModule.CreatePost(activity, slots, text, roles)
     text = Clean(text, 120)
     if text == "" then return nil end
     local post = {
-        id = (UnitName("player") or "?") .. "-" .. GetServerTime(), author = MyName(), at = GetServerTime(),
+        id = (string.match(UnitName("player") or "?", "^(%S+)") or "?") .. "-" .. GetServerTime(), author = MyName(), at = GetServerTime(),
         activity = VALID_ACTIVITY[activity] and activity or "other",
         slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4))), text = text, members = {},
+        roles = RolesFromString(RolesToString(roles)),
     }
     posts[post.id] = post
     SendPost(post)
@@ -115,11 +135,13 @@ function communityModule.ClosePost(id)
     Notify()
 end
 
-function communityModule.Join(id)
+-- role: con qué rol me apunto (uno de los que busca el anuncio)
+function communityModule.Join(id, role)
     local post = posts[id]
     if not post then return end
-    post.members[MyName()] = true
-    Send(LFG_PREFIX, "J;" .. id)
+    role = ROLE_LETTER[role] and role or "dps"
+    post.members[MyName()] = role
+    Send(LFG_PREFIX, "J;" .. id .. ";" .. role)
     Notify()
 end
 
@@ -134,7 +156,7 @@ end
 local function OnLfgMessage(sender, msg)
     local kind = string.sub(msg, 1, 2)
     if kind == "N;" then
-        local _, id, at, activity, slots, text = strsplit(";", msg, 6)
+        local _, id, at, activity, slots, text, roles = strsplit(";", msg, 7)
         at = tonumber(at)
         if not id or not at or not text or GetServerTime() - at > POST_MAX_AGE then return end
         local post = posts[id]
@@ -144,19 +166,21 @@ local function OnLfgMessage(sender, msg)
         post.activity = VALID_ACTIVITY[activity] and activity or "other"
         post.slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4)))
         post.text = Clean(text, 120)
+        post.roles = RolesFromString(roles)
         posts[id] = post
         if isNew and addonTable.Personal and GetServerTime() - at < 120 then
             addonTable.Personal.Alert(string.format(L["%s busca gente: %s"], Ambiguate(sender, "none"), post.text))
         end
         Notify()
     elseif kind == "J;" or kind == "L;" or kind == "X;" then
-        local id = string.sub(msg, 3)
+        local id, role = strsplit(";", string.sub(msg, 3), 2)
+        role = ROLE_LETTER[role] and role or true
         local post = posts[id]
         if not post then return end
         if kind == "X;" then
             if post.author == sender then posts[id] = nil end
         elseif kind == "J;" then
-            post.members[sender] = true
+            post.members[sender] = role
             if post.author == MyName() and addonTable.Personal then
                 addonTable.Personal.Alert(string.format(L["%s se apunta a tu grupo."], Ambiguate(sender, "none")))
             end

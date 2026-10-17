@@ -1353,4 +1353,27 @@ L["Elige una banda"] = "Choose a raid"
 L["|cFF00FF00Publicado|r el "] = "|cFF00FF00Published|r on "
 L["|cFFFF7F00Sin publicar|r (solo lo ven los oficiales)"] = "|cFFFF7F00Not published|r (only officers can see it)"
 L["   ·   Tarde "] = "   ·   Late "
+L["Esta banda aún no tiene roster (se monta en la pestaña Roster)."] = "This raid has no roster yet (it is built in the Roster tab)."
+L["|cFF808080El roster de esta banda aún no se ha publicado.|r"] = "|cFF808080The roster for this raid has not been published yet.|r"
+
+-- Modo minimalista: descanso y aviso de buffos
+L["Descanso"] = "Break"
+L["|cFFFFD100Descanso…|r"] = "|cFFFFD100Break…|r"
+L["Avisa a la banda de un descanso, a falta de 1 minuto y al terminar. La duración se cambia en Configuración. Púlsalo otra vez para cancelarlo."] = "Announces a break to the raid, with a warning 1 minute before the end and when it ends. Change the length in Settings. Press it again to cancel."
+L["Descanso cancelado"] = "Break cancelled"
+L["Descanso de %d minutos. Volvemos a las %s."] = "%d minute break. We resume at %s."
+L["Queda 1 minuto de descanso."] = "1 minute of break left."
+L["¡Fin del descanso! Todos a sus puestos."] = "Break is over! Everyone to your positions."
+L["Minutos de descanso en banda (1-30)"] = "Raid break minutes (1-30)"
+L["Avisar a los que faltan"] = "Warn those missing"
+L["Susurra a cada integrante los buffos de banda, el frasco o la comida que le faltan. Solo a quien se puede leer (no en combate ni fuera de alcance)."] = "Whispers each member the raid buffs, flask or food they are missing. Only players that can be read (not in combat or out of range)."
+L["frasco o elixir"] = "flask or elixir"
+L["comida"] = "food"
+L["[GuildControl] Te falta: "] = "[GuildControl] You are missing: "
+L["Aviso de buffos enviado a %d jugadores."] = "Buff warning sent to %d players."
+
+-- Comunidad: roles de Buscar grupo
+L["Se busca: "] = "Looking for: "
+L["Apuntados: "] = "Signed up: "
+L["¿Con qué rol vas?"] = "Which role are you joining as?"
 addonTable.RegisterLocale("enUS", "English", L)

@@ -269,6 +269,25 @@ function addonTable.IsMe(name)
     return me ~= nil and addonTable.NormalizeName(name) == me
 end
 
+-- Nombre que entiende el juego para invitar o susurrar. En Classic Forever la clave interna
+-- ("Peppa-Reino") no vale: el personaje se llama con su apellido ("Peppa Pic"). Se usa el nombre tal
+-- como lo da la lista de la hermandad (member.displayName) y el reino solo si es otro.
+-- Sin ficha (alguien de fuera de la hermandad) se usa lo que se escribió.
+function addonTable.GetGameName(name)
+    if type(name) ~= "string" or name == "" then return name end
+    local key = addonTable.NormalizeName(name)
+    local m = key and GuildControlDB and GuildControlDB.members and GuildControlDB.members[key]
+    local base, realm = strsplit("-", name, 2)
+    -- displayName puede traer ya el reino (Retail): solo se toma el nombre
+    local gameName = (m and m.displayName and (strsplit("-", m.displayName))) or base
+    local _, keyRealm = strsplit("-", key or "", 2)
+    realm = (realm and realm ~= "") and realm or keyRealm
+    if realm and realm ~= "" and string.gsub(realm, "%s+", "") ~= NormalizedRealm() then
+        gameName = gameName .. "-" .. realm
+    end
+    return gameName
+end
+
 -- Registra eventos que quizá no existan en todos los clientes: el juego da error con un
 -- evento desconocido, así que se registran uno a uno con pcall y se ignoran los que faltan
 function addonTable.RegisterEvents(frame, ...)

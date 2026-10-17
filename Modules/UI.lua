@@ -795,11 +795,12 @@ end
 local function WhisperTo(name)
     if not name or name == "" then return end
     if addonTable.WarnIfBusy then addonTable.WarnIfBusy(name) end
-    OpenChatWith("/w " .. name .. " ")
+    OpenChatWith("/w " .. addonTable.GetGameName(name) .. " ")
 end
 
 local function SendWhisper(name, msg)
     if not name or name == "" or not msg or msg == "" then return end
+    name = addonTable.GetGameName(name)   -- Forever: nombre con apellido
     if C_ChatInfo and C_ChatInfo.SendChatMessage then
         C_ChatInfo.SendChatMessage(msg, "WHISPER", nil, name)
     else
@@ -809,6 +810,7 @@ end
 
 local function InviteToGroup(name)
     if not name or name == "" then return end
+    name = addonTable.GetGameName(name)   -- Forever: nombre con apellido
     if C_PartyInfo and C_PartyInfo.InviteUnit then
         C_PartyInfo.InviteUnit(name)
     elseif InviteUnit then
@@ -829,10 +831,11 @@ local function InviteToGuild(name, quiet)
         PrintGC(L["|cFFFF3333Tu rango no tiene permiso para invitar a la hermandad.|r"])
         return false
     end
+    local gameName = addonTable.GetGameName(name)   -- Forever: nombre con apellido
     if C_GuildInfo and C_GuildInfo.Invite then
-        C_GuildInfo.Invite(name)
+        C_GuildInfo.Invite(gameName)
     elseif GuildInvite then
-        GuildInvite(name)
+        GuildInvite(gameName)
     end
     if not quiet then PrintGC(L["Invitación a la hermandad enviada a |cFFFFD100"] .. name .. "|r.") end
     return true
@@ -1894,6 +1897,12 @@ local function BuildRosterView(parent)
     btnSizeUp:SetPoint("LEFT", sizeText, "RIGHT", 4, 0)
     btnSizeUp:SetText("+")
 
+    -- El tamaño viene de la banda creada en Raid: no se edita aquí
+    btnSizeDown:Hide()
+    btnSizeUp:Hide()
+    sizeText:ClearAllPoints()
+    sizeText:SetPoint("LEFT", sizeLabel, "RIGHT", 6, 0)
+
     btnSizeDown:SetScript("OnClick", function()
         local roster = R.GetSelected()
         R.SetSize(roster, roster.size - 1)
@@ -1951,31 +1960,11 @@ local function BuildRosterView(parent)
 
     local candTitle = candPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     candTitle:SetPoint("TOPLEFT", candPanel, "TOPLEFT", 10, -8)
-    candTitle:SetText(L["Apuntados a la banda"])
+    candTitle:SetText(L["Candidatos"])
 
-    local candSearch = CreateFrame("EditBox", nil, candPanel, "InputBoxTemplate")
-    candSearch:SetSize(200, 20)
-    candSearch:SetPoint("TOPLEFT", candTitle, "BOTTOMLEFT", 4, -6)
-    candSearch:SetAutoFocus(false)
-    candSearch:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    candSearch:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    local candPlaceholder = candSearch:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    candPlaceholder:SetPoint("LEFT", candSearch, "LEFT", 2, 0)
-    candPlaceholder:SetText(L["Nombre o clase..."])
-
-    local chkOnline = CreateFrame("CheckButton", "GC_RosterOnlyOnline", candPanel, "UICheckButtonTemplate")
-    chkOnline:SetSize(22, 22)
-    chkOnline:SetPoint("TOPLEFT", candSearch, "BOTTOMLEFT", -8, -2)
-    _G[chkOnline:GetName() .. "Text"]:SetText(L["Conectados"])
-
-    local chkMaxLevel = CreateFrame("CheckButton", "GC_RosterOnlyMaxLevel", candPanel, "UICheckButtonTemplate")
-    chkMaxLevel:SetSize(22, 22)
-    chkMaxLevel:SetPoint("LEFT", chkOnline, "RIGHT", 82, 0)
-    _G[chkMaxLevel:GetName() .. "Text"]:SetText(L["Nivel máx."])
-    chkMaxLevel:SetChecked(true)
-
+    -- Todos los apuntados, estén conectados o no (sin buscador ni filtros)
     local candScroll = CreateFrame("ScrollFrame", "GC_RosterCandScroll", candPanel, "UIPanelScrollFrameTemplate")
-    candScroll:SetPoint("TOPLEFT", chkOnline, "BOTTOMLEFT", 4, -4)
+    candScroll:SetPoint("TOPLEFT", candTitle, "BOTTOMLEFT", 0, -8)
     candScroll:SetPoint("BOTTOMRIGHT", candPanel, "BOTTOMRIGHT", -26, 24)
     local candChild = CreateFrame("Frame")
     candChild:SetSize(190, 1)
@@ -1984,15 +1973,6 @@ local function BuildRosterView(parent)
     local candHint = candPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     candHint:SetPoint("BOTTOMLEFT", candPanel, "BOTTOMLEFT", 10, 8)
     candHint:SetText(L["Clic: añadir · Clic derecho: rol"])
-
-    local candQuery = ""
-    candSearch:SetScript("OnTextChanged", function(self)
-        candQuery = string.lower(strtrim(self:GetText() or ""))
-        candPlaceholder:SetShown((self:GetText() or "") == "")
-        Refresh()
-    end)
-    chkOnline:SetScript("OnClick", function() Refresh() end)
-    chkMaxLevel:SetScript("OnClick", function() Refresh() end)
 
     local function MaxPlayerLevel()
         if GetMaxLevelForPlayerExpansion then
@@ -2061,19 +2041,10 @@ local function BuildRosterView(parent)
     local VALID_SIGNUP_SLOT = { tank = true, healer = true, dps = true }
     local function RefreshCandidates(roster, event)
         for _, row in ipairs(candRows) do row:Hide() end
-        local maxLevel = chkMaxLevel:GetChecked() and MaxPlayerLevel() or nil
         local groups = { tank = {}, healer = {}, dps = {}, none = {} }
         local effective = roster and R.GetEffectiveMembers(roster) or {}
         for fullName, signup in pairs(event and event.signups or {}) do
-            local m = GuildControlDB.members[fullName] or {}
-            local pass = signup.status ~= "absent" and signup.status ~= "late" and not effective[fullName]
-                and ((not chkOnline:GetChecked()) or m.isOnline)
-                and ((not maxLevel) or (tonumber(m.level) or 0) >= maxLevel)
-            if pass and candQuery ~= "" then
-                local className = string.lower(R.GetClassName(m.class))
-                pass = string.find(string.lower(fullName), candQuery, 1, true) or string.find(className, candQuery, 1, true)
-            end
-            if pass then
+            if signup.status ~= "absent" and signup.status ~= "late" and not effective[fullName] then
                 local slot = VALID_SIGNUP_SLOT[signup.role] and signup.role or R.GetDefinedSlot(fullName) or "none"
                 table.insert(groups[slot], fullName)
             end
@@ -2505,11 +2476,13 @@ local function BuildRosterView(parent)
         end
         if GetTime() >= clearArmedUntil then btnClear:SetText(ClearLabel()) end
 
+        -- Tamaño de la banda (si se edita la banda en Raid, el roster lo sigue)
+        local eventSize = tonumber(event.size)
+        if eventSize and roster.size ~= eventSize then
+            roster.size = math.max(R.MIN_SIZE, math.min(R.MAX_SIZE, eventSize))
+        end
         local targets = R.GetTargets(roster)
         sizeText:SetText(roster.size)
-        local isMythic = roster.difficulty == "mythic"
-        btnSizeDown:SetEnabled(not isMythic and roster.size > R.MIN_SIZE)
-        btnSizeUp:SetEnabled(not isMythic and roster.size < R.MAX_SIZE)
         if not tankTarget:HasFocus() then tankTarget:SetText(targets.tank) end
         if not healerTarget:HasFocus() then healerTarget:SetText(targets.healer) end
         dpsTargetText:SetText(L["DPS: "] .. targets.dps)
@@ -2964,8 +2937,11 @@ end
 -- -------------------------------------------------------------------------
 -- Modo masivo: cola de jugadores, búsqueda /who y envío por lotes
 -- -------------------------------------------------------------------------
+-- Nombres de la invitación masiva: tal como se escribieron o como los da /who (con apellido
+-- en Forever), porque se usan para invitar y susurrar
 local function NormalizePlayerName(name)
-    return addonTable.NormalizeName(name)   -- Core: "Nombre-Reino" sin apellido
+    name = strtrim(name or "")
+    return name ~= "" and name or nil
 end
 
 local MASS_STATUS_TEXT = {
@@ -6460,25 +6436,20 @@ local function BuildRaidView(parent)
         return nil
     end
 
-    -- Roster de la banda: oficiales, el suyo (en vivo); jugadores, solo el publicado
+    -- Roster publicado de la banda (el que ven todos; el que se edita en vivo no se muestra aquí)
     local function FindEventRoster(event)
         if not event then return nil end
-        local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
-        if isOfficer then
-            local own = R.FindByEvent(event.id)
-            if own then return own end
-        end
         for _, item in ipairs(R.GetSharedRosters()) do
             if item.roster.eventId == event.id then return item.roster end
         end
-        return FindRosterByName(event.rosterName)
+        return nil
     end
 
-    -- Vista previa del roster asociado: sus integrantes por rol y qué ha respondido cada uno
+    -- Vista previa del roster publicado: sus integrantes por rol y qué ha respondido cada uno
     local function ShowRosterPreview(event)
         local roster = FindEventRoster(event)
         if not roster then
-            SetPreviewText(L["|cFF808080Esta banda no tiene un roster asociado o no lo tienes.|r"])
+            SetPreviewText(L["|cFF808080El roster de esta banda aún no se ha publicado.|r"])
             return
         end
         local lines = { "|cFFFFD100" .. roster.name .. "|r", R.DifficultyLabel(roster) .. L[" · "] .. roster.size .. L[" jugadores"], "" }
@@ -6647,14 +6618,11 @@ local function BuildRaidView(parent)
     btnRemind:SetText(L["Recordar al roster"])
     btnRemind:SetScript("OnClick", function()
         local event = SelectedEvent()
-        if not event or not event.rosterName then
-            PrintGC(L["Esta banda no tiene un roster asociado (se elige al editarla)."])
-            return
-        end
-        local roster
-        for _, r in ipairs(R.GetAll()) do if r.name == event.rosterName then roster = r end end
-        if not roster then
-            PrintGC(L["No se encuentra el roster |cFFFFD100"] .. event.rosterName .. "|r.")
+        if not event then return end
+        -- El roster de la banda (se monta en la pestaña Roster)
+        local roster = R.FindByEvent(event.id)
+        if not roster or not next(roster.members) then
+            PrintGC(L["Esta banda aún no tiene roster (se monta en la pestaña Roster)."])
             return
         end
         local me, sent = string.match(UnitName("player") or "", "^(%S+)"), 0   -- sin apellido (Forever)
@@ -6766,6 +6734,9 @@ local function BuildRaidView(parent)
                 function() formFields.rosterName = name; dropRosterLink:SetText(name) end)
         end
     end)
+    -- El roster se monta después, en la pestaña Roster: aquí ya no se elige
+    rosterLabel:Hide()
+    dropRosterLink:Hide()
 
     local descInput = FormInput(FormLabel(L["Descripción (estrategia, requisitos, consumibles...)"], 16, -150), 600, 160)
 
@@ -7167,9 +7138,29 @@ local function BuildRaidView(parent)
     -- ---------------------------------------------------------------------
     -- Refresco general
     -- ---------------------------------------------------------------------
+    -- Al elegir una banda, la vista previa muestra su roster publicado (o que aún no lo está).
+    -- Solo al cambiar de banda o al recibir un roster, para no pisar otras vistas previas.
+    local previewEventId = nil
+    view:HookScript("OnHide", function() previewEventId = nil end)
+    R.SetReceivedListener(function()
+        local ev = previewEventId and E.Get(previewEventId)
+        if ev and activeTab == "Raid" and view:IsShown() then ShowRosterPreview(ev) end
+    end)
+
     local function RefreshPlanning(event)
         local isOfficer = IsOfficerProfile()
-        btnRosterPreview:SetShown(event ~= nil and event.rosterName ~= nil)
+        btnRosterPreview:Hide()   -- el roster publicado se ve solo en la vista previa
+        if event and event.id ~= previewEventId and activeTab == "Raid" then
+            previewEventId = event.id
+            -- Un instante después: al cambiar de pestaña, SwitchTab pone el texto por defecto
+            local id = event.id
+            C_Timer.After(0, function()
+                local ev = E.Get(id)
+                if ev and previewEventId == id and activeTab == "Raid" then ShowRosterPreview(ev) end
+            end)
+        elseif not event then
+            previewEventId = nil
+        end
         officerBar:SetShown(isOfficer and event ~= nil)
         footer:SetShown(event ~= nil)
         for _, btn in ipairs({ btnInvite, btnRemind, btnRepublish }) do btn:SetShown(isOfficer) end
@@ -8834,6 +8825,32 @@ local function BuildConfigView(parent)
     chkNotify:SetScript("OnClick", function(self) settings().personalNotify = self:GetChecked() and true or false end)
     chkNotify:SetScript("OnShow", function(self) self:SetChecked(settings().personalNotify ~= false) end)
 
+    -- Duración del descanso del modo minimalista de banda (minutos)
+    local breakInput = CreateFrame("EditBox", nil, windowBox, "InputBoxTemplate")
+    breakInput:SetSize(34, 20)
+    breakInput:SetPoint("TOPLEFT", chkNotify, "BOTTOMLEFT", 10, -4)
+    breakInput:SetAutoFocus(false)
+    breakInput:SetNumeric(true)
+    breakInput:SetMaxLetters(2)
+    breakInput:SetJustifyH("CENTER")
+    local breakText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    breakText:SetPoint("LEFT", breakInput, "RIGHT", 8, 0)
+    breakText:SetWidth(230)
+    breakText:SetJustifyH("LEFT")
+    breakText:SetText(L["Minutos de descanso en banda (1-30)"])
+    local function BreakMinutes()
+        return addonTable.RaidTools and addonTable.RaidTools.GetBreakMinutes() or 5
+    end
+    breakInput:SetScript("OnTextChanged", function(self, userInput)
+        if not userInput then return end
+        local value = tonumber(self:GetText())
+        if value then settings().breakMinutes = math.min(30, math.max(1, value)) end
+    end)
+    breakInput:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(BreakMinutes())) end)
+    breakInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    breakInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    breakInput:SetScript("OnShow", function(self) self:SetText(tostring(BreakMinutes())) end)
+
     local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
     aboutText:SetWidth(284)
@@ -9808,6 +9825,32 @@ local function BuildCommunityView(parent)
     slotsInput:SetText("4")
     slotsInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
+    -- Roles que se buscan (al menos uno; por defecto los tres)
+    local lfgRoles = { tank = true, healer = true, dps = true }
+    local roleChecks = {}
+    local previousCheck = slotsInput
+    for _, role in ipairs({ "tank", "healer", "dps" }) do
+        local chk = CreateFrame("CheckButton", nil, lfgBox, "UICheckButtonTemplate")
+        chk:SetSize(22, 22)
+        chk:SetPoint("LEFT", previousCheck, "RIGHT", previousCheck == slotsInput and 10 or 26, 0)
+        chk:SetChecked(true)
+        chk.icon = chk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        chk.icon:SetPoint("LEFT", chk, "RIGHT", 0, 0)
+        chk.icon:SetText(RoleIcon(role, 16))
+        chk:SetScript("OnClick", function(self)
+            lfgRoles[role] = self:GetChecked() and true or nil
+            if not next(lfgRoles) then lfgRoles[role] = true; self:SetChecked(true) end
+        end)
+        chk:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(L["Se busca: "] .. L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role]], 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        chk:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        roleChecks[role] = chk
+        previousCheck = chk
+    end
+
     local textInput = CreateFrame("EditBox", nil, lfgBox, "InputBoxTemplate")
     textInput:SetSize(300, 20)
     textInput:SetPoint("TOPLEFT", dropActivity, "BOTTOMLEFT", 6, -10)
@@ -9823,7 +9866,7 @@ local function BuildCommunityView(parent)
     btnPublish:SetPoint("LEFT", textInput, "RIGHT", 8, 0)
     btnPublish:SetText(L["Publicar"])
     local function Publish()
-        if C.CreatePost(activity, slotsInput:GetText(), textInput:GetText()) then
+        if C.CreatePost(activity, slotsInput:GetText(), textInput:GetText(), lfgRoles) then
             textInput:SetText("")
             textInput:ClearFocus()
         end
@@ -9984,9 +10027,22 @@ local function BuildCommunityView(parent)
             row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 58)
             local count = C.CountMembers(post)
             local mineIn = post.members[me]
-            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. ColoredName(post.author)
+            -- Roles que se buscan e integrantes apuntados con el rol que eligieron
+            local wanted, wantedIcons = {}, ""
+            for _, role in ipairs(C.ROLES or {}) do
+                if not post.roles or post.roles[role] then
+                    table.insert(wanted, role)
+                    wantedIcons = wantedIcons .. RoleIcon(role, 14)
+                end
+            end
+            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. " " .. ColoredName(post.author)
                 .. "  |cFF808080" .. date("%H:%M", post.at) .. "  ·  " .. count .. "/" .. post.slots .. "|r")
-            row.text:SetText(post.text)
+            local joined = {}
+            for name, role in pairs(post.members) do
+                table.insert(joined, (type(role) == "string" and RoleIcon(role, 12) or "") .. ColoredName(name))
+            end
+            table.sort(joined)
+            row.text:SetText(post.text .. (#joined > 0 and ("\n|cFF808080" .. L["Apuntados: "] .. "|r" .. table.concat(joined, ", ")) or ""))
             row.button2:Hide()
             if post.author == me then
                 row.button:SetText(L["Cerrar"])
@@ -10001,7 +10057,20 @@ local function BuildCommunityView(parent)
                 row.button:SetScript("OnClick", function() C.Leave(post.id) end)
             else
                 row.button:SetText(L["Me apunto"])
-                row.button:SetScript("OnClick", function() C.Join(post.id) end)
+                -- Con un solo rol buscado se apunta directamente; con varios se elige
+                row.button:SetScript("OnClick", function(self)
+                    if #wanted == 1 then
+                        C.Join(post.id, wanted[1])
+                        return
+                    end
+                    MenuUtil.CreateContextMenu(self, function(_, root)
+                        root:CreateTitle(L["¿Con qué rol vas?"])
+                        for _, role in ipairs(wanted) do
+                            root:CreateButton(RoleIcon(role, 14) .. " " .. L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role]],
+                                function() C.Join(post.id, role) end)
+                        end
+                    end)
+                end)
                 row.button2:SetText(L["Susurrar"])
                 row.button2:Show()
                 row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
@@ -10324,7 +10393,7 @@ local function CreateBuffFrame()
 
     local summary = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     summary:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -32)
-    summary:SetPoint("RIGHT", frame, "RIGHT", -120, 0)
+    summary:SetPoint("RIGHT", frame, "RIGHT", -280, 0)
     summary:SetJustifyH("LEFT")
     summary:SetWordWrap(false)
 
@@ -10332,6 +10401,31 @@ local function CreateBuffFrame()
         L["Vuelve a leer los buffos y pide a quien usa GuildControl lo que lleva en las bolsas."],
         function() T.RequestReports() end)
     btnRefresh:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -28)
+
+    -- Susurra a cada uno lo que le falta (los que salen con la X roja)
+    local btnWarn = MiniButton(frame, L["Avisar a los que faltan"], 150, L["Avisar a los que faltan"],
+        L["Susurra a cada integrante los buffos de banda, el frasco o la comida que le faltan. Solo a quien se puede leer (no en combate ni fuera de alcance)."],
+        function()
+            local members, available = T.GetGroupStatus()
+            local sent = 0
+            for _, m in ipairs(members) do
+                local scan = m.scan
+                if scan and m.online and not addonTable.IsMe(m.fullName) then
+                    local missing = {}
+                    for _, key in ipairs(available) do
+                        if not scan.buffs[key] then table.insert(missing, (T.GetBuffInfo(key))) end
+                    end
+                    if not scan.flask then table.insert(missing, L["frasco o elixir"]) end
+                    if not scan.food then table.insert(missing, L["comida"]) end
+                    if #missing > 0 then
+                        SendWhisper(m.fullName, L["[GuildControl] Te falta: "] .. table.concat(missing, ", "))
+                        sent = sent + 1
+                    end
+                end
+            end
+            PrintGC(string.format(L["Aviso de buffos enviado a %d jugadores."], sent))
+        end)
+    btnWarn:SetPoint("RIGHT", btnRefresh, "LEFT", -6, 0)
 
     -- Cabecera de columnas
     local header = CreateFrame("Frame", nil, frame)
@@ -10660,10 +10754,16 @@ local function CreateRaidMiniFrame()
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    -- Fila 3: buff check, ventana de buffos y modo normal
+    -- Fila 3: descanso, ventana de buffos y modo normal
     local width3 = (inner - MINI_GAP * 2) / 3
+    local btnBreak = MiniButton(frame, L["Descanso"], width3, L["Descanso"],
+        L["Avisa a la banda de un descanso, a falta de 1 minuto y al terminar. La duración se cambia en Configuración. Púlsalo otra vez para cancelarlo."],
+        function() T.Break() end)
+    T.AddListener(function()
+        btnBreak:SetText(T.IsOnBreak() and L["|cFFFFD100Descanso…|r"] or L["Descanso"])
+    end)
     local row3 = {
-        MiniButton(frame, L["Buff check"], width3, L["Buff check"], L["Abre GuildControl en modo normal, en Raid, con la ventana de buffos de la banda."], function() uiModule.BuffCheck() end),
+        btnBreak,
         MiniButton(frame, L["Buffos"], width3, L["Ventana de buffos"], L["Muestra los buffos, frascos, comida, runas y pociones de la banda sin salir del modo minimalista."], function()
             if addonTable.RaidTools then addonTable.RaidTools.RequestReports() end
             uiModule.ShowBuffWindow(nil)
