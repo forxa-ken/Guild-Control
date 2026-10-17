@@ -615,6 +615,9 @@ local function BuildSidebar(parent)
     btnConfig:SetScript("OnClick", function() SwitchTab("Configuracion") end)
     sidebar.btnConfig = btnConfig
 
+    -- Botón Desarrollador: solo existe en la copia del autor (la carpeta Dev/ no se empaqueta)
+    if addonTable.Dev and addonTable.Dev.CreateButton then addonTable.Dev.CreateButton(sidebar) end
+
     containers.sidebar = sidebar
 end
 
@@ -11581,8 +11584,9 @@ local function NeedsProfile()
     return not profile.main
 end
 
-function uiModule.ShowProfileTask()
-    if not NeedsProfile() then
+-- force: mostrarla aunque ya tengas Mi perfil (herramientas de desarrollador)
+function uiModule.ShowProfileTask(force)
+    if not force and not NeedsProfile() then
         if taskFrame then taskFrame:Hide() end
         return
     end

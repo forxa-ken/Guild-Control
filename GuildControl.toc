@@ -31,3 +31,7 @@ Modules\RaidTools.lua
 Modules\Personal.lua
 Modules\Community.lua
 Modules\UI.lua
+
+#@do-not-package@
+Dev\DevTools.lua
+#@end-do-not-package@

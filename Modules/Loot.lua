@@ -75,6 +75,7 @@ end
 local function Notify()
     for _, fn in ipairs(listeners) do fn() end
 end
+lootModule.Notify = Notify
 
 function lootModule.AddListener(fn)
     table.insert(listeners, fn)
@@ -124,6 +125,11 @@ function lootModule.DisplayLink(link)
 end
 
 local function Announce(text)
+    -- Herramientas de desarrollador: en el entorno de pruebas el anuncio solo se escribe en tu chat
+    if addonTable.Dev and addonTable.Dev.IsSandbox and addonTable.Dev.IsSandbox() then
+        print("|cFF00FFFF[GuildControl]|r |cFFFF7F00[Dev]|r " .. text)
+        return
+    end
     local channel = GroupChannel()
     if not channel then return end
     if C_ChatInfo and C_ChatInfo.SendChatMessage then

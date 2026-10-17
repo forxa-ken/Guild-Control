@@ -9,6 +9,7 @@ manual-changelog:
 # Archivos del repositorio que no van en el .zip del addon
 ignore:
   - CLAUDE.md
+  - Dev
   - PUBLICAR.md
   - versiones
   - .github

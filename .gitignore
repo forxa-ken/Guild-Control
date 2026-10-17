@@ -11,3 +11,6 @@ Media/*.png
 
 # Configuración personal de Claude Code
 .claude/settings.local.json
+
+# Herramientas de desarrollador del autor (no se suben a GitHub ni a CurseForge)
+Dev/

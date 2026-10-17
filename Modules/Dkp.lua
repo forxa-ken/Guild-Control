@@ -105,6 +105,7 @@ local function MyName() return NormalizeName(UnitName("player")) end
 local function Notify()
     for _, fn in ipairs(listeners) do fn() end
 end
+dkpModule.Notify = Notify
 
 function dkpModule.AddListener(fn)
     table.insert(listeners, fn)

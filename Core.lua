@@ -740,6 +740,8 @@ SlashCmdList["GUILDCONTROL"] = function(msg)
         if addonTable.UI.EnterMiniMode then addonTable.UI.EnterMiniMode() end
     elseif cmd == "recetas" or cmd == "recipes" then
         if addonTable.Community and addonTable.Community.DebugRecipes then addonTable.Community.DebugRecipes() end
+    elseif cmd == "dev" and addonTable.Dev and addonTable.Dev.Toggle then
+        addonTable.Dev.Toggle()   -- solo en la copia del autor (Dev/ no se empaqueta)
     else
         print(L["|cFF00FFFF[GuildControl] Comandos disponibles:|r"])
         print(L[" /gct - Abre/Cierra la interfaz principal."])
