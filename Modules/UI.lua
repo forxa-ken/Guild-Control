@@ -9186,6 +9186,26 @@ local function BuildConfigView(parent)
     chkNotify:SetScript("OnClick", function(self) settings().personalNotify = self:GetChecked() and true or false end)
     chkNotify:SetScript("OnShow", function(self) self:SetChecked(settings().personalNotify ~= false) end)
 
+    -- Canal en inglés de la hermandad (por defecto, activado en clientes en inglés)
+    local chkEnglish = CreateFrame("CheckButton", "GC_CfgEnglishChannel", windowBox, "UICheckButtonTemplate")
+    chkEnglish:SetPoint("TOPLEFT", chkNotify, "BOTTOMLEFT", 0, 2)
+    _G[chkEnglish:GetName() .. "Text"]:SetText(L["Unirme al canal lobosenglish (inglés)"])
+    chkEnglish:SetScript("OnClick", function(self)
+        if addonTable.GuildChat and addonTable.GuildChat.SetEnglishChannel then
+            addonTable.GuildChat.SetEnglishChannel(self:GetChecked() and true or false)
+        end
+    end)
+    chkEnglish:SetScript("OnShow", function(self)
+        self:SetChecked(addonTable.GuildChat and addonTable.GuildChat.UsesEnglishChannel and addonTable.GuildChat.UsesEnglishChannel() or false)
+    end)
+    chkEnglish:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["Canal en inglés"], 1, 1, 1)
+        GameTooltip:AddLine(L["Canal para los miembros que juegan en inglés. Sus mensajes salen en la pestaña English del chat de GuildControl. Viene activado si tu juego está en inglés."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    chkEnglish:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
     aboutText:SetWidth(284)
@@ -9469,13 +9489,14 @@ local CHAT_CHANNEL_TABS = {
     { key = "whisper", label = "Susurros" },
     { key = "raid", label = "Banda" },
     { key = "party", label = "Grupo" },
+    { key = "english", label = "English" },   -- canal lobosenglish (GuildChat.lua)
 }
-local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true }
+local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true, english = true }
 -- Color y etiqueta de cada canal (como en el chat del juego)
 local CHAT_CHANNEL_STYLE = {
     guild = { color = "40FF40", tag = "H" }, whisper = { color = "FF80FF", tag = "S" },
     raid = { color = "FF7F00", tag = "B" }, party = { color = "AAAAFF", tag = "G" },
-    instance = { color = "FF7F00", tag = "M" },
+    instance = { color = "FF7F00", tag = "M" }, english = { color = "FFC0A0", tag = "EN" },
 }
 
 local function ChatEntryTime(entry)
@@ -9602,13 +9623,14 @@ local function BuildChatPanel(parent)
         if activeTabName == "all" or activeTabName == "guild" then return "guild", nil end
         if activeTabName == "raid" then return "raid", nil end
         if activeTabName == "party" then return "party", nil end
+        if activeTabName == "english" then return "english", nil end
         if activeTabName == "whisper" then return "whisper", LastWhisperPartner() end
         return "whisper", activeTabName
     end
 
     local function UpdateTargetText()
         local channel, target = SendTarget()
-        local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"] }
+        local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"], english = "lobosenglish" }
         if channel == "whisper" then
             targetText:SetText(target and ("|cFFFF80FF" .. L["Susurro a "] .. target .. ":|r") or L["|cFF808080Sin destinatario|r"])
         else
@@ -9622,7 +9644,11 @@ local function BuildChatPanel(parent)
         local text = input:GetText()
         if addonTable.GuildChat and strtrim(text or "") ~= "" then
             if not addonTable.GuildChat.Send(text, channel, target) then
-                PrintGC(L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o no hay destinatario).|r"])
+                if channel == "english" then
+                    PrintGC(L["|cFFFF3333No estás en el canal lobosenglish. Actívalo en Configuración > Ventana.|r"])
+                else
+                    PrintGC(L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o no hay destinatario).|r"])
+                end
                 return
             end
         end

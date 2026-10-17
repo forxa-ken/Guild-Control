@@ -1428,4 +1428,10 @@ L["Pedido a %s:\n|cFFFFD100%s|r"] = "Order to %s:\n|cFFFFD100%s|r"
 L["Limpiar cerrados"] = "Clear closed"
 L["con materiales"] = "with materials"
 L["sin materiales"] = "no materials"
+
+-- Canal en inglés (lobosenglish)
+L["Unirme al canal lobosenglish (inglés)"] = "Join the lobosenglish channel (English)"
+L["Canal en inglés"] = "English channel"
+L["Canal para los miembros que juegan en inglés. Sus mensajes salen en la pestaña English del chat de GuildControl. Viene activado si tu juego está en inglés."] = "Channel for members who play in English. Its messages appear in the English tab of the GuildControl chat. It is on by default if your game is in English."
+L["|cFFFF3333No estás en el canal lobosenglish. Actívalo en Configuración > Ventana.|r"] = "|cFFFF3333You are not in the lobosenglish channel. Turn it on in Settings > Window.|r"
 addonTable.RegisterLocale("enUS", "English", L)
