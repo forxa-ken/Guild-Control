@@ -59,6 +59,13 @@ local function Clean(text, maxLen)
     return string.sub(strtrim(text), 1, maxLen)
 end
 
+-- Diagnóstico (/gct recetas): durante 2 minutos se avisa en el chat de cada petición y
+-- respuesta de recetas
+local recipeDebugUntil = 0
+local function RecipeDebug(text)
+    if GetTime() < recipeDebugUntil then print("|cFF00FFFF[GuildControl]|r |cFF808080[recetas]|r " .. text) end
+end
+
 local function Send(prefix, msg)
     if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     pcall(C_ChatInfo.SendAddonMessage, prefix, msg, "GUILD")
@@ -286,6 +293,7 @@ end
 local lastRecipeReply = -60
 local function SendAllMyRecipes()
     if GetTime() - lastRecipeReply < 30 then return end
+    RecipeDebug(L["Alguien ha pedido las recetas: enviando las mías."])
     lastRecipeReply = GetTime()
     local delay = 0
     for profession, data in pairs(RecipeStore()[MyName()] or {}) do
@@ -300,10 +308,34 @@ end
 -- Pide a la hermandad las recetas de todos (al entrar y al abrir Artesanos y pedidos).
 -- Cada cliente con GuildControl responde con las suyas.
 local lastRecipeRequest = -120
-function communityModule.RequestRecipes()
-    if GetTime() - lastRecipeRequest < 60 then return end
+function communityModule.RequestRecipes(force)
+    if not force and GetTime() - lastRecipeRequest < 60 then return end
     lastRecipeRequest = GetTime()
+    RecipeDebug(L["Pidiendo las recetas a la hermandad..."])
     Send(CRAFT_PREFIX, "Q")
+end
+
+function communityModule.DebugRecipes()
+    recipeDebugUntil = GetTime() + 120
+    local mine, crafters = 0, 0
+    for profession, data in pairs(RecipeStore()[MyName()] or {}) do
+        if type(data) == "table" and type(data.ids) == "table" then mine = mine + #data.ids end
+    end
+    for name, professions in pairs(RecipeStore()) do
+        if name ~= MyName() and next(professions) then crafters = crafters + 1 end
+    end
+    print("|cFF00FFFF[GuildControl]|r " .. string.format(L["Recetas: tienes %d guardadas; de otros jugadores, %d."], mine, crafters))
+    local myVersion = tostring(addonTable.VERSION)
+    for name, user in pairs(GuildControlDB.addonUsers or {}) do
+        if name ~= MyName() then
+            local ago = math.floor((time() - (user.at or 0)) / 60)
+            local same = user.version == myVersion
+            print("   " .. name .. ": " .. (same and "|cFF00FF00" or "|cFFFF7F00") .. tostring(user.version or "?") .. "|r"
+                .. string.format(L[" · último mensaje hace %d min"], ago))
+        end
+    end
+    print("   " .. L["Tu versión: "] .. myVersion .. L[". Todos deben tener la misma versión del addon."])
+    communityModule.RequestRecipes(true)
 end
 
 local partials = {}
@@ -327,6 +359,7 @@ local function OnCraftMessage(sender, msg)
     local entry = RecipeStore()[sender] or {}
     RecipeStore()[sender] = entry
     entry[profession] = { at = time(), ids = ids }
+    RecipeDebug(string.format(L["Recibidas %d recetas de %s (%s)."], #ids, sender, profession))
     Notify()
 end
 

@@ -1409,4 +1409,14 @@ L["Pedido enviado. Te avisará cuando lo acepte o lo termine."] = "Order sent. Y
 L["%s te pide: %s"] = "%s asks you for: %s"
 L["Tu pedido de %s: %s"] = "Your order of %s: %s"
 L["%s ha cancelado el pedido de %s."] = "%s cancelled the order of %s."
+
+-- Diagnóstico de recetas (/gct recetas)
+L[" /gct recetas - Diagnóstico: quién usa el addon y pide las recetas a la hermandad."] = " /gct recipes - Diagnostics: who uses the addon and requests recipes from the guild."
+L["Pidiendo las recetas a la hermandad..."] = "Requesting recipes from the guild..."
+L["Recetas: tienes %d guardadas; de otros jugadores, %d."] = "Recipes: you have %d stored; from other players, %d."
+L[" · último mensaje hace %d min"] = " · last message %d min ago"
+L["Tu versión: "] = "Your version: "
+L[". Todos deben tener la misma versión del addon."] = ". Everyone must have the same addon version."
+L["Recibidas %d recetas de %s (%s)."] = "Received %d recipes from %s (%s)."
+L["Alguien ha pedido las recetas: enviando las mías."] = "Someone requested recipes: sending mine."
 addonTable.RegisterLocale("enUS", "English", L)
