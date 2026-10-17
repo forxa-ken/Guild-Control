@@ -387,16 +387,23 @@ function communityModule.SearchRecipes(query, limit)
                 if name and string.find(string.lower(name), query, 1, true) then
                     local entry = byRecipe[recipeID]
                     if not entry then
-                        entry = { recipeID = recipeID, name = name, profession = profession, crafters = {} }
+                        entry = { recipeID = recipeID, name = name, profession = profession, crafters = {}, seen = {} }
                         byRecipe[recipeID] = entry
                     end
-                    table.insert(entry.crafters, crafter)
+                    -- Cada artesano una sola vez por receta: la misma receta puede estar en
+                    -- varias listas suyas (la profesión recibida con otro nombre, o repetida)
+                    local key = NormalizeName(crafter) or crafter
+                    if not entry.seen[key] then
+                        entry.seen[key] = true
+                        table.insert(entry.crafters, key)
+                    end
                 end
             end
         end
     end
     local list = {}
     for _, entry in pairs(byRecipe) do
+        entry.seen = nil
         table.sort(entry.crafters)
         table.insert(list, entry)
     end
