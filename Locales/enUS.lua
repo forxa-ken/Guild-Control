@@ -1387,7 +1387,7 @@ L["¿Con qué rol vas?"] = "Which role are you joining as?"
 -- Profesiones: artesanos y pedidos
 L["Artesanos y pedidos"] = "Crafters and orders"
 L["Ver miembros"] = "Show members"
-L["Busca una receta o Shift+clic en un objeto"] = "Search a recipe or Shift+click an item"
+L["Receta, Shift+clic en un objeto o enlace de Wowhead"] = "Recipe, Shift+click an item or Wowhead link"
 L["Escribe el nombre de una receta o haz Shift+clic en un objeto con el buscador activo. Las recetas las comparte cada jugador con GuildControl al abrir y cerrar su ventana de profesión."] = "Type a recipe name or Shift+click an item while the search box is active. Recipes are shared by each player with GuildControl when they open and close their profession window."
 L["Pedir"] = "Order"
 L["Pedido a %s: %s\nNota (cantidad, materiales...):"] = "Order to %s: %s\nNote (quantity, materials...):"

@@ -6083,7 +6083,7 @@ local function BuildProfessionsView(parent)
     craftSearch:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     local craftPlaceholder = craftSearch:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     craftPlaceholder:SetPoint("LEFT", craftSearch, "LEFT", 2, 0)
-    craftPlaceholder:SetText(L["Busca una receta o Shift+clic en un objeto"])
+    craftPlaceholder:SetText(L["Receta, Shift+clic en un objeto o enlace de Wowhead"])
     local craftInfo = craftPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     craftInfo:SetPoint("LEFT", craftSearch, "RIGHT", 12, 0)
     craftInfo:SetWidth(280)
@@ -6196,8 +6196,39 @@ local function BuildProfessionsView(parent)
     end
 
     local craftSearchTimer = nil
+    -- Enlace de Wowhead pegado (".../item=ID/..." o ".../spell=ID/...", también el de Classic):
+    -- se busca por el nombre del objeto o de la receta en el idioma del juego. Si el juego aún
+    -- no tiene los datos del objeto, se piden y se reintenta unas veces.
+    local function ResolveWowhead(text, tries)
+        local itemID = tonumber(string.match(text, "[Ii][Tt][Ee][Mm]=(%d+)"))
+        local spellID = tonumber(string.match(text, "[Ss][Pp][Ee][Ll][Ll]=(%d+)"))
+        local name
+        if itemID then
+            name = (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(itemID)) or (GetItemInfo and (GetItemInfo(itemID)))
+            if not name then
+                if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, itemID) end
+                if (tries or 0) < 6 then
+                    C_Timer.After(0.5, function()
+                        if craftSearch:GetText() == text then ResolveWowhead(text, (tries or 0) + 1) end
+                    end)
+                end
+                return true
+            end
+        elseif spellID then
+            name = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)) or (GetSpellInfo and (GetSpellInfo(spellID)))
+        else
+            return false
+        end
+        if name then craftSearch:SetText(name) end
+        return true
+    end
+
     craftSearch:SetScript("OnTextChanged", function(self)
         craftPlaceholder:SetShown((self:GetText() or "") == "")
+        local text = self:GetText() or ""
+        if string.find(string.lower(text), "wowhead", 1, true) or string.match(text, "[Ii][Tt][Ee][Mm]=%d+") then
+            if ResolveWowhead(text, 0) then return end
+        end
         -- Se busca 0,3 s después de la última tecla (puede haber miles de recetas)
         if craftSearchTimer then craftSearchTimer:Cancel() end
         craftSearchTimer = C_Timer.NewTimer(0.3, function()
@@ -6321,20 +6352,27 @@ local function BuildProfessionsView(parent)
     end
     if C and C.AddListener then C.AddListener(RefreshCraftPanel) end
 
-    -- Botón para cambiar entre la tabla de miembros y los artesanos (encima de Mi profesión)
+    -- Dos botones separados encima de Mi profesión: el de la vista actual queda desactivado
     local btnCrafts = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
     btnCrafts:SetSize(180, 24)
     btnCrafts:SetPoint("BOTTOM", btnMyProf, "TOP", 0, 4)
+    btnCrafts:SetText(L["Artesanos y pedidos"])
+    local btnMembers = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnMembers:SetSize(180, 24)
+    btnMembers:SetPoint("BOTTOM", btnCrafts, "TOP", 0, 4)
+    btnMembers:SetText(L["Ver miembros"])
 
     SetMode = function(newMode)
         mode = newMode
         right:SetShown(mode == "members")
         craftPanel:SetShown(mode == "crafts")
-        btnCrafts:SetText(mode == "crafts" and L["Ver miembros"] or L["Artesanos y pedidos"])
+        btnMembers:SetEnabled(mode ~= "members")
+        btnCrafts:SetEnabled(mode ~= "crafts")
         if mode == "crafts" then RefreshCraftPanel() else Refresh() end
     end
-    btnCrafts:SetScript("OnClick", function() SetMode(mode == "crafts" and "members" or "crafts") end)
-    btnCrafts:SetText(L["Artesanos y pedidos"])
+    btnCrafts:SetScript("OnClick", function() SetMode("crafts") end)
+    btnMembers:SetScript("OnClick", function() SetMode("members") end)
+    btnMembers:SetEnabled(false)
     uiModule.OpenCraftOrders = function()
         SwitchTab("Profesiones")
         SetMode("crafts")
