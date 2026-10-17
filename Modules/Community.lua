@@ -428,7 +428,8 @@ end
 --   { id, requester, crafter, recipeID, note, status, at, updatedAt }
 -- status: "pending" (pedido), "accepted" (aceptado), "done" (hecho), "rejected" (rechazado),
 -- "cancelled" (cancelado por quien lo pidió). Prefijo GuildControlOrd en la hermandad:
---   O;id;artesano;recipeID;hora;nota   pedido nuevo (lo envía quien pide)
+--   O;id;artesano;recipeID;hora;materiales;nota   pedido nuevo (lo envía quien pide);
+--                                     materiales = 1 si quien pide los aporta, 0 si no
 --   U;id;estado;hora                    cambio de estado (artesano o quien pide)
 --   Q                                   al entrar: cada uno reenvía sus pedidos abiertos
 -- Solo guardan el pedido el artesano y quien lo pide. Los cerrados se borran a los 3 días y
@@ -457,14 +458,15 @@ local function OrderStore()
 end
 
 local function SendOrder(order)
-    Send(ORDER_PREFIX, table.concat({ "O", order.id, order.crafter, order.recipeID, order.at, order.note or "" }, ";"))
+    Send(ORDER_PREFIX, table.concat({ "O", order.id, order.crafter, order.recipeID, order.at, order.materials and "1" or "0", order.note or "" }, ";"))
     if order.status ~= "pending" then
         Send(ORDER_PREFIX, table.concat({ "U", order.id, order.status, order.updatedAt or order.at }, ";"))
     end
 end
 
--- Pide una receta a un artesano. Devuelve el pedido o nil
-function communityModule.CreateOrder(crafter, recipeID, note)
+-- Pide una receta a un artesano (materials = true si quien pide aporta los materiales).
+-- Devuelve el pedido o nil
+function communityModule.CreateOrder(crafter, recipeID, note, materials)
     recipeID = tonumber(recipeID)
     crafter = NormalizeName(crafter)
     if not crafter or not recipeID or crafter == MyName() then return nil end
@@ -472,7 +474,7 @@ function communityModule.CreateOrder(crafter, recipeID, note)
     local order = {
         id = (string.match(UnitName("player") or "?", "^(%S+)") or "?") .. "-" .. now .. "-" .. math.random(100, 999),
         requester = MyName(), crafter = crafter, recipeID = recipeID, note = Clean(note, 80),
-        status = "pending", at = now, updatedAt = now,
+        materials = materials and true or false, status = "pending", at = now, updatedAt = now,
     }
     OrderStore()[order.id] = order
     SendOrder(order)
@@ -511,6 +513,22 @@ function communityModule.GetOrders()
     return { forMe = forMe, mine = mine }
 end
 
+-- Quita de mi lista los pedidos cerrados (hechos, rechazados o cancelados). which = "forMe"
+-- (los que me hacen) o "mine" (los míos). Solo afecta a este cliente.
+function communityModule.ClearClosedOrders(which)
+    local me, removed = MyName(), 0
+    local store = OrderStore()
+    for id, order in pairs(store) do
+        local mine = (which == "forMe" and order.crafter == me) or (which == "mine" and order.requester == me)
+        if mine and not ORDER_OPEN[order.status] then
+            store[id] = nil
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then Notify() end
+    return removed
+end
+
 -- Pedidos abiertos que me han hecho (para avisos)
 function communityModule.CountOpenOrdersForMe()
     local count = 0
@@ -528,7 +546,7 @@ local function OnOrderMessage(sender, msg)
     local me = MyName()
     local kind = string.sub(msg, 1, 2)
     if kind == "O;" then
-        local _, id, crafter, recipeID, at, note = strsplit(";", msg, 6)
+        local _, id, crafter, recipeID, at, materials, note = strsplit(";", msg, 7)
         crafter, recipeID, at = NormalizeName(crafter), tonumber(recipeID), tonumber(at)
         if not id or not crafter or not recipeID or not at then return end
         -- Solo me interesa si soy el artesano (o quien lo pidió, desde otro personaje)
@@ -536,7 +554,8 @@ local function OnOrderMessage(sender, msg)
         local store = OrderStore()
         local isNew = store[id] == nil
         store[id] = store[id] or { id = id, requester = sender, crafter = crafter, recipeID = recipeID,
-                                    note = Clean(note, 80), status = "pending", at = at, updatedAt = at }
+                                    note = Clean(note, 80), materials = materials == "1",
+                                    status = "pending", at = at, updatedAt = at }
         if isNew and crafter == me and GetServerTime() - at < 600 then
             OrderAlert(string.format(L["%s te pide: %s"], Ambiguate(addonTable.GetGameName(sender), "none"),
                 communityModule.RecipeName(recipeID) or ("#" .. recipeID)))

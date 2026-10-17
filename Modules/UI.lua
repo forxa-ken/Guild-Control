@@ -6130,9 +6130,7 @@ local function BuildProfessionsView(parent)
     -- Pedir: se elige el artesano (conectados primero) y se escribe una nota
     local function AskOrder(owner, entry)
         local function Ask(crafter)
-            StaticPopup_Show("GUILDCONTROL_CRAFT_ORDER",
-                string.format(L["Pedido a %s: %s\nNota (cantidad, materiales...):"], ColoredMemberName(crafter), entry.name),
-                nil, { crafter = crafter, recipeID = entry.recipeID })
+            uiModule.ShowOrderDialog(crafter, entry.recipeID, entry.name)
         end
         local others = {}
         for _, crafter in ipairs(entry.crafters) do
@@ -6270,10 +6268,17 @@ local function BuildProfessionsView(parent)
         box.empty:SetWidth(296)
         box.empty:SetJustifyH("LEFT")
         box.rows = {}
+        -- Quita de la lista los pedidos cerrados (hechos, rechazados o cancelados)
+        box.clear = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
+        box.clear:SetSize(110, 20)
+        box.clear:SetPoint("TOPRIGHT", box, "TOPRIGHT", -8, -5)
+        box.clear:SetText(L["Limpiar cerrados"])
         return box
     end
     local forMeBox = OrderColumn(L["Me piden"], 12)
     local mineBox = OrderColumn(L["Mis pedidos"], 340)
+    forMeBox.clear:SetScript("OnClick", function() if C and C.ClearClosedOrders then C.ClearClosedOrders("forMe") end end)
+    mineBox.clear:SetScript("OnClick", function() if C and C.ClearClosedOrders then C.ClearClosedOrders("mine") end end)
 
     local function AcquireOrderRow(box, index)
         local row = box.rows[index]
@@ -6328,7 +6333,9 @@ local function BuildProfessionsView(parent)
             local status = "|cFF" .. C.ORDER_COLORS[order.status] .. L[C.ORDER_LABELS[order.status]] .. "|r"
             row.name:SetText("|cFFFFD100" .. (C.RecipeName(order.recipeID) or ("#" .. order.recipeID)) .. "|r  " .. status)
             local other = isForMe and order.requester or order.crafter
-            row.info:SetText(ColoredMemberName(other) .. "  |cFF808080" .. date("%d/%m %H:%M", order.at)
+            -- Si quien pide aporta los materiales (icono de bolsa) o no
+            local mats = order.materials and ("|cFF00FF00" .. L["con materiales"] .. "|r") or ("|cFFFF7F00" .. L["sin materiales"] .. "|r")
+            row.info:SetText(ColoredMemberName(other) .. "  " .. mats .. "  |cFF808080" .. date("%d/%m %H:%M", order.at)
                 .. ((order.note and order.note ~= "") and " ·" or "") .. "|r")
             local id = order.id
             if isForMe and order.status == "pending" then
@@ -11159,35 +11166,73 @@ function uiModule.ShowDkpSettings()
 end
 
 -- Clic derecho en un jugador de la lista de DKP: sumar (o restar con -) una cantidad
--- Nota de un pedido a un artesano (Profesiones > Artesanos y pedidos > Pedir)
-StaticPopupDialogs["GUILDCONTROL_CRAFT_ORDER"] = {
-    text = "%s",
-    button1 = L["Pedir"],
-    button2 = CANCEL,
-    hasEditBox = true,
-    maxLetters = 80,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    OnShow = function(self)
-        local box = self.EditBox or self.editBox
-        if box then box:SetText(""); box:SetFocus() end
-    end,
-    OnAccept = function(self, data)
-        local box = self.EditBox or self.editBox
-        local C = addonTable.Community
-        if data and C and C.CreateOrder then
-            local order = C.CreateOrder(data.crafter, data.recipeID, box and box:GetText() or "")
-            if order then PrintGC(L["Pedido enviado. Te avisará cuando lo acepte o lo termine."]) end
+-- Ventana de pedido a un artesano (Profesiones > Artesanos y pedidos > Pedir): nota y si
+-- quien pide aporta los materiales
+local orderDialog = nil
+function uiModule.ShowOrderDialog(crafter, recipeID, recipeName)
+    if not orderDialog then
+        local f = CreateFrame("Frame", "GuildControlOrderFrame", UIParent, "BasicFrameTemplateWithInset")
+        f:SetSize(380, 190)
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+        f:SetFrameStrata("DIALOG")
+        f:SetToplevel(true)
+        f:SetClampedToScreen(true)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+        tinsert(UISpecialFrames, "GuildControlOrderFrame")
+        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        f.title:SetPoint("CENTER", f.TitleBg, "CENTER", 0, 0)
+        f.title:SetText(L["Pedir a un artesano"])
+        f.info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        f.info:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -34)
+        f.info:SetPoint("RIGHT", f, "RIGHT", -16, 0)
+        f.info:SetJustifyH("LEFT")
+        local noteLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        noteLabel:SetPoint("TOPLEFT", f.info, "BOTTOMLEFT", 0, -12)
+        noteLabel:SetText(L["Nota (cantidad, detalles...)"])
+        f.note = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+        f.note:SetSize(340, 20)
+        f.note:SetPoint("TOPLEFT", noteLabel, "BOTTOMLEFT", 6, -4)
+        f.note:SetAutoFocus(false)
+        f.note:SetMaxLetters(80)
+        f.note:SetScript("OnEscapePressed", function() f:Hide() end)
+        f.mats = CreateFrame("CheckButton", "GuildControlOrderMats", f, "UICheckButtonTemplate")
+        f.mats:SetSize(24, 24)
+        f.mats:SetPoint("TOPLEFT", f.note, "BOTTOMLEFT", -8, -8)
+        _G[f.mats:GetName() .. "Text"]:SetText(L["Aporto los materiales"])
+        f.send = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        f.send:SetSize(110, 22)
+        f.send:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 14)
+        f.send:SetText(L["Pedir"])
+        f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        f.cancel:SetSize(110, 22)
+        f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 14)
+        f.cancel:SetText(CANCEL)
+        f.cancel:SetScript("OnClick", function() f:Hide() end)
+        local function Send()
+            local C = addonTable.Community
+            if C and C.CreateOrder and f.crafter then
+                local order = C.CreateOrder(f.crafter, f.recipeID, f.note:GetText() or "", f.mats:GetChecked() and true or false)
+                if order then PrintGC(L["Pedido enviado. Te avisará cuando lo acepte o lo termine."]) end
+            end
+            f:Hide()
         end
-    end,
-    EditBoxOnEnterPressed = function(self)
-        local parent = self:GetParent()
-        StaticPopupDialogs["GUILDCONTROL_CRAFT_ORDER"].OnAccept(parent, parent.data)
-        parent:Hide()
-    end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-}
+        f.send:SetScript("OnClick", Send)
+        f.note:SetScript("OnEnterPressed", Send)
+        orderDialog = f
+    end
+    local f = orderDialog
+    f.crafter, f.recipeID = crafter, recipeID
+    f.info:SetText(string.format(L["Pedido a %s:\n|cFFFFD100%s|r"], ColoredMemberName(crafter), recipeName or ("#" .. tostring(recipeID))))
+    f.note:SetText("")
+    f.mats:SetChecked(false)
+    f:Show()
+    f:Raise()
+    f.note:SetFocus()
+end
 
 -- Duración del descanso a mano (botón Descanso > Otro… del modo minimalista)
 StaticPopupDialogs["GUILDCONTROL_BREAK_MINUTES"] = {

@@ -1419,4 +1419,13 @@ L["Tu versión: "] = "Your version: "
 L[". Todos deben tener la misma versión del addon."] = ". Everyone must have the same addon version."
 L["Recibidas %d recetas de %s (%s)."] = "Received %d recipes from %s (%s)."
 L["Alguien ha pedido las recetas: enviando las mías."] = "Someone requested recipes: sending mine."
+
+-- Pedidos: materiales y limpiar
+L["Pedir a un artesano"] = "Order from a crafter"
+L["Nota (cantidad, detalles...)"] = "Note (quantity, details...)"
+L["Aporto los materiales"] = "I provide the materials"
+L["Pedido a %s:\n|cFFFFD100%s|r"] = "Order to %s:\n|cFFFFD100%s|r"
+L["Limpiar cerrados"] = "Clear closed"
+L["con materiales"] = "with materials"
+L["sin materiales"] = "no materials"
 addonTable.RegisterLocale("enUS", "English", L)
