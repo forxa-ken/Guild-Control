@@ -467,7 +467,7 @@ function addonTable.ScanGuildRosterForChanges()
             if not GuildControlDB.members[fullName] then
                 GuildControlDB.members[fullName] = {
                     name = fullName,
-                    displayName = rawName,   -- con apellido, tal como lo da el juego
+                    displayName = (strsplit("-", rawName)),   -- sin reino; con apellido si el juego lo da (Forever)
                     rank = rankName or "Recluta",
                     publicNote = publicNote or "",
                     role = "DPS",
@@ -489,7 +489,7 @@ function addonTable.ScanGuildRosterForChanges()
             else
                 local m = GuildControlDB.members[fullName]
                 m.name = fullName
-                m.displayName = rawName
+                m.displayName = (strsplit("-", rawName))
                 if rankName and rankName ~= "" then m.rank = rankName end
                 m.publicNote = publicNote or m.publicNote or ""
                 m.level = level or m.level or 0
