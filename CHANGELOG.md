@@ -1,5 +1,19 @@
 # GuildControl
 
+## Próxima versión
+
+Mejoras traídas de GuildControl Forever:
+
+- **Roster por banda**: el desplegable del Roster muestra las bandas de Raid y cada una tiene su roster. Candidatos = los apuntados a la banda; abajo Banca, Tarde (se añaden con un clic) y Ausentes. Se quitan el nombre editable, Banda, Nuevo, Duplicar y las variantes. Sincronización en vivo entre oficiales sin pisarse (se combina jugador a jugador) y **Publicar a la hermandad** para los jugadores.
+- **Raid**: sin Tentativo ni Banca, sin roster asociado ni Ver roster; la vista previa muestra el roster publicado de la banda. Se quita Mis rosters del menú.
+- **Modo minimalista**: nuevo botón **Descanso** (3, 5, 10, 15 min u Otro…, con avisos a la banda) en lugar de Buff check (repetido con Buffos). En la ventana de buffos, **Avisar a los que faltan**.
+- **Artesanos y pedidos** (en Profesiones, antes en Comunidad): busca por nombre, con Shift+clic en un objeto o con un enlace de Wowhead, y haz **pedidos** al artesano (aceptar, rechazar, hecho, cancelar; con nota y si aportas los materiales). Las recetas se piden a la hermandad al entrar y al abrir el panel. Nuevo `/gct recetas` para diagnosticarlo.
+- **Comunidad**: en Buscar grupo se eligen los roles que se buscan y cada uno se apunta con su rol.
+- **Chat**: canales de idioma (lobosenglish y lobosespanol) con sus pestañas, pestaña **Oficiales** (con permiso) y **Configuración > Canales del chat**. Shift+clic en un objeto con la caja del chat activa inserta el enlace.
+- **Menú** reordenado (Resumen, Miembros, Raid, Roster, Comunidad, Profesiones, Tus novedades, Mi perfil...); el botón de la pestaña activa se ve gris. **Para mí** se llama ahora **Tus novedades**.
+- **Logo** de la hermandad incluido y predeterminado. El enfoque de Mi perfil se aplica al pulsarlo. Amigos BattleTag: se invita con la invitación de Battle.net.
+- Corregido: los prefijos «GuildControlCraft» y «GuildControlGreet» tenían 17 caracteres (el juego admite 16) y no se enviaban: las recetas de los demás no llegaban y el saludo y la bienvenida no se coordinaban entre clientes. Ahora son GuildControlCrft y GuildControlGrt. Los trozos de recetas y la lista de deseos se cortan por tamaño (255 bytes).
+
 ## 5.0.0-beta5
 
 - **Anuncios**: solo se publican si tienes rango de oficial. Si pierdes el rango, tu cliente deja de enviarlos (se conservan por si lo recuperas).

@@ -64,6 +64,7 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 - **Bienvenida a nuevos miembros**: si está activada, cuando el juego avisa de que alguien se ha unido a la hermandad se le da la bienvenida en el chat de hermandad con el mensaje configurado (`{nombre}`, `{hermandad}`). A esa persona no se le aplica el saludo automático. Si varios usan GuildControl, solo responde uno, y no se envía si alguien le escribe antes mencionándolo.
 - **Canales de reclutamiento**: el nombre con el que empiezan en tu chat los canales General, Comercio y Mundo (para Invitar > Publicar en).
 - **Aviso de favoritos**: activa o desactiva el sonido cuando se conecta un favorito y elige cuál (con **Probar**).
+- **Canales del chat**: para cada canal (idioma, Oficiales...), unirse o no, verlo o no en la ventana de chat del juego y mostrar u ocultar su pestaña en GuildControl.
 - **Idioma**: Automático (el del juego), Español o English. El cambio se aplica al recargar la interfaz (botón **Recargar** o `/reload`).
 
 ## 👥 Miembros y chat
@@ -74,12 +75,12 @@ El encabezado muestra el nombre de la hermandad del juego y, debajo, su reino y 
 - Busca por nombre, clase, rango, rol, profesión, roster o zona y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
  y ordena haciendo clic en las cabeceras. La columna **Tipo** indica si es su personaje **Main** o un **Alter**, y **Enfoque** el que declaró (PvE, PvP o Social). Las profesiones, el roster, el tipo y el enfoque se ven vacíos si no hay dato. Al entrar en Miembros aparecen primero los conectados.
 - Al seleccionar un miembro, la vista previa muestra sus profesiones por expansión (solo las tuyas y las de quien use GuildControl; abre cada profesión una vez para que se registren todas).
-- Debajo de la ventana está el **chat**: hermandad, susurros (recibidos y enviados), banda (con los avisos de banda) y grupo o mazmorra, cada canal con su color. El historial se guarda (los últimos 500 mensajes, con fecha) y sigue ahí tras `/reload` o al volver a entrar; **Limpiar** lo borra. Pestañas **Todo**, **Hermandad**, **Susurros**, **Banda** y **Grupo**, y una por persona al hacer clic en su nombre (su conversación: lo que escribe, los susurros con ella y lo tuyo que la menciona). Lo que escribes va al canal de la pestaña activa (en la de una persona, por susurro; en Susurros, al último con quien hablaste); a la izquierda se indica el destino. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos.
+- Debajo de la ventana está el **chat**: hermandad, susurros (recibidos y enviados), banda (con los avisos de banda) y grupo o mazmorra, cada canal con su color. También los canales de idioma **lobosenglish** (pestaña **English**) y **lobosespanol** (pestaña **Español**): entras solo en el del idioma de tu juego y se escribe en ellos desde su pestaña. Los oficiales tienen además la pestaña **Oficiales** (el chat de oficiales del juego). En Configuración > Canales del chat eliges, para cada canal, si te unes, si lo ves en la ventana de chat del juego y si sale su pestaña en GuildControl (al ocultarla, sus mensajes tampoco salen en Todo). Los canales se unen por nombre, igual en cualquier idioma del cliente; el número (/5, /6) lo pone cada cliente y puede ser distinto. El historial se guarda (los últimos 500 mensajes, con fecha) y sigue ahí tras `/reload` o al volver a entrar; **Limpiar** lo borra. Pestañas **Todo**, **Hermandad**, **Susurros**, **Banda** y **Grupo**, y una por persona al hacer clic en su nombre (su conversación: lo que escribe, los susurros con ella y lo tuyo que la menciona). Lo que escribes va al canal de la pestaña activa (en la de una persona, por susurro; en Susurros, al último con quien hablaste); a la izquierda se indica el destino. El botón Contraer/Expandir lo pliega y muestra los mensajes nuevos.
 - En el panel CSV el texto aparece siempre seleccionado: pulsa Ctrl+C para copiarlo.
 
-## 🙋 Para mí
+## 🙋 Tus novedades
 
-La pestaña **Para mí** reúne lo que le interesa a cada jugador:
+La pestaña **Tus novedades** reúne lo que le interesa a cada jugador:
 
 - **Mi lista de deseos**: los objetos que buscas (Shift+clic en el objeto o pegando un enlace de Wowhead, hasta 40). Cuando caen en la banda te avisa, se comparten con la hermandad y en Botín aparece una estrella `*` junto a quien los quiere.
 - **Mis próximas bandas**: con cuenta atrás, tu respuesta y un botón **Apuntarme** (con el rol de Mi perfil). Si estás apuntado, te avisa 15 minutos antes.
@@ -89,9 +90,8 @@ La pestaña **Para mí** reúne lo que le interesa a cada jugador:
 
 ## 🤝 Comunidad
 
-- **Buscar grupo**: publica «Busco gente para…» con la actividad y las plazas; los demás se apuntan con un clic (te avisa) y tú los invitas con **Invitar**. Los anuncios duran 2 horas.
+- **Buscar grupo**: publica «Busco gente para…» con la actividad, las plazas y los **roles que buscas** (Tanque, Sanador y/o DPS). Los demás se apuntan con un clic eligiendo su rol entre los que buscas (te avisa); ves el rol de cada uno y los invitas con **Invitar**. Los anuncios duran 2 horas.
 - **Récords de la hermandad**: puntos de logro, puntuación de Míticas+, bandas asistidas, objetos ganados, DKP y la mejor llave de la semana.
-- **Artesanos: ¿quién me lo hace?**: busca una receta y te dice qué miembros la conocen (conectados primero) con un botón para susurrarles. Cada jugador con GuildControl comparte sus recetas al abrir y cerrar su ventana de profesión.
 
 ## ⭐ Favoritos
 
@@ -102,19 +102,19 @@ La pestaña **Favoritos** (debajo de Miembros) reúne:
 
 ## 🛡️ Roster de banda
 
-La pestaña **Roster** sirve para montar las composiciones de banda:
+La pestaña **Roster** (oficiales) sirve para elegir quién va a cada banda. Cada banda creada en **Raid** tiene su propio roster:
 
-- **Arriba**: selector de roster, nombre editable (Enter para guardar), botón **Banda** para elegir una banda del diario de encuentros del juego (el roster toma su nombre) y botones **Nuevo**, **Duplicar** y **Eliminar** (pide un segundo clic).
-- **Criterios**: dificultad (Normal, Heroica o Mítica), tamaño de 10 a 25 (Mítica siempre 20), y número de tanques y sanadores; los DPS son el resto. Los contadores se ponen en verde al completarse.
-- **Candidatos** (izquierda): miembros agrupados por rol (con su icono; quien no tiene rol definido va a "Sin rol definido") con el color de su clase, buscador y filtros de conectados y nivel máximo. Clic para añadirlo al roster en su rol; clic derecho para cambiarle el rol o añadirlo como suplente. Colocar a alguien sin rol como tanque, sanador o DPS le define ese rol.
-- **Composición** (centro): un contenedor por rol (Tanques en azul, Sanadores en verde, DPS en rojo y Suplentes en gris) con sus integrantes dentro. Clic sobre un integrante para moverlo o quitarlo.
-- **Vista previa** (derecha): cobertura de utilidades de banda (ansia de sangre, resurrección en combate, beneficios de clase), reparto de armaduras de los titulares y media de asistencia en las bandas de Raid asociadas al roster.
-- **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad (en una ventana donde puedes editar el anuncio antes de enviarlo), exportarlo a CSV y vaciarlo.
+- **Arriba**: el desplegable muestra las bandas programadas en Raid (fecha, hora y título); al elegir una se abre su roster. **Publicar a la hermandad** lo envía a los jugadores, y al lado se ve si está publicado y cuándo. **Eliminar roster** (dos clics) lo borra y lo retira de Mis rosters.
+- **Criterios**: el tamaño es el de la banda (se elige al crearla en Raid y aquí no se edita) y el número de tanques y sanadores; los DPS son el resto. Los contadores se ponen en verde al completarse.
+- **Candidatos** (izquierda): todos los que se apuntaron en Raid como Tanque, Sanador o DPS y aún no están en el roster (conectados o no), agrupados por el rol con el que se apuntaron. Clic para añadirlo con su rol; clic derecho para cambiarle el rol o mandarlo a la banca.
+- **Composición** (centro): un contenedor por rol (Tanques en azul, Sanadores en verde, DPS en rojo). Clic sobre un integrante para moverlo o quitarlo.
+- **Abajo**: **Banca** (los que el oficial deja de reserva), **Tarde** (los que avisaron de que llegan tarde; clic para meterlos en el roster) y **Ausentes** (solo informativo).
+- **Vista previa** (derecha): cobertura de utilidades de banda, reparto de armaduras de los titulares y asistencia.
+- **Acciones**: invitar al grupo a los titulares conectados (con más de 4 se convierte en banda), anunciar el roster en el chat de hermandad, exportarlo a CSV, mensaje a los integrantes y vaciarlo.
+- **En vivo entre oficiales**: cada cambio llega a los demás oficiales a los pocos segundos. Se combina jugador a jugador, así que si dos oficiales lo tocan a la vez no se pisan.
+- **Jugadores**: ven el roster en la vista previa de **Raid** (al elegir la banda) cuando un oficial lo publica, tal como estaba en ese momento. Si se cambia después, hay que volver a publicarlo.
 
 La columna Roster de Miembros muestra en qué rosters está cada uno.
-La vista previa y el tooltip de cada integrante muestran su asistencia (de las bandas de Raid asociadas al roster), y el CSV del roster la incluye.
-- **Mensaje**: abre una ventana con un mensaje editable para los integrantes del roster. Elige la banda (de las creadas en Raid, primero las asociadas al roster) y si incluyes a los suplentes, y envíalo a la hermandad o como **susurro personalizado a cada integrante conectado**. Variables: `{roster}`, `{jefe}`, `{dificultad}`, `{fecha}`, `{hora}`, `{nota}`, `{hermandad}` y, al susurrar, `{nombre}` y `{rol}`.
-- **Sincronización**: como en Raid, cada cambio de un oficial (integrantes, criterios, nombre...) se envía solo a la hermandad unos segundos después y los demás clientes lo aplican al momento; los rosters nuevos aparecen solos en los demás oficiales y borrar un roster lo borra en todos. Solo se aceptan rosters de oficiales. **Compartir** lo reenvía en el momento.
 
 ## 👤 Mi perfil y perfiles de oficial y jugador
 
@@ -151,19 +151,26 @@ El botón **Mi profesión** (abajo a la izquierda) abre la ventana de profesione
 
 La pestaña **Profesiones** lista cada profesión con cuántos miembros la tienen. Al elegir una se ven sus miembros con su nivel de habilidad, su otra profesión y si están conectados; se puede ordenar por columnas, buscar y filtrar por conectados. Clic en un miembro para susurrarle o invitarlo al grupo.
 
+**Artesanos y pedidos** (botón encima de Mi profesión):
+
+- **¿Quién me lo hace?**: busca una receta escribiendo su nombre o haciendo **Shift+clic en un objeto** (en las bolsas, el chat o un enlace) con el buscador activo o pegando un **enlace de Wowhead** (de objeto o de receta). Te dice qué miembros la conocen, con su nombre y si están conectados. Las recetas las comparte cada jugador con GuildControl al abrir y cerrar su ventana de profesión, y se piden a la hermandad al entrar en el juego y al abrir este panel.
+- **Pedir**: encarga la receta a un artesano (eliges a quién si hay varios) con una nota opcional y la casilla **Aporto los materiales**; el artesano ve en el pedido si los aportas o no. Al artesano le llega un aviso.
+- **Me piden**: los pedidos que te han hecho. Puedes **Aceptar** o **Rechazar**, y después marcarlo como **Hecho**.
+- **Mis pedidos**: los que has hecho tú, con su estado (Pedido, Aceptado, Hecho, Rechazado, Cancelado). Puedes **Cancelar** los abiertos. Te avisa cuando cambian. **Limpiar cerrados** (en cada lista) quita los hechos, rechazados y cancelados.
+- Los pedidos se sincronizan entre el artesano y quien pide (también si uno estaba desconectado: se reenvían al entrar). Los cerrados se borran a los 3 días y los abiertos a los 14.
+
 ## ⚔️ Raid
 
 La pestaña **Raid** (debajo de Roster) funciona como Raid-Helper. El **Roster** es la lista de personas con las que se cuenta; en **Raid** se apuntan quienes quieren ir a cada banda.
 
-- **Planning raid**: los oficiales crean la banda con **Nueva** (título, banda del diario de encuentros, dificultad, tamaño, fecha, hora, descripción y roster asociado) y se publica en la hermandad. Cada jugador responde con **Tanque**, **Sanador** o **DPS** (con su especialización actual), o **Tarde**, **Tentativo**, **Banca** o **Ausente**, y una nota. Se ven los apuntados por rol con el color de su clase y los recuentos. Los oficiales pueden editar, eliminar, **invitar a los apuntados**, **recordar al roster** (susurro a quien no ha respondido) y publicar de nuevo.
-- **Ver roster** (en el detalle de una banda con roster asociado): muestra en la vista previa los integrantes del roster por rol y qué ha respondido cada uno.
+- **Planning raid**: los oficiales crean la banda con **Nueva** (título, banda del diario de encuentros, dificultad, tamaño, fecha, hora, descripción) y se publica en la hermandad. Cada jugador responde con **Tanque**, **Sanador** o **DPS** (con su especialización actual), o **Tarde** o **Ausente**, y una nota. Al elegir una banda, la vista previa muestra su roster publicado. Se ven los apuntados por rol con el color de su clase y los recuentos. Los oficiales pueden editar, eliminar, **invitar a los apuntados**, **recordar al roster** (susurro a quien no ha respondido) y publicar de nuevo.
 - **Vista de grupos**: los apuntados se colocan en los 8 grupos de 5 (clic en el jugador y en el hueco; clic derecho para sacarlo), con **Repartir automáticamente**, **Publicar grupos** para que todos los vean y **Aplicar en la banda** para mover a cada uno a su grupo si eres líder o ayudante.
 - **Asistencia** (oficiales): lista de las bandas próximas y de los últimos 14 días. Para la banda elegida aparecen los inscritos y los integrantes del roster asociado con su respuesta; márcalos como Presente, Tarde, Ausente o Justificada (un segundo clic quita la marca). **Tomar del grupo actual** marca presentes a los del grupo, justificados a quienes avisaron de que faltaban y ausentes al resto; **Apuntados presentes** marca a los apuntados. La asistencia se guarda aparte (no se pierde cuando se borra la banda), se envía sola a la hermandad y cuenta en el Roster, Mis rosters y Warning. Las justificadas no cuentan para el porcentaje.
 - Al entrar en el juego se piden las bandas a los oficiales conectados y cada uno reenvía sus inscripciones, así nadie se pierde aunque no coincidan conectados.
 - **Jefes de la banda**: cuando muere un jefe de la banda programada (misma banda del diario y dificultad, desde 1 h antes de la hora hasta 8 h después), el addon lo apunta en esa banda y se comparte al publicarla.
 - **Historial** (todos): lista de las bandas ya jugadas, por páginas, con los jefes de la banda (muertos con su hora y los que faltaron) y la asistencia de cada jugador. No se borra a los 14 días como las bandas programadas.
-- **Modo minimalista** (botón junto al título de Raid o `/gct mini`): cambia la ventana por un panel pequeño para la banda con **Listos** (comprobación de listos), **Pull 10**, **Pull 5**, **Cancelar** (cuenta atrás del juego; en banda hace falta ser líder o ayudante), las **8 marcas** y quitar marca para tu objetivo, **Buff check**, **Buffos** y **Modo normal**. Se puede mover y recuerda dónde estaba; si lo dejas activo, vuelve al entrar en el juego. `/gct` también vuelve al modo normal.
-- **Buff check** (en Raid o en el modo minimalista): abre GuildControl en modo normal en Raid con la **ventana de buffos** de la banda. Cada integrante sale con su grupo, los **buffos de banda** que le faltan (solo los que alguien del grupo puede dar: Intelecto Arcano, Entereza, Grito de batalla, Marca de lo Salvaje, Bendición del bronce y Furia del cielo), **frasco**, **comida** y **runa** (de sus auras) y las **pociones** que lleva. Las pociones y el resto de las bolsas solo se ven de quien usa GuildControl (al pasar el ratón por la fila). En combate o fuera de alcance los buffos no se pueden leer. El botón **Buffos** del modo minimalista abre la misma ventana sin salir de él.
+- **Modo minimalista** (botón junto al título de Raid o `/gct mini`): cambia la ventana por un panel pequeño para la banda con **Listos** (comprobación de listos), **Pull 10**, **Pull 5**, **Cancelar** (cuenta atrás del juego; en banda hace falta ser líder o ayudante), las **8 marcas** y quitar marca para tu objetivo, **Descanso** (eliges la duración: 3, 5, 10, 15 minutos u Otro…; avisa a la banda al empezar, a falta de 1 minuto y al terminar, y con un descanso en marcha permite cancelarlo), **Buffos** y **Modo normal**. Se puede mover y recuerda dónde estaba; si lo dejas activo, vuelve al entrar en el juego. `/gct` también vuelve al modo normal.
+- **Buff check** (botón en Raid): abre GuildControl en modo normal en Raid con la **ventana de buffos** de la banda. Cada integrante sale con su grupo, los **buffos de banda** que le faltan (solo los que alguien del grupo puede dar: Intelecto Arcano, Entereza, Grito de batalla, Marca de lo Salvaje, Bendición del bronce y Furia del cielo), **frasco**, **comida** y **runa** (de sus auras) y las **pociones** que lleva. Las pociones y el resto de las bolsas solo se ven de quien usa GuildControl (al pasar el ratón por la fila). En combate o fuera de alcance los buffos no se pueden leer. El botón **Buffos** del modo minimalista abre la misma ventana sin salir de él. **Avisar a los que faltan** susurra a cada uno los buffos de banda, el frasco o la comida que le faltan.
 
 ## 💰 Botín (+1 o DKP)
 
@@ -230,6 +237,7 @@ Las variables de los mensajes (`{nombre}`, `{hermandad}`, `{fecha}`, `{hora}`, `
 - `/gct` (o `/gct show`) - Abre o cierra la interfaz principal del addon.
 - `/gct csv` - Abre directamente el panel de exportación a Google Sheets / CSV.
 - `/gct bajas` (o `/gct leaves`) - Abre el historial de bajas y salidas de la hermandad.
+- `/gct recetas` - Diagnóstico de recetas: muestra quién usa el addon y con qué versión, pide las recetas a la hermandad y durante 2 minutos avisa en el chat de cada respuesta.
 - `/gct mini` - Activa el modo minimalista de banda.
 
 Todos los comandos funcionan también con el alias `/gctc` (por ejemplo, `/gctc csv`).
