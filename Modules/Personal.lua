@@ -89,8 +89,14 @@ local wishSendTimer = nil
 local function SendWishlist()
     if not IsInGuild() or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
     local ids = personalModule.GetMyWishIds()
-    local parts = {}
-    for i = 1, math.min(#ids, WISH_MAX) do parts[i] = tostring(ids[i]) end
+    -- Un mensaje de addon admite 255 bytes: se añaden IDs mientras quepan
+    local parts, size = {}, 2
+    for i = 1, math.min(#ids, WISH_MAX) do
+        local text = tostring(ids[i])
+        if size + #text + 1 > 250 then break end
+        parts[#parts + 1] = text
+        size = size + #text + 1
+    end
     pcall(C_ChatInfo.SendAddonMessage, WISH_PREFIX, "W;" .. table.concat(parts, ","), "GUILD")
 end
 

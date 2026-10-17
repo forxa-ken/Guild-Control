@@ -168,6 +168,7 @@ function chatModule.Send(text, channel, target)
     elseif channel == "whisper" and target and target ~= "" then
         chatType = "WHISPER"
         if addonTable.WarnIfBusy then addonTable.WarnIfBusy(target) end
+        target = addonTable.GetGameName and addonTable.GetGameName(target) or target   -- Forever: con apellido
     end
     if not chatType then return false end
     if C_ChatInfo and C_ChatInfo.SendChatMessage then

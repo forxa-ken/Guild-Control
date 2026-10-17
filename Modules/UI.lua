@@ -9605,6 +9605,14 @@ local function BuildChatPanel(parent)
     input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     btnSend:SetScript("OnClick", SendInput)
 
+    -- Shift+clic en un objeto (bolsas, chat, mensajes de este panel) con la caja activa:
+    -- se inserta su enlace, como en el chat del juego
+    if ChatEdit_InsertLink then
+        hooksecurefunc("ChatEdit_InsertLink", function(link)
+            if link and input:IsVisible() and input:HasFocus() then input:Insert(link) end
+        end)
+    end
+
     local function LayoutTabs()
         local previous = nil
         local collapsed = GuildControlDB.settings.chatCollapsed

@@ -19,7 +19,6 @@ local communityModule = addonTable.Community
 local LFG_PREFIX = "GuildControlLFG"
 local CRAFT_PREFIX = "GuildControlCraft"
 local POST_MAX_AGE = 2 * 3600
-local CHUNK_IDS = 30
 
 communityModule.ACTIVITIES = {
     { key = "mplus", label = "Míticas+" },
@@ -228,15 +227,34 @@ local function CollectOpenRecipes()
     return profession, ids
 end
 
+-- Un mensaje de addon admite 255 bytes. En Forever los IDs de receta tienen hasta 7 cifras:
+-- los trozos se cortan por tamaño (antes, 30 IDs por trozo pasaban del límite y el juego
+-- descartaba el mensaje sin avisar, así que las recetas de los demás nunca llegaban)
+local MAX_RECIPE_MSG_BYTES = 240
+
 local function SendRecipes(profession, ids)
     if not IsInGuild() then return end
     local msgId = tostring(math.random(100000, 999999))
-    local total = math.max(1, math.ceil(#ids / CHUNK_IDS))
+    profession = Clean(profession, 40)
+    -- Cabecera: "R;msgId;iii;ttt;profesión;" (con margen para i y total de tres cifras)
+    local room = MAX_RECIPE_MSG_BYTES - (#"R;" + #msgId + #";999;999;" + #profession + 1)
+    local chunks, current = {}, {}
+    local size = 0
+    for _, id in ipairs(ids) do
+        local text = tostring(id)
+        local extra = #text + (#current > 0 and 1 or 0)
+        if #current > 0 and size + extra > room then
+            table.insert(chunks, table.concat(current, ","))
+            current, size, extra = {}, 0, #text
+        end
+        table.insert(current, text)
+        size = size + extra
+    end
+    if #current > 0 or #chunks == 0 then table.insert(chunks, table.concat(current, ",")) end
+    local total = #chunks
     local queue = {}
-    for i = 1, total do
-        local part = {}
-        for j = (i - 1) * CHUNK_IDS + 1, math.min(#ids, i * CHUNK_IDS) do table.insert(part, tostring(ids[j])) end
-        table.insert(queue, table.concat({ "R", msgId, i, total, Clean(profession, 40), table.concat(part, ",") }, ";"))
+    for i, chunk in ipairs(chunks) do
+        table.insert(queue, table.concat({ "R", msgId, i, total, profession, chunk }, ";"))
     end
     local ticker
     ticker = C_Timer.NewTicker(0.4, function()
