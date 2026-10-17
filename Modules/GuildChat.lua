@@ -27,7 +27,7 @@ chatModule.DEFAULT_GREET_WORDS = "hola, holaa, holi, holis, ola, buenas, buenass
     .. "buen dia, buenas tardes, buenas noches, nas noches, wenas noches, saludos, que tal, hey, hello, hi"
 
 -- Historial persistente: { {at, channel, dir, sender, fullName, class, text, target}, ... }
--- (más antiguo primero). channel = "guild"|"whisper"|"raid"|"party"|"instance";
+-- (más antiguo primero). channel = "guild"|"officer"|"whisper"|"raid"|"party"|"instance"|"english"|"spanish";
 -- en los susurros dir = "in" (recibido) o "out" (enviado, target = destinatario)
 local function Messages()
     if not GuildControlDB then return {} end
@@ -51,6 +51,7 @@ local CHANNEL_EVENTS = {
     CHAT_MSG_RAID = "raid", CHAT_MSG_RAID_LEADER = "raid", CHAT_MSG_RAID_WARNING = "raid",
     CHAT_MSG_PARTY = "party", CHAT_MSG_PARTY_LEADER = "party",
     CHAT_MSG_INSTANCE_CHAT = "instance", CHAT_MSG_INSTANCE_CHAT_LEADER = "instance",
+    CHAT_MSG_OFFICER = "officer",
 }
 for event in pairs(CHANNEL_EVENTS) do chatFrame:RegisterEvent(event) end
 chatFrame:RegisterEvent("CHAT_MSG_ADDON")
@@ -59,55 +60,169 @@ chatFrame:RegisterEvent("CHAT_MSG_CHANNEL")
 chatFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 -- =========================================================================
--- CANAL EN INGLÉS (lobosenglish)
+-- CANALES DE IDIOMA (lobosenglish, lobosespanol) Y CHAT DE OFICIALES
 -- =========================================================================
--- Quien juega con el cliente en inglés entra solo en el canal lobosenglish al conectarse, y
--- sus mensajes salen en el panel de chat (pestaña English, canal "english"). Se puede
--- activar o desactivar en Configuración (settings.englishChannel; sin valor = según el
--- idioma del cliente).
+-- Los canales personalizados se unen por NOMBRE, que es el mismo en cualquier idioma del
+-- cliente; el número (/5, /6...) lo asigna cada cliente según el orden en que entra en sus
+-- canales, por eso puede cambiar de una persona a otra. Aquí todo va por nombre.
+-- Por defecto se entra en el canal del idioma del cliente. Ajustes por canal (clave del canal):
+--   settings.channelJoin[clave]   = true|false (sin valor = según el idioma del cliente)
+--   settings.channelInGame[clave] = false para no verlo en la ventana de chat del juego
+--   settings.chatTabs[clave]      = false para ocultar su pestaña (y sus mensajes) en GuildControl
+-- El chat de oficiales es el del juego (CHAT_MSG_OFFICER): solo lo leen los rangos con permiso.
+chatModule.LANG_CHANNELS = {
+    { key = "english", name = "lobosenglish", locale = "en", label = "English" },
+    { key = "spanish", name = "lobosespanol", locale = "es", label = "Español" },
+}
 chatModule.ENGLISH_CHANNEL = "lobosenglish"
 
-function chatModule.IsEnglishClient()
-    local locale = GetLocale and GetLocale() or ""
-    return string.sub(locale, 1, 2) == "en"
+local function Settings()
+    return GuildControlDB and GuildControlDB.settings
 end
 
-function chatModule.UsesEnglishChannel()
-    local value = GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.englishChannel
-    if value == nil then return chatModule.IsEnglishClient() end
-    return value == true
+local function SettingsTable(field)
+    local s = Settings()
+    if not s then return {} end
+    if type(s[field]) ~= "table" then s[field] = {} end
+    return s[field]
 end
 
--- Número del canal en este cliente (0 si no estoy en él)
-function chatModule.GetEnglishChannelId()
-    if not GetChannelName then return 0 end
-    local id = GetChannelName(chatModule.ENGLISH_CHANNEL)
-    return tonumber(id) or 0
-end
-
--- Entra o sale del canal según la preferencia
-function chatModule.ApplyEnglishChannel()
-    local inChannel = chatModule.GetEnglishChannelId() > 0
-    if chatModule.UsesEnglishChannel() then
-        if not inChannel and JoinChannelByName then
-            JoinChannelByName(chatModule.ENGLISH_CHANNEL)
-            -- Que se vea también en la ventana principal del chat del juego
-            C_Timer.After(2, function()
-                local frame = DEFAULT_CHAT_FRAME
-                if not frame then return end
-                if ChatFrame_AddChannel then pcall(ChatFrame_AddChannel, frame, chatModule.ENGLISH_CHANNEL)
-                elseif frame.AddChannel then pcall(frame.AddChannel, frame, chatModule.ENGLISH_CHANNEL) end
-            end)
-        end
-    elseif inChannel and LeaveChannelByName then
-        LeaveChannelByName(chatModule.ENGLISH_CHANNEL)
+function chatModule.GetLangChannel(key)
+    for _, channel in ipairs(chatModule.LANG_CHANNELS) do
+        if channel.key == key then return channel end
     end
 end
 
-function chatModule.SetEnglishChannel(enabled)
-    if not GuildControlDB or not GuildControlDB.settings then return end
-    GuildControlDB.settings.englishChannel = enabled and true or false
-    chatModule.ApplyEnglishChannel()
+-- Clave del canal por su nombre (nil si no es uno de los nuestros)
+function chatModule.GetLangChannelKey(name)
+    if type(name) ~= "string" then return nil end
+    name = string.lower(name)
+    for _, channel in ipairs(chatModule.LANG_CHANNELS) do
+        if channel.name == name then return channel.key end
+    end
+end
+
+local function ClientLocale()
+    local locale = GetLocale and GetLocale() or ""
+    return string.sub(locale, 1, 2)
+end
+
+function chatModule.IsEnglishClient()
+    return ClientLocale() == "en"
+end
+
+function chatModule.UsesChannel(key)
+    local channel = chatModule.GetLangChannel(key)
+    if not channel then return false end
+    local s = Settings()
+    -- Ajuste antiguo (solo existía el canal en inglés)
+    if s and key == "english" and s.englishChannel ~= nil and (type(s.channelJoin) ~= "table" or s.channelJoin.english == nil) then
+        SettingsTable("channelJoin").english = s.englishChannel == true
+        s.englishChannel = nil
+    end
+    local value = SettingsTable("channelJoin")[key]
+    if value == nil then return ClientLocale() == channel.locale end
+    return value == true
+end
+
+function chatModule.ShowsInGame(key)
+    return SettingsTable("channelInGame")[key] ~= false
+end
+
+-- Pestaña (y mensajes) del canal en el chat de GuildControl
+function chatModule.ShowsTab(key)
+    return SettingsTable("chatTabs")[key] ~= false
+end
+
+-- Número del canal en este cliente (0 si no estoy en él)
+function chatModule.GetChannelId(key)
+    local channel = chatModule.GetLangChannel(key)
+    if not channel or not GetChannelName then return 0 end
+    local id = GetChannelName(channel.name)
+    return tonumber(id) or 0
+end
+
+-- Añade o quita el canal de la ventana principal del chat del juego
+local function SetInGameWindow(name, show)
+    local frame = DEFAULT_CHAT_FRAME
+    if not frame then return end
+    if show then
+        if ChatFrame_AddChannel then pcall(ChatFrame_AddChannel, frame, name)
+        elseif frame.AddChannel then pcall(frame.AddChannel, frame, name) end
+    else
+        if ChatFrame_RemoveChannel then pcall(ChatFrame_RemoveChannel, frame, name)
+        elseif frame.RemoveChannel then pcall(frame.RemoveChannel, frame, name) end
+    end
+end
+
+-- Entra o sale del canal según la preferencia y aplica si se ve en el chat del juego
+function chatModule.ApplyChannel(key)
+    local channel = chatModule.GetLangChannel(key)
+    if not channel then return end
+    local inChannel = chatModule.GetChannelId(key) > 0
+    if chatModule.UsesChannel(key) then
+        if not inChannel and JoinChannelByName then JoinChannelByName(channel.name) end
+        -- El canal tarda un momento en existir después de unirse
+        C_Timer.After(inChannel and 0 or 2, function() SetInGameWindow(channel.name, chatModule.ShowsInGame(key)) end)
+    elseif inChannel and LeaveChannelByName then
+        LeaveChannelByName(channel.name)
+    end
+end
+
+function chatModule.ApplyChannels()
+    for _, channel in ipairs(chatModule.LANG_CHANNELS) do chatModule.ApplyChannel(channel.key) end
+end
+
+local function NotifyTabs()
+    if addonTable.UI and addonTable.UI.RefreshChatTabs then addonTable.UI.RefreshChatTabs() end
+end
+
+function chatModule.SetChannelJoin(key, enabled)
+    if not Settings() then return end
+    SettingsTable("channelJoin")[key] = enabled and true or false
+    chatModule.ApplyChannel(key)
+    NotifyTabs()
+end
+
+function chatModule.SetChannelInGame(key, enabled)
+    if not Settings() then return end
+    SettingsTable("channelInGame")[key] = enabled and true or false
+    chatModule.ApplyChannel(key)
+end
+
+-- Chat de oficiales en la ventana principal del juego (grupo de mensajes OFFICER). El juego
+-- guarda esa configuración de la ventana, así que solo se toca cuando se cambia aquí.
+function chatModule.SetOfficerInGame(enabled)
+    if not Settings() then return end
+    SettingsTable("channelInGame").officer = enabled and true or false
+    local frame = DEFAULT_CHAT_FRAME
+    if not frame then return end
+    if enabled then
+        if ChatFrame_AddMessageGroup then pcall(ChatFrame_AddMessageGroup, frame, "OFFICER")
+        elseif frame.AddMessageGroup then pcall(frame.AddMessageGroup, frame, "OFFICER") end
+    else
+        if ChatFrame_RemoveMessageGroup then pcall(ChatFrame_RemoveMessageGroup, frame, "OFFICER")
+        elseif frame.RemoveMessageGroup then pcall(frame.RemoveMessageGroup, frame, "OFFICER") end
+    end
+end
+
+function chatModule.SetChannelTab(key, enabled)
+    if not Settings() then return end
+    SettingsTable("chatTabs")[key] = enabled and true or false
+    NotifyTabs()
+end
+
+-- Chat de oficiales: puedo leerlo/escribirlo si mi rango lo permite
+function chatModule.CanUseOfficerChat()
+    if not IsInGuild or not IsInGuild() then return false end
+    local P = addonTable.Profiles
+    if not P then return true end
+    -- Permiso de chat de oficiales en la configuración de rangos del juego
+    if P.GetMyRankIndex and P.GetOfficerPermissionRanks then
+        local rank = P.GetMyRankIndex()
+        if rank ~= nil and P.GetOfficerPermissionRanks()[rank] then return true end
+    end
+    return P.IsOfficer and P.IsOfficer() or false
 end
 
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
@@ -210,9 +325,9 @@ function chatModule.Send(text, channel, target)
     text = strtrim(text or "")
     if text == "" then return false end
     channel = channel or "guild"
-    -- Canal en inglés: se escribe en el canal numerado del juego
-    if channel == "english" then
-        local id = chatModule.GetEnglishChannelId()
+    -- Canales de idioma: se busca su número en este cliente por el nombre
+    if chatModule.GetLangChannel(channel) then
+        local id = chatModule.GetChannelId(channel)
         if id <= 0 then return false end
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
         send(text, "CHANNEL", nil, id)
@@ -222,6 +337,9 @@ function chatModule.Send(text, channel, target)
     if channel == "guild" then
         if not IsInGuild() then return false end
         chatType = "GUILD"
+    elseif channel == "officer" then
+        if not chatModule.CanUseOfficerChat() then return false end
+        chatType = "OFFICER"
     elseif channel == "raid" then
         chatType = IsInRaid() and "RAID" or nil
     elseif channel == "party" or channel == "instance" then
@@ -417,17 +535,18 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
             AddMessage(otherName, text, guid, CHANNEL_EVENTS[event], event == "CHAT_MSG_WHISPER" and "in" or nil)
         end
     elseif event == "CHAT_MSG_CHANNEL" then
-        -- Solo el canal en inglés (channelBaseName es el 9.º argumento)
+        -- Solo los canales de idioma de la hermandad (channelBaseName es el 9.º argumento)
         local text, sender = ...
         local guid = select(12, ...)
         local baseName = select(9, ...)
         if IsSecret(text) or IsSecret(sender) or IsSecret(baseName) or not text or not sender then return end
-        if type(baseName) ~= "string" or string.lower(baseName) ~= chatModule.ENGLISH_CHANNEL then return end
-        AddMessage(sender, text, not IsSecret(guid) and guid or nil, "english")
+        local key = chatModule.GetLangChannelKey(baseName)
+        if not key then return end
+        AddMessage(sender, text, not IsSecret(guid) and guid or nil, key)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         -- Los canales del juego tardan unos segundos en estar listos al entrar
-        if isInitialLogin or isReloadingUi then C_Timer.After(8, chatModule.ApplyEnglishChannel) end
+        if isInitialLogin or isReloadingUi then C_Timer.After(8, chatModule.ApplyChannels) end
     elseif event == "CHAT_MSG_SYSTEM" then
         local text = ...
         if IsSecret(text) or type(text) ~= "string" then return end

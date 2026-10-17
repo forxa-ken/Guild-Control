@@ -622,6 +622,7 @@ end
 function uiModule.ApplyProfile()
     local sidebar = containers.sidebar
     if not sidebar then return end
+    if uiModule.RefreshChatTabs then uiModule.RefreshChatTabs() end   -- pestaña Oficiales
     local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
     if containers.header and containers.header.warningsBox then
         containers.header.warningsBox:SetShown(isOfficer)
@@ -8959,7 +8960,7 @@ local function BuildConfigView(parent)
     scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -30)
     scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -26, 6)
     local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(870, 772)
+    content:SetSize(870, 962)
     scroll:SetScrollChild(content)
 
     -- Cada sección es un panel con franja de título (y como si empezara bajo el título de la vista)
@@ -9186,26 +9187,6 @@ local function BuildConfigView(parent)
     chkNotify:SetScript("OnClick", function(self) settings().personalNotify = self:GetChecked() and true or false end)
     chkNotify:SetScript("OnShow", function(self) self:SetChecked(settings().personalNotify ~= false) end)
 
-    -- Canal en inglés de la hermandad (por defecto, activado en clientes en inglés)
-    local chkEnglish = CreateFrame("CheckButton", "GC_CfgEnglishChannel", windowBox, "UICheckButtonTemplate")
-    chkEnglish:SetPoint("TOPLEFT", chkNotify, "BOTTOMLEFT", 0, 2)
-    _G[chkEnglish:GetName() .. "Text"]:SetText(L["Unirme al canal lobosenglish (inglés)"])
-    chkEnglish:SetScript("OnClick", function(self)
-        if addonTable.GuildChat and addonTable.GuildChat.SetEnglishChannel then
-            addonTable.GuildChat.SetEnglishChannel(self:GetChecked() and true or false)
-        end
-    end)
-    chkEnglish:SetScript("OnShow", function(self)
-        self:SetChecked(addonTable.GuildChat and addonTable.GuildChat.UsesEnglishChannel and addonTable.GuildChat.UsesEnglishChannel() or false)
-    end)
-    chkEnglish:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["Canal en inglés"], 1, 1, 1)
-        GameTooltip:AddLine(L["Canal para los miembros que juegan en inglés. Sus mensajes salen en la pestaña English del chat de GuildControl. Viene activado si tu juego está en inglés."], 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    chkEnglish:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
     aboutText:SetWidth(284)
@@ -9423,6 +9404,69 @@ local function BuildConfigView(parent)
     soundHint:SetJustifyH("LEFT")
     soundHint:SetText(L["Los favoritos se marcan con clic derecho en Miembros o en la pestaña Favoritos."])
 
+    -- ---------------------------------------------------------------------
+    -- 9.6 Canales del chat: canales de idioma y chat de oficiales
+    -- ---------------------------------------------------------------------
+    local chatChannelsBox = Section(L["Canales del chat"], 10, -796, 880, 156)
+    local CHANNEL_COLUMNS = { join = 300, game = 450, tab = 650 }
+    local function ColumnHeader(text, column)
+        local fs = chatChannelsBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", CHANNEL_COLUMNS[column], -30)
+        fs:SetText(text)
+    end
+    ColumnHeader(L["Unirme"], "join")
+    ColumnHeader(L["Ver en el chat del juego"], "game")
+    ColumnHeader(L["Pestaña en GuildControl"], "tab")
+
+    local CHANNEL_ROWS = {
+        { key = "english", label = L["lobosenglish (inglés)"] },
+        { key = "spanish", label = L["lobosespanol (español)"] },
+        { key = "officer", label = L["Oficiales (chat del juego)"], officer = true },
+    }
+    local channelChecks, officerRow = {}, {}
+    local function Chat() return addonTable.GuildChat end
+    local function RefreshChannelChecks()
+        local isOfficerChat = Chat() and Chat().CanUseOfficerChat and Chat().CanUseOfficerChat() or false
+        for _, widget in ipairs(officerRow) do widget:SetShown(isOfficerChat) end
+        for _, chk in ipairs(channelChecks) do chk:SetChecked(chk.getter() and true or false) end
+    end
+    for i, row in ipairs(CHANNEL_ROWS) do
+        local y = -46 - (i - 1) * 26
+        local nameText = chatChannelsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        nameText:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", 16, y - 6)
+        nameText:SetText(row.label)
+        if row.officer then table.insert(officerRow, nameText) end
+        local function Check(column, getter, setter)
+            local chk = CreateFrame("CheckButton", nil, chatChannelsBox, "UICheckButtonTemplate")
+            chk:SetSize(26, 26)
+            chk:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", CHANNEL_COLUMNS[column], y)
+            chk.getter = getter
+            chk:SetScript("OnClick", function(self)
+                if Chat() then setter(self:GetChecked() and true or false) end
+                RefreshChannelChecks()
+            end)
+            table.insert(channelChecks, chk)
+            if row.officer then table.insert(officerRow, chk) end
+        end
+        if row.officer then
+            Check("game", function() return Chat() and Chat().ShowsInGame("officer") end,
+                function(value) Chat().SetOfficerInGame(value) end)
+        else
+            Check("join", function() return Chat() and Chat().UsesChannel(row.key) end,
+                function(value) Chat().SetChannelJoin(row.key, value) end)
+            Check("game", function() return Chat() and Chat().ShowsInGame(row.key) end,
+                function(value) Chat().SetChannelInGame(row.key, value) end)
+        end
+        Check("tab", function() return Chat() and Chat().ShowsTab(row.key) end,
+            function(value) Chat().SetChannelTab(row.key, value) end)
+    end
+
+    local channelsHint = chatChannelsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    channelsHint:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", 16, -126)
+    channelsHint:SetWidth(850)
+    channelsHint:SetJustifyH("LEFT")
+    channelsHint:SetText(L["Los canales se unen por su nombre, que es el mismo en cualquier idioma del juego. El número (/5, /6...) lo pone cada cliente y puede ser distinto: compruébalo con /chatlist. Desde el chat de GuildControl se escribe por nombre. Por defecto entras en el canal del idioma de tu juego."])
+
     view:SetScript("OnShow", function()
         local s = settings()
         discordInput:SetText(s.discordLink or "")
@@ -9444,7 +9488,8 @@ local function BuildConfigView(parent)
             Place(welcomeBox, 10, -542)
             Place(channelsBox, 10, -660, 430)
             Place(soundBox, 448, -660, 442)
-            content:SetHeight(802)
+            Place(chatChannelsBox, 10, -796)
+            content:SetHeight(962)
         else
             -- Arriba: Ventana a la izquierda; a la derecha, sonido y (si puede invitar) canales
             local canInvite = s.playerInvite == true
@@ -9454,9 +9499,11 @@ local function BuildConfigView(parent)
             if canInvite then Place(channelsBox, 328, -172, 562) end
             Place(greetBox, 10, -308)
             Place(welcomeBox, 10, -542)
-            content:SetHeight(672)
+            Place(chatChannelsBox, 10, -660)
+            content:SetHeight(826)
         end
         chkOnTop:SetChecked(s.windowOnTop)
+        RefreshChannelChecks()
         chkGreet:SetChecked(s.autoGreet)
         chkWelcome:SetChecked(s.welcomeNew)
         welcomeInput:SetText(s.welcomeMessage or "")
@@ -9489,15 +9536,33 @@ local CHAT_CHANNEL_TABS = {
     { key = "whisper", label = "Susurros" },
     { key = "raid", label = "Banda" },
     { key = "party", label = "Grupo" },
-    { key = "english", label = "English" },   -- canal lobosenglish (GuildChat.lua)
+    { key = "officer", label = "Oficiales" },  -- chat de oficiales del juego (solo oficiales)
+    { key = "english", label = "English" },    -- canal lobosenglish (GuildChat.lua)
+    { key = "spanish", label = "Español" },    -- canal lobosespanol (GuildChat.lua)
 }
-local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true, english = true }
+local CHAT_CHANNEL_KEYS = { all = true, guild = true, whisper = true, raid = true, party = true,
+    officer = true, english = true, spanish = true }
 -- Color y etiqueta de cada canal (como en el chat del juego)
 local CHAT_CHANNEL_STYLE = {
     guild = { color = "40FF40", tag = "H" }, whisper = { color = "FF80FF", tag = "S" },
     raid = { color = "FF7F00", tag = "B" }, party = { color = "AAAAFF", tag = "G" },
-    instance = { color = "FF7F00", tag = "M" }, english = { color = "FFC0A0", tag = "EN" },
+    instance = { color = "FF7F00", tag = "M" }, officer = { color = "40C040", tag = "O" },
+    english = { color = "FFC0A0", tag = "EN" }, spanish = { color = "FFD27F", tag = "ES" },
 }
+
+-- Canales que se pueden ocultar: los de idioma (si no estoy en ellos o los oculto) y el de
+-- oficiales (solo oficiales). Ocultar un canal quita su pestaña y sus mensajes de Todo.
+local function IsChatChannelShown(key)
+    local chat = addonTable.GuildChat
+    if not chat then return true end
+    if key == "officer" then
+        return chat.CanUseOfficerChat and chat.CanUseOfficerChat() and chat.ShowsTab("officer") or false
+    end
+    if chat.GetLangChannel and chat.GetLangChannel(key) then
+        return chat.UsesChannel(key) and chat.ShowsTab(key)
+    end
+    return true
+end
 
 local function ChatEntryTime(entry)
     if not entry.at then return entry.time or "" end
@@ -9533,6 +9598,7 @@ local function EntryMatchesPerson(entry, person)
 end
 
 local function EntryMatchesTab(entry, tabName)
+    if entry.channel and not IsChatChannelShown(entry.channel) then return false end
     if tabName == "all" then return true end
     if tabName == "party" then return entry.channel == "party" or entry.channel == "instance" end
     if CHAT_CHANNEL_KEYS[tabName] then return (entry.channel or "guild") == tabName end
@@ -9623,14 +9689,17 @@ local function BuildChatPanel(parent)
         if activeTabName == "all" or activeTabName == "guild" then return "guild", nil end
         if activeTabName == "raid" then return "raid", nil end
         if activeTabName == "party" then return "party", nil end
-        if activeTabName == "english" then return "english", nil end
+        if activeTabName == "officer" or activeTabName == "english" or activeTabName == "spanish" then
+            return activeTabName, nil
+        end
         if activeTabName == "whisper" then return "whisper", LastWhisperPartner() end
         return "whisper", activeTabName
     end
 
     local function UpdateTargetText()
         local channel, target = SendTarget()
-        local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"], english = "lobosenglish" }
+        local labels = { guild = L["Hermandad"], raid = L["Banda"], party = L["Grupo"], officer = L["Oficiales"],
+            english = "lobosenglish", spanish = "lobosespanol" }
         if channel == "whisper" then
             targetText:SetText(target and ("|cFFFF80FF" .. L["Susurro a "] .. target .. ":|r") or L["|cFF808080Sin destinatario|r"])
         else
@@ -9644,8 +9713,11 @@ local function BuildChatPanel(parent)
         local text = input:GetText()
         if addonTable.GuildChat and strtrim(text or "") ~= "" then
             if not addonTable.GuildChat.Send(text, channel, target) then
-                if channel == "english" then
-                    PrintGC(L["|cFFFF3333No estás en el canal lobosenglish. Actívalo en Configuración > Ventana.|r"])
+                if channel == "english" or channel == "spanish" then
+                    PrintGC(string.format(L["|cFFFF3333No estás en el canal %s. Actívalo en Configuración > Canales del chat.|r"],
+                        channel == "english" and "lobosenglish" or "lobosespanol"))
+                elseif channel == "officer" then
+                    PrintGC(L["|cFFFF3333Tu rango no puede escribir en el chat de oficiales.|r"])
                 else
                     PrintGC(L["|cFFFF3333No puedes escribir en ese canal ahora (no estás en banda, grupo o no hay destinatario).|r"])
                 end
@@ -9670,17 +9742,23 @@ local function BuildChatPanel(parent)
         local collapsed = GuildControlDB.settings.chatCollapsed
         for _, tab in ipairs(tabs) do
             tab.button:ClearAllPoints()
-            if previous then
-                tab.button:SetPoint("LEFT", previous, "RIGHT", 3, 0)
+            -- Canales ocultos (Configuración > Canales del chat) o sin permiso: sin pestaña
+            local hidden = CHAT_CHANNEL_KEYS[tab.name] and not IsChatChannelShown(tab.name)
+            if hidden then
+                tab.button:Hide()
             else
-                tab.button:SetPoint("TOPLEFT", panel, "TOPLEFT", 110, -5)
+                if previous then
+                    tab.button:SetPoint("LEFT", previous, "RIGHT", 3, 0)
+                else
+                    tab.button:SetPoint("TOPLEFT", panel, "TOPLEFT", 110, -5)
+                end
+                local label = tab.label or tab.name
+                if tab.unread > 0 then label = label .. " |cFF00FF00(" .. tab.unread .. ")|r" end
+                tab.button:SetText(label)
+                tab.button:SetEnabled(tab.name ~= activeTabName)
+                tab.button:SetShown(not collapsed)
+                previous = tab.button
             end
-            local label = tab.label or tab.name
-            if tab.unread > 0 then label = label .. " |cFF00FF00(" .. tab.unread .. ")|r" end
-            tab.button:SetText(label)
-            tab.button:SetEnabled(tab.name ~= activeTabName)
-            tab.button:SetShown(not collapsed)
-            previous = tab.button
         end
         UpdateTargetText()
     end
@@ -9710,7 +9788,7 @@ local function BuildChatPanel(parent)
     local function CreateTab(name, label)
         local isChannel = CHAT_CHANNEL_KEYS[name]
         local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        button:SetSize(isChannel and 78 or 110, 20)
+        button:SetSize(isChannel and 72 or 96, 20)
         button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         button:SetScript("OnClick", function(_, mouseButton)
             if mouseButton == "RightButton" then CloseTab(name) else SelectTab(name) end
@@ -9817,6 +9895,24 @@ local function BuildChatPanel(parent)
                 unreadText:SetText("|cFF00FF00(" .. unread .. L[" nuevos)|r"])
             end
         end)
+    end
+
+    -- Al unirse/salir de un canal, ocultarlo o cambiar el perfil: pestañas y mensajes de nuevo
+    -- (ApplyProfile lo llama en cada escaneo del roster: solo se redibuja si algo cambió)
+    local shownSignature = nil
+    function uiModule.RefreshChatTabs()
+        local signature = ""
+        for _, channelTab in ipairs(CHAT_CHANNEL_TABS) do
+            signature = signature .. (IsChatChannelShown(channelTab.key) and "1" or "0")
+        end
+        if signature == shownSignature then return end
+        shownSignature = signature
+        if CHAT_CHANNEL_KEYS[activeTabName] and not IsChatChannelShown(activeTabName) then
+            SelectTab("all")
+        else
+            LayoutTabs()
+            RenderMessages()
+        end
     end
 
     parent:SetClampedToScreen(true)

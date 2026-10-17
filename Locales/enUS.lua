@@ -1429,9 +1429,17 @@ L["Limpiar cerrados"] = "Clear closed"
 L["con materiales"] = "with materials"
 L["sin materiales"] = "no materials"
 
--- Canal en inglés (lobosenglish)
-L["Unirme al canal lobosenglish (inglés)"] = "Join the lobosenglish channel (English)"
-L["Canal en inglés"] = "English channel"
-L["Canal para los miembros que juegan en inglés. Sus mensajes salen en la pestaña English del chat de GuildControl. Viene activado si tu juego está en inglés."] = "Channel for members who play in English. Its messages appear in the English tab of the GuildControl chat. It is on by default if your game is in English."
-L["|cFFFF3333No estás en el canal lobosenglish. Actívalo en Configuración > Ventana.|r"] = "|cFFFF3333You are not in the lobosenglish channel. Turn it on in Settings > Window.|r"
+-- Canales del chat (idioma y oficiales)
+L["Canales del chat"] = "Chat channels"
+L["Unirme"] = "Join"
+L["Ver en el chat del juego"] = "Show in game chat"
+L["Pestaña en GuildControl"] = "Tab in GuildControl"
+L["lobosenglish (inglés)"] = "lobosenglish (English)"
+L["lobosespanol (español)"] = "lobosespanol (Spanish)"
+L["Oficiales (chat del juego)"] = "Officers (game chat)"
+L["Español"] = "Español"
+L["O"] = "O"
+L["Los canales se unen por su nombre, que es el mismo en cualquier idioma del juego. El número (/5, /6...) lo pone cada cliente y puede ser distinto: compruébalo con /chatlist. Desde el chat de GuildControl se escribe por nombre. Por defecto entras en el canal del idioma de tu juego."] = "Channels are joined by name, which is the same in every game language. The number (/5, /6...) is set by each client and can differ: check it with /chatlist. The GuildControl chat writes by name. By default you join the channel of your game language."
+L["|cFFFF3333No estás en el canal %s. Actívalo en Configuración > Canales del chat.|r"] = "|cFFFF3333You are not in the %s channel. Turn it on in Settings > Chat channels.|r"
+L["|cFFFF3333Tu rango no puede escribir en el chat de oficiales.|r"] = "|cFFFF3333Your rank cannot write in officer chat.|r"
 addonTable.RegisterLocale("enUS", "English", L)
