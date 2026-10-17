@@ -57,7 +57,7 @@ chatFrame:RegisterEvent("CHAT_MSG_ADDON")
 chatFrame:RegisterEvent("CHAT_MSG_SYSTEM")
 
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
-    C_ChatInfo.RegisterAddonMessagePrefix("GuildControlGreet")
+    C_ChatInfo.RegisterAddonMessagePrefix("GuildControlGrt")
 end
 
 -- =========================================================================
@@ -262,7 +262,7 @@ local function ScheduleGreet(sender)
         lastGreetByPlayer[name] = GetTime()
         lastGreetTime = GetTime()
         if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-            C_ChatInfo.SendAddonMessage("GuildControlGreet", name, "GUILD")
+            C_ChatInfo.SendAddonMessage("GuildControlGrt", name, "GUILD")
         end
         SendGuild(reply)
     end)
@@ -273,7 +273,7 @@ end
 -- =========================================================================
 -- Cuando el juego avisa de que alguien se ha unido a la hermandad, se le da la bienvenida
 -- con settings.welcomeMessage ({nombre}, {hermandad}). Responde un solo cliente (prefijo
--- GuildControlGreet, "W:nombre") y no se envía si alguien le escribe antes mencionándolo.
+-- GuildControlGrt, "W:nombre") y no se envía si alguien le escribe antes mencionándolo.
 local function CancelWelcome(name)
     local timer = pendingWelcomes[name]
     if timer then
@@ -300,7 +300,7 @@ local function ScheduleWelcome(who)
         local reply = string.gsub(addonTable.NormalizeVars(template), "{nombre}", function() return name end)
         reply = string.gsub(reply, "{hermandad}", function() return addonTable.GetDisplayGuildName() end)
         if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-            C_ChatInfo.SendAddonMessage("GuildControlGreet", "W:" .. name, "GUILD")
+            C_ChatInfo.SendAddonMessage("GuildControlGrt", "W:" .. name, "GUILD")
         end
         SendGuild(reply)
     end)
@@ -375,7 +375,7 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
         local prefix, msg, channel, sender = ...
         if IsSecret(prefix) or IsSecret(msg) or IsSecret(sender) then return end
         -- Otro cliente con GuildControl ya ha saludado a esta persona
-        if prefix == "GuildControlGreet" and channel == "GUILD" and msg and not IsMe(sender) then
+        if prefix == "GuildControlGrt" and channel == "GUILD" and msg and not IsMe(sender) then
             local welcomed = string.match(msg, "^W:(.+)$")
             if welcomed then
                 newMembers[welcomed] = true

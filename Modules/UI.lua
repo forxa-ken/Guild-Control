@@ -78,6 +78,24 @@ end
 local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Mis rosters", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
 -- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
 local TAB_LABELS = { ["Para mí"] = "Tus novedades" }
+
+-- Shift+clic en un objeto (bolsas, chat, enlaces): el juego llama a la función de insertar
+-- enlaces en el chat. Forever usa la moderna (ChatFrameUtil.InsertLink) y quizá también la
+-- antigua (ChatEdit_InsertLink), así que se escuchan las dos y se avisa una sola vez. Las cajas
+-- de texto del addon (buscadores, chat, lista de deseos) se apuntan con OnInsertLink.
+local insertLinkListeners = {}
+local lastInsertedLink, lastInsertedAt = nil, -1
+local function DispatchInsertLink(link)
+    if type(link) ~= "string" then return end
+    if link == lastInsertedLink and GetTime() == lastInsertedAt then return end
+    lastInsertedLink, lastInsertedAt = link, GetTime()
+    for _, fn in ipairs(insertLinkListeners) do pcall(fn, link) end
+end
+if ChatFrameUtil and ChatFrameUtil.InsertLink then hooksecurefunc(ChatFrameUtil, "InsertLink", DispatchInsertLink) end
+if ChatEdit_InsertLink then hooksecurefunc("ChatEdit_InsertLink", DispatchInsertLink) end
+local function OnInsertLink(fn)
+    table.insert(insertLinkListeners, fn)
+end
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -6090,14 +6108,12 @@ local function BuildProfessionsView(parent)
     craftInfo:SetJustifyH("LEFT")
 
     -- Shift+clic en un objeto (bolsas, chat, enlaces) con el buscador activo: se busca por su nombre
-    if ChatEdit_InsertLink then
-        hooksecurefunc("ChatEdit_InsertLink", function(link)
+    OnInsertLink(function(link)
             if link and craftSearch:IsVisible() and craftSearch:HasFocus() then
                 local name = string.match(link, "%[(.-)%]")
                 if name then craftSearch:SetText(name) end
             end
-        end)
-    end
+    end)
 
     local resultsBox = CreateBackdropBox(craftPanel, 650, 206, "TOPLEFT", craftPanel, "TOPLEFT", 12, -60)
     local resultsScroll = CreateFrame("ScrollFrame", nil, resultsBox, "UIPanelScrollFrameTemplate")
@@ -8356,11 +8372,9 @@ local function BuildLootView(parent)
     end
     btnAddItem:SetScript("OnClick", AddTyped)
     addInput:SetScript("OnEnterPressed", AddTyped)
-    if ChatEdit_InsertLink then
-        hooksecurefunc("ChatEdit_InsertLink", function(link)
+    OnInsertLink(function(link)
             if addInput:IsVisible() and addInput:HasFocus() and link then addInput:Insert(link) end
-        end)
-    end
+    end)
 
     -- Filas de objetos
     local STATE_TEXT = {
@@ -9607,11 +9621,9 @@ local function BuildChatPanel(parent)
 
     -- Shift+clic en un objeto (bolsas, chat, mensajes de este panel) con la caja activa:
     -- se inserta su enlace, como en el chat del juego
-    if ChatEdit_InsertLink then
-        hooksecurefunc("ChatEdit_InsertLink", function(link)
+    OnInsertLink(function(link)
             if link and input:IsVisible() and input:HasFocus() then input:Insert(link) end
-        end)
-    end
+    end)
 
     local function LayoutTabs()
         local previous = nil
@@ -9906,11 +9918,9 @@ local function BuildForMeView(parent)
     end
     btnWishAdd:SetScript("OnClick", AddWish)
     wishInput:SetScript("OnEnterPressed", AddWish)
-    if ChatEdit_InsertLink then
-        hooksecurefunc("ChatEdit_InsertLink", function(link)
+    OnInsertLink(function(link)
             if wishInput:IsVisible() and wishInput:HasFocus() and link then wishInput:Insert(link) end
-        end)
-    end
+    end)
 
     local function AcquireWishRow(index)
         local row = wishBox.rows[index]

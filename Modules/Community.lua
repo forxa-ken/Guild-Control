@@ -13,11 +13,13 @@ local communityModule = addonTable.Community
 --       Q      petición al entrar (cada uno reenvía sus anuncios abiertos)
 --   - Artesanos: cada jugador con GuildControl comparte las recetas que conoce de sus
 --     profesiones (al cerrar la ventana de profesión). GuildControlDB.recipes[Nombre-Reino] =
---     { [profesión] = { at, ids = { recipeID, ... } } }. Prefijo GuildControlCraft, troceado:
+--     { [profesión] = { at, ids = { recipeID, ... } } }. Prefijo GuildControlCrft, troceado:
 --       R;msgId;i;total;profesión;id,id,...
 
 local LFG_PREFIX = "GuildControlLFG"
-local CRAFT_PREFIX = "GuildControlCraft"
+-- Máximo 16 caracteres: con "GuildControlCraft" (17) el juego no registraba el prefijo ni
+-- enviaba los mensajes, así que las recetas de los demás nunca llegaban
+local CRAFT_PREFIX = "GuildControlCrft"
 local POST_MAX_AGE = 2 * 3600
 
 communityModule.ACTIVITIES = {
