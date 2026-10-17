@@ -75,7 +75,7 @@ local function TabHelp(tabName)
 end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Mis rosters", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
 -- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
 local TAB_LABELS = { ["Para mí"] = "Tus novedades" }
 
@@ -557,6 +557,12 @@ end
 
 local function SwitchTab(tabName)
     activeTab = tabName
+    -- El botón de la pestaña activa se ve gris (desactivado)
+    local sidebar = containers.sidebar
+    if sidebar and sidebar.tabButtons then
+        for name, btn in pairs(sidebar.tabButtons) do btn:SetEnabled(name ~= tabName) end
+        if sidebar.btnConfig then sidebar.btnConfig:SetEnabled(tabName ~= "Configuracion") end
+    end
     for name, viewFrame in pairs(containers.views) do
         if name == tabName then
             viewFrame:Show()
@@ -607,6 +613,7 @@ local function BuildSidebar(parent)
     btnConfig:SetPoint("BOTTOM", sidebar, "BOTTOM", 0, 15)
     btnConfig:SetText(L["Configuración"])
     btnConfig:SetScript("OnClick", function() SwitchTab("Configuracion") end)
+    sidebar.btnConfig = btnConfig
 
     containers.sidebar = sidebar
 end
@@ -1847,7 +1854,7 @@ local function BuildRosterView(parent)
     btnPublish:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText(L["Publicar a la hermandad"], 1, 1, 1)
-        GameTooltip:AddLine(L["Los oficiales ven los cambios del roster en vivo. Los jugadores solo lo ven en Mis rosters cuando lo publicas, tal como está en ese momento; si lo cambias después, vuelve a publicarlo."], 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(L["Los oficiales ven los cambios del roster en vivo. Los jugadores solo lo ven (en la vista previa de Raid, al elegir la banda) cuando lo publicas, tal como está en ese momento; si lo cambias después, vuelve a publicarlo."], 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     btnPublish:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -4648,7 +4655,7 @@ local function BuildSummaryView(parent)
             if stats.percent and shown < 2 then
                 shown = shown + 1
                 local color = stats.percent < threshold and "FF3333" or "00FF00"
-                Add(L["Asistencia en "] .. roster.name .. ": |cFF" .. color .. stats.percent .. "%|r", GoTo(isOfficer and "Roster" or "Mis rosters"))
+                Add(L["Asistencia en "] .. roster.name .. ": |cFF" .. color .. stats.percent .. "%|r", GoTo(isOfficer and "Roster" or "Raid"))
             end
         end
 
