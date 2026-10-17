@@ -2962,13 +2962,7 @@ end
 -- Modo masivo: cola de jugadores, búsqueda /who y envío por lotes
 -- -------------------------------------------------------------------------
 local function NormalizePlayerName(name)
-    name = strtrim(name or "")
-    if name == "" then return nil end
-    if not string.find(name, "-", 1, true) then
-        local realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
-        name = name .. "-" .. realm
-    end
-    return (string.gsub(name, "%s+", ""))
+    return addonTable.NormalizeName(name)   -- Core: "Nombre-Reino" sin apellido
 end
 
 local MASS_STATUS_TEXT = {
@@ -3407,7 +3401,7 @@ local function CreateRosterMessageFrame()
     -- Integrantes conectados a los que se susurraría (sin mí)
     local function Recipients(roster)
         local list, total = {}, 0
-        local me = UnitName("player")
+        local me = string.match(UnitName("player") or "", "^(%S+)")   -- sin apellido (Forever)
         for name, slot in pairs(R.GetEffectiveMembers(roster)) do
             if slot ~= "bench" or chkBench:GetChecked() then
                 total = total + 1
@@ -5734,7 +5728,7 @@ local function BuildWarningView(parent)
     btnRemind:SetScript("OnClick", function(self)
         if reminderTicker then return end
         local queue = {}
-        local me = UnitName("player")
+        local me = string.match(UnitName("player") or "", "^(%S+)")   -- sin apellido (Forever)
         for _, entry in ipairs(currentList) do
             if entry.data.isOnline and ShortOf(entry.name) ~= me then table.insert(queue, entry.name) end
         end
@@ -6603,7 +6597,7 @@ local function BuildRaidView(parent)
     footer:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 12, 10)
 
     local function InviteSigned(event)
-        local me = UnitName("player")
+        local me = string.match(UnitName("player") or "", "^(%S+)")   -- sin apellido (Forever)
         local names = {}
         for name, s in pairs(event.signups) do
             local m = GuildControlDB.members[name]
@@ -6644,7 +6638,7 @@ local function BuildRaidView(parent)
             PrintGC(L["No se encuentra el roster |cFFFFD100"] .. event.rosterName .. "|r.")
             return
         end
-        local me, sent = UnitName("player"), 0
+        local me, sent = string.match(UnitName("player") or "", "^(%S+)"), 0   -- sin apellido (Forever)
         for name in pairs(roster.members) do
             local m = GuildControlDB.members[name]
             if not event.signups[name] and m and m.isOnline and string.match(name, "^([^-]+)") ~= me then
@@ -9356,7 +9350,7 @@ local function BuildChatPanel(parent)
         local linkType, target = string.match(link, "^(%a+):([^:]+)")
         if linkType == "player" and button == "LeftButton" and target then
             local short = Ambiguate and Ambiguate(target, "guild") or target
-            if short ~= UnitName("player") then
+            if not addonTable.IsMe(target) then
                 SelectTab(short)
                 return
             end

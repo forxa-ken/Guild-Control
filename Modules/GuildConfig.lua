@@ -132,7 +132,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     local prefix, msg, channel, sender = ...
     if prefix ~= PREFIX or channel ~= "GUILD" then return end
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
-    if not msg or not sender or Ambiguate(sender, "none") == UnitName("player") then return end
+    if not msg or not sender or addonTable.IsMe(sender) then return end
     local fullSender = addonTable.Profiles and addonTable.Profiles.NormalizeName(sender) or sender
 
     if msg == "Q" then

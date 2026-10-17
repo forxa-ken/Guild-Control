@@ -73,7 +73,7 @@ local function ShortName(name)
 end
 
 local function IsMe(name)
-    return ShortName(name) == UnitName("player")
+    return addonTable.IsMe(name)
 end
 
 local ACCENTS = { ["á"] = "a", ["é"] = "e", ["í"] = "i", ["ó"] = "o", ["ú"] = "u", ["ü"] = "u", ["ñ"] = "n",

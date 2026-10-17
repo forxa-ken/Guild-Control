@@ -558,7 +558,7 @@ inviteFrame:SetScript("OnEvent", function(self)
 end)
 
 function rosterModule.InviteRoster(roster)
-    local me = UnitName("player")
+    local me = string.match(UnitName("player") or "", "^(%S+)")   -- sin apellido (Forever)
     local targets = {}
     ForEachStarter(roster, function(name, m)
         if m.isOnline and ShortName(name) ~= me then table.insert(targets, name) end
@@ -843,7 +843,7 @@ local function StoreShared(sender, roster)
     local store = SharedStore()
     local existing = store[roster.syncId]
     if existing and (existing.roster.updatedAt or 0) > (roster.updatedAt or 0) then return end
-    local m = GuildControlDB.members[sender] or GuildControlDB.members[(string.gsub(sender, "%s+", ""))]
+    local m = GuildControlDB.members[addonTable.NormalizeName(sender) or sender]
     store[roster.syncId] = {
         roster = roster,
         from = string.match(sender, "^([^-]+)") or sender,
@@ -950,8 +950,7 @@ syncFrame:SetScript("OnEvent", function(_, event, ...)
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
     if not msg or not sender or not GuildControlDB then return end
     -- Ignorar mis propios envíos
-    local short = string.match(sender, "^([^-]+)") or sender
-    if short == UnitName("player") then return end
+    if addonTable.IsMe(sender) then return end
 
     if msg == "Q" then
         ScheduleRepublish()

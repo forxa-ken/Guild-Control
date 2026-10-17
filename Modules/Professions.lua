@@ -57,11 +57,7 @@ end
 
 -- Convierte "Nombre" o "Nombre-Reino" en la clave de GuildControlDB.members
 local function NormalizeName(name)
-    if not name or name == "" then return nil end
-    if not string.find(name, "-", 1, true) then
-        name = name .. "-" .. GetRealm()
-    end
-    return (string.gsub(name, "%s+", ""))
+    return addonTable.NormalizeName(name)   -- Core: "Nombre-Reino" sin apellido
 end
 
 -- "Herrería 100" -> "Herrería"

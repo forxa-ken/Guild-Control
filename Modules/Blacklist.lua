@@ -45,13 +45,7 @@ end
 
 local function Normalize(name)
     if not name or IsSecret(name) then return nil end
-    name = strtrim(name)
-    if name == "" then return nil end
-    if not string.find(name, "-", 1, true) then
-        local realm = GetNormalizedRealmName and GetNormalizedRealmName() or GetRealmName() or ""
-        name = name .. "-" .. realm
-    end
-    return (string.gsub(name, "%s+", ""))
+    return addonTable.NormalizeName(name)   -- Core: "Nombre-Reino" sin apellido
 end
 blacklistModule.Normalize = Normalize
 
@@ -247,8 +241,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     local prefix, msg, channel, sender = ...
     if prefix ~= SHARE_PREFIX or channel ~= "GUILD" then return end
     if IsSecret(msg) or IsSecret(sender) or not msg or not sender then return end
-    local short = string.match(sender, "^([^-]+)") or sender
-    if short == UnitName("player") then return end
+    if addonTable.IsMe(sender) then return end
     -- Solo se aceptan entradas de oficiales (según el rango configurado en este cliente)
     if not (addonTable.Profiles and addonTable.Profiles.IsOfficerName(sender)) then return end
 

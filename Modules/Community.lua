@@ -343,7 +343,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
     local prefix, msg, channel, sender = ...
     if (prefix ~= LFG_PREFIX and prefix ~= CRAFT_PREFIX) or channel ~= "GUILD" then return end
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
-    if type(msg) ~= "string" or not sender or Ambiguate(sender, "none") == UnitName("player") then return end
+    if type(msg) ~= "string" or not sender or addonTable.IsMe(sender) then return end
     local fullSender = NormalizeName(sender)
     if prefix == LFG_PREFIX then
         OnLfgMessage(fullSender, msg)

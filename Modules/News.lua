@@ -630,7 +630,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local prefix, msg, channel, sender = ...
         if prefix ~= BOSS_PREFIX or channel ~= "GUILD" then return end
         if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
-        if msg and sender and Ambiguate(sender, "none") ~= UnitName("player") then OnBossMessage(msg) end
+        if msg and sender and not addonTable.IsMe(sender) then OnBossMessage(msg) end
     else
         Notify()
     end

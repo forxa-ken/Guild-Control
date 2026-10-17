@@ -703,7 +703,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local prefix, msg, channel, sender = ...
         if prefix ~= PREFIX or not msg or not sender then return end
         if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
-        if Ambiguate(sender, "none") == UnitName("player") then return end
+        if addonTable.IsMe(sender) then return end
         OnAddonMessage(msg, channel, sender)
     end
 end)

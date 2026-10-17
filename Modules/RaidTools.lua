@@ -44,10 +44,7 @@ end
 
 local function FullName(name, realm)
     if not name then return nil end
-    if not realm or realm == "" then
-        realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
-    end
-    return name .. "-" .. string.gsub(realm, "%s+", "")
+    return addonTable.NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name)
 end
 
 local function GroupChannel()
@@ -269,7 +266,7 @@ frame:SetScript("OnEvent", function(_, event, prefix, msg, channel, sender)
     if channel ~= "RAID" and channel ~= "PARTY" and channel ~= "INSTANCE_CHAT" then return end
     local short, realm = strsplit("-", sender, 2)
     local fullName = FullName(short, realm)
-    if Ambiguate(sender, "none") == UnitName("player") then return end
+    if addonTable.IsMe(sender) then return end
 
     if msg == "Q" then
         -- Pequeño retraso para no responder todos a la vez

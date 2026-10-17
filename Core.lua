@@ -157,6 +157,60 @@ function addonTable.InitDB()
     if addonTable.RaidEvents and addonTable.RaidEvents.MigrateRosterDates then
         addonTable.RaidEvents.MigrateRosterDates()
     end
+
+    addonTable.MigrateNameKeys()
+end
+
+-- Una sola vez: pasa a "Nombre-Reino" sin apellido las claves de jugador guardadas con otros
+-- formatos ("Peppa Pic", "PeppaPic-Reino"). Si dos claves acaban en la misma, se queda la que
+-- ya tenía el formato nuevo.
+local function RekeyNames(map)
+    if type(map) ~= "table" then return end
+    local moves = {}
+    for key, value in pairs(map) do
+        if type(key) == "string" then
+            local normalized = addonTable.NormalizeName(key)
+            if normalized and normalized ~= key then moves[key] = { normalized, value } end
+        end
+    end
+    for old, move in pairs(moves) do
+        map[old] = nil
+        if map[move[1]] == nil then map[move[1]] = move[2] end
+    end
+end
+
+function addonTable.MigrateNameKeys()
+    local db = GuildControlDB
+    if db.nameKeysVersion == 2 then return end
+    for _, key in ipairs({ "members", "favorites", "myProfiles", "addonUsers", "wishlists", "recipes",
+                           "myLedgerLast", "keystones" }) do
+        RekeyNames(db[key])
+    end
+    for _, m in pairs(db.members or {}) do
+        if type(m) == "table" and m.name then m.name = addonTable.NormalizeName(m.name) or m.name end
+    end
+    if type(db.loot) == "table" then RekeyNames(db.loot.points); RekeyNames(db.loot.pointsAt) end
+    if type(db.dkp) == "table" then RekeyNames(db.dkp.balances); RekeyNames(db.dkp.since) end
+    if type(db.rosterData) == "table" then
+        for _, roster in pairs(db.rosterData.rosters or {}) do
+            if type(roster) == "table" then
+                RekeyNames(roster.members)
+                for _, variant in pairs(roster.variants or {}) do
+                    if type(variant) == "table" then RekeyNames(variant.overrides) end
+                end
+            end
+        end
+    end
+    for _, item in pairs(db.sharedRosters or {}) do
+        if type(item) == "table" and type(item.roster) == "table" then RekeyNames(item.roster.members) end
+    end
+    for _, event in pairs(db.raidEvents or {}) do
+        if type(event) == "table" then RekeyNames(event.signups); RekeyNames(event.groups) end
+    end
+    for _, rec in pairs(db.raidAttendance or {}) do
+        if type(rec) == "table" then RekeyNames(rec.marks) end
+    end
+    db.nameKeysVersion = 2
 end
 
 -- Nombre de la hermandad que da el juego (o uno genérico sin hermandad)
@@ -186,6 +240,50 @@ function addonTable.LogHistoryEvent(actionType, characterName, details)
     if #GuildControlDB.history > 300 then
         table.remove(GuildControlDB.history)
     end
+end
+
+-- Clave única de un jugador: "Nombre-Reino" (el reino sin espacios; si falta, el propio).
+-- Si el nombre trae más de una palabra solo cuenta la primera (en Classic Forever los
+-- personajes llevan apellido). Todos los NormalizeName de los módulos usan esta función.
+local function NormalizedRealm()
+    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+    if not realm or realm == "" then realm = GetRealmName() or "" end
+    return (string.gsub(realm, "%s+", ""))
+end
+
+function addonTable.NormalizeName(name)
+    if type(name) ~= "string" then return nil end
+    if issecretvalue and issecretvalue(name) then return nil end
+    name = strtrim(name)
+    if name == "" then return nil end
+    local base, realm = strsplit("-", name, 2)
+    base = string.match(base or "", "^(%S+)")
+    if not base then return nil end
+    if not realm or strtrim(realm) == "" then realm = NormalizedRealm() end
+    return base .. "-" .. string.gsub(realm, "%s+", "")
+end
+
+-- ¿Es este nombre el del propio personaje? (para ignorar los mensajes propios del addon)
+function addonTable.IsMe(name)
+    local me = addonTable.NormalizeName(UnitName("player"))
+    return me ~= nil and addonTable.NormalizeName(name) == me
+end
+
+-- Registra eventos que quizá no existan en todos los clientes: el juego da error con un
+-- evento desconocido, así que se registran uno a uno con pcall y se ignoran los que faltan
+function addonTable.RegisterEvents(frame, ...)
+    for i = 1, select("#", ...) do
+        pcall(frame.RegisterEvent, frame, (select(i, ...)))
+    end
+end
+
+-- Momento del último reinicio semanal (caja Esta semana del Resumen)
+function addonTable.GetLastWeeklyReset()
+    if C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset then
+        local ok, seconds = pcall(C_DateAndTime.GetSecondsUntilWeeklyReset)
+        if ok and type(seconds) == "number" then return time() + seconds - 7 * 86400 end
+    end
+    return time() - 7 * 86400
 end
 
 function addonTable.CreateMinimapButton()
@@ -313,9 +411,16 @@ function addonTable.ScanGuildRosterForChanges()
     local currentGuildOnlineMap = {}
 
     for i = 1, numMembers do
-        local fullName, rankName, rankIndex, level, _, zoneName, publicNote, officerNote, online, _, classFileName, achievementPoints, _, _, _, _, guid = GetGuildRosterInfo(i)
-        
+        local rawName, rankName, rankIndex, level, _, zoneName, publicNote, officerNote, online, _, classFileName, achievementPoints, _, _, _, _, guid = GetGuildRosterInfo(i)
+        -- Forever da "Nombre Apellido" sin reino: la clave es "Nombre-Reino", la misma que
+        -- llega en los mensajes del addon. Los datos guardados con la clave antigua se mueven.
+        local fullName = addonTable.NormalizeName(rawName)
+
         if fullName then
+            if rawName ~= fullName and GuildControlDB.members[rawName] and not GuildControlDB.members[fullName] then
+                GuildControlDB.members[fullName] = GuildControlDB.members[rawName]
+                GuildControlDB.members[rawName] = nil
+            end
             currentGuildOnlineMap[fullName] = true
 
             -- Años, meses y días desde la última conexión (antes solo se miraban los días)
@@ -335,6 +440,7 @@ function addonTable.ScanGuildRosterForChanges()
             if not GuildControlDB.members[fullName] then
                 GuildControlDB.members[fullName] = {
                     name = fullName,
+                    displayName = rawName,   -- con apellido, tal como lo da el juego
                     rank = rankName or "Recluta",
                     publicNote = publicNote or "",
                     role = "DPS",
@@ -355,6 +461,8 @@ function addonTable.ScanGuildRosterForChanges()
                 if addonTable.Blacklist and addonTable.Blacklist.CheckJoin then addonTable.Blacklist.CheckJoin(fullName) end
             else
                 local m = GuildControlDB.members[fullName]
+                m.name = fullName
+                m.displayName = rawName
                 if rankName and rankName ~= "" then m.rank = rankName end
                 m.publicNote = publicNote or m.publicNote or ""
                 m.level = level or m.level or 0
@@ -463,11 +571,7 @@ if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 end
 
 local function FullSenderName(sender)
-    local name, realm = strsplit("-", sender, 2)
-    if not realm or realm == "" then
-        realm = GetNormalizedRealmName and GetNormalizedRealmName() or string.gsub(GetRealmName() or "", "%s+", "")
-    end
-    return name .. "-" .. string.gsub(realm, "%s+", "")
+    return addonTable.NormalizeName(sender)
 end
 
 function addonTable.MarkAddonUser(fullName, version)
@@ -572,7 +676,7 @@ presenceFrame:SetScript("OnEvent", function(_, event, ...)
         else
             addonTable.MarkAddonUser(fullName)
             -- Petición: se responde con un pequeño retraso (y no más de una vez por minuto)
-            if msg == "P" and Ambiguate(sender, "none") ~= UnitName("player") and GetTime() - lastHello > 60 then
+            if msg == "P" and not addonTable.IsMe(sender) and GetTime() - lastHello > 60 then
                 lastHello = GetTime()
                 C_Timer.After(1 + math.random() * 6, SendHello)
             end
