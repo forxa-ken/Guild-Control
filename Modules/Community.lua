@@ -247,6 +247,7 @@ local function SendRecipes(profession, ids)
 end
 
 local pendingProfession, pendingIds = nil, nil
+local sentThisSession = {}   -- [profesión] = true: ya enviada en esta sesión
 local collectTimer = nil
 local function OnTradeSkillUpdate()
     local profession, ids = CollectOpenRecipes()
@@ -256,7 +257,33 @@ local function OnTradeSkillUpdate()
     local old = mine[profession]
     local changed = not old or #old.ids ~= #ids
     mine[profession] = { at = time(), ids = ids }
-    if changed then pendingProfession, pendingIds = profession, ids end
+    -- También la primera vez en cada sesión, aunque no haya cambiado: quien no estaba
+    -- conectado la última vez no la tiene
+    if changed or not sentThisSession[profession] then pendingProfession, pendingIds = profession, ids end
+end
+
+-- Envía todas mis recetas guardadas (respuesta a una petición "Q")
+local lastRecipeReply = -60
+local function SendAllMyRecipes()
+    if GetTime() - lastRecipeReply < 30 then return end
+    lastRecipeReply = GetTime()
+    local delay = 0
+    for profession, data in pairs(RecipeStore()[MyName()] or {}) do
+        if type(data) == "table" and type(data.ids) == "table" and #data.ids > 0 then
+            C_Timer.After(delay, function() SendRecipes(profession, data.ids) end)
+            sentThisSession[profession] = true
+            delay = delay + 3
+        end
+    end
+end
+
+-- Pide a la hermandad las recetas de todos (al entrar y al abrir Artesanos y pedidos).
+-- Cada cliente con GuildControl responde con las suyas.
+local lastRecipeRequest = -120
+function communityModule.RequestRecipes()
+    if GetTime() - lastRecipeRequest < 60 then return end
+    lastRecipeRequest = GetTime()
+    Send(CRAFT_PREFIX, "Q")
 end
 
 local partials = {}
@@ -501,6 +528,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if isInitialLogin or isReloadingUi then
             C_Timer.After(24, function() Send(LFG_PREFIX, "Q") end)
             C_Timer.After(27, function() Send(ORDER_PREFIX, "Q") end)
+            C_Timer.After(30, communityModule.RequestRecipes)
         end
         return
     elseif event == "TRADE_SKILL_LIST_UPDATE" then
@@ -515,6 +543,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         -- Se envía al cerrar la ventana (y solo si cambió) para no saturar el canal
         if pendingProfession then
             SendRecipes(pendingProfession, pendingIds)
+            sentThisSession[pendingProfession] = true
             pendingProfession, pendingIds = nil, nil
         end
         return
@@ -530,5 +559,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
         OnLfgMessage(fullSender, msg)
     elseif string.sub(msg, 1, 2) == "R;" then
         OnCraftMessage(fullSender, msg)
+    elseif prefix == CRAFT_PREFIX and msg == "Q" then
+        -- Alguien pide las recetas: respondo con las mías un poco después (para no coincidir)
+        C_Timer.After(1 + math.random() * 5, SendAllMyRecipes)
     end
 end)

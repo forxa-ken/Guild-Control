@@ -6368,6 +6368,8 @@ local function BuildProfessionsView(parent)
         craftPanel:SetShown(mode == "crafts")
         btnMembers:SetEnabled(mode ~= "members")
         btnCrafts:SetEnabled(mode ~= "crafts")
+        -- Al abrir los artesanos se piden las recetas a la hermandad (como mucho una vez por minuto)
+        if mode == "crafts" and C and C.RequestRecipes then C.RequestRecipes() end
         if mode == "crafts" then RefreshCraftPanel() else Refresh() end
     end
     btnCrafts:SetScript("OnClick", function() SetMode("crafts") end)
