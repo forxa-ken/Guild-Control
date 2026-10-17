@@ -312,7 +312,9 @@ end
 local function ApplyMyProfessions()
     local p1, p2 = profModule.GetMyProfessions()
     if p1 == NONE and p2 == NONE then return false end
-    return SetMemberProfessions(NormalizeName(UnitName("player")), p1, p2)
+    local me = NormalizeName(UnitName("player"))
+    if GuildControlDB.members[me] then GuildControlDB.members[me].profFromAddon = time() end   -- datos propios: mandan
+    return SetMemberProfessions(me, p1, p2)
 end
 
 -- force = true: enviar al resto aunque no haya cambios (al entrar en el juego)
@@ -357,14 +359,30 @@ function profModule.GetProfessionsFromClub(guid)
     return nil, nil
 end
 
+-- Nivel de un texto "Profesión nivel" (0 si no lo lleva)
+local function RankOf(profText)
+    return tonumber(string.match(profText or "", "(%d+)$")) or 0
+end
+
+-- La comunidad de la hermandad (C_Club) solo rellena: no pisa lo que envía el propio jugador
+-- con GuildControl (member.profFromAddon) ni baja el nivel de una profesión ya conocida.
+-- En Forever esta fuente puede dar nivel 1 aunque el personaje tenga más.
 local function ApplyClubProfessions()
     local map = BuildClubProfessionMap()
     if not map then return false end
     local changed = false
     for fullName, m in pairs(GuildControlDB.members) do
         local entry = m.guid and map[m.guid]
-        if entry and SetMemberProfessions(fullName, entry[1], entry[2]) then
-            changed = true
+        if entry and not m.profFromAddon then
+            for _, profText in ipairs({ entry[1], entry[2] }) do
+                if profText then
+                    local base = BaseName(profText)
+                    local current = (BaseName(m.prof1) == base and m.prof1) or (BaseName(m.prof2) == base and m.prof2)
+                    if not current or RankOf(profText) > RankOf(current) then
+                        if MergeMemberProfession(m, profText) then changed = true end
+                    end
+                end
+            end
         end
     end
     return changed
@@ -398,7 +416,11 @@ function profModule.ParseGuildTradeSkills()
                 local fullName = NormalizeName(playerNameWithRealm or playerName)
                 local m = fullName and GuildControlDB.members[fullName]
                 local profText = FormatProfession(currentProf, skill)
-                if m and profText and MergeMemberProfession(m, profText) then
+                -- Solo rellena: no pisa lo que envía el jugador ni baja un nivel conocido
+                local base = profText and BaseName(profText)
+                local current = m and base and ((BaseName(m.prof1) == base and m.prof1) or (BaseName(m.prof2) == base and m.prof2))
+                if m and profText and not m.profFromAddon and (not current or RankOf(profText) > RankOf(current))
+                    and MergeMemberProfession(m, profText) then
                     changed = true
                 end
             end
@@ -480,6 +502,8 @@ profFrame:SetScript("OnEvent", function(self, event, ...)
             if p1 == "" then p1 = nil end
             if p2 == "" then p2 = nil end
             local changed = SetMemberProfessions(fullSender, p1, p2)
+            -- Lo que envía el propio jugador manda sobre la comunidad y la lista de la hermandad
+            if GuildControlDB.members[fullSender] then GuildControlDB.members[fullSender].profFromAddon = time() end
 
             -- Quitar del desglose las profesiones que ya no tiene
             local m = GuildControlDB.members[fullSender]

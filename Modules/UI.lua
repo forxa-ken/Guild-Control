@@ -75,7 +75,9 @@ local function TabHelp(tabName)
 end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Favoritos", "Comunidad", "Logros", "Profesiones", "Mi perfil", "Para mí", "Mis rosters", "Roster", "Raid", "Botín", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Comunidad", "Mis rosters", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
+-- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
+local TAB_LABELS = { ["Para mí"] = "Tus novedades" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
 local PLAYER_ONLY_TABS = { ["Mis rosters"] = true }   -- los oficiales ya tienen la pestaña Roster completa
 
@@ -574,7 +576,7 @@ local function BuildSidebar(parent)
     for _, tabName in ipairs(SIDEBAR_TABS) do
         local btn = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
         btn:SetSize(130, 25)
-        btn:SetText(L[tabName])
+        btn:SetText(L[TAB_LABELS[tabName] or tabName])
         btn:SetScript("OnClick", function() SwitchTab(tabName) end)
         sidebar.tabButtons[tabName] = btn
     end
@@ -5767,7 +5769,9 @@ local function BuildWarningView(parent)
             row.bg:SetShown(i % 2 == 0)
             row.fullName, row.detail = entry.name, entry.detail
             local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
-            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r" .. dot)
+            -- Nombre con apellido (Forever); la clave interna solo sirve para identificar
+            local shown = m.displayName or string.match(entry.name, "^([^-]+)") or entry.name
+            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. shown .. "|r" .. dot)
             row.cells[2]:SetText(tostring(m.level or ""))
             row.cells[3]:SetText(m.rank or "")
             row.cells[4]:SetText(entry.detail or "")
@@ -6044,7 +6048,9 @@ local function BuildProfessionsView(parent)
             row.bg:SetShown(i % 2 == 0)
             local dot = m.isOnline and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""
             row.fullName = entry.name
-            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. entry.name .. "|r" .. dot)
+            -- Nombre con apellido (Forever); la clave interna solo sirve para identificar
+            local shown = m.displayName or string.match(entry.name, "^([^-]+)") or entry.name
+            row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. shown .. "|r" .. dot)
             row.cells[2]:SetText(entry.skill and tostring(entry.skill) or "|cFF808080-|r")
             local other = entry.other
             row.cells[3]:SetText((other and other ~= "Ninguna") and other or "")
@@ -7489,6 +7495,7 @@ local function GetBattleNetFriends()
                 online = game.isOnline and true or false,
                 character = inWoW and game.characterName or nil,
                 realm = inWoW and game.realmName or nil,
+                realmID = inWoW and game.realmID or nil,
                 area = game.areaName,
                 className = game.className,
                 level = game.characterLevel,
@@ -7637,13 +7644,21 @@ local function BuildFavoritesView(parent)
         end
     end
 
+    -- Primero la invitación de Battle.net (no depende del nombre ni del reino: en Forever
+    -- "Nombre Apellido-Reino" con el reino de Battle.net no lo encuentra el juego). Si no
+    -- está disponible, por nombre: sin reino si es el mismo que el mío.
     local function BNetInvite(friend)
         if not friend.inWoW then return end
-        if friend.character and friend.realm and friend.realm ~= "" then
-            InviteToGroup(friend.character .. "-" .. string.gsub(friend.realm, "%s+", ""))
-        elseif friend.gameAccountID and BNInviteFriend then
+        if friend.gameAccountID and BNInviteFriend then
             BNInviteFriend(friend.gameAccountID)
+            return
         end
+        if not friend.character then return end
+        local sameRealm = (friend.realmID and GetRealmID and friend.realmID == GetRealmID())
+            or not friend.realm or friend.realm == ""
+            or string.lower(string.gsub(friend.realm, "%s+", "")) == string.lower(string.gsub(GetRealmName() or "", "%s+", ""))
+        local target = sameRealm and friend.character or (friend.character .. "-" .. string.gsub(friend.realm, "%s+", ""))
+        if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(target) elseif InviteUnit then InviteUnit(target) end
     end
 
     local function FriendText(friend)
@@ -8824,32 +8839,6 @@ local function BuildConfigView(parent)
     _G[chkNotify:GetName() .. "Text"]:SetText(L["Avisos personales en pantalla"])
     chkNotify:SetScript("OnClick", function(self) settings().personalNotify = self:GetChecked() and true or false end)
     chkNotify:SetScript("OnShow", function(self) self:SetChecked(settings().personalNotify ~= false) end)
-
-    -- Duración del descanso del modo minimalista de banda (minutos)
-    local breakInput = CreateFrame("EditBox", nil, windowBox, "InputBoxTemplate")
-    breakInput:SetSize(34, 20)
-    breakInput:SetPoint("TOPLEFT", chkNotify, "BOTTOMLEFT", 10, -4)
-    breakInput:SetAutoFocus(false)
-    breakInput:SetNumeric(true)
-    breakInput:SetMaxLetters(2)
-    breakInput:SetJustifyH("CENTER")
-    local breakText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    breakText:SetPoint("LEFT", breakInput, "RIGHT", 8, 0)
-    breakText:SetWidth(230)
-    breakText:SetJustifyH("LEFT")
-    breakText:SetText(L["Minutos de descanso en banda (1-30)"])
-    local function BreakMinutes()
-        return addonTable.RaidTools and addonTable.RaidTools.GetBreakMinutes() or 5
-    end
-    breakInput:SetScript("OnTextChanged", function(self, userInput)
-        if not userInput then return end
-        local value = tonumber(self:GetText())
-        if value then settings().breakMinutes = math.min(30, math.max(1, value)) end
-    end)
-    breakInput:SetScript("OnEditFocusLost", function(self) self:SetText(tostring(BreakMinutes())) end)
-    breakInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    breakInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    breakInput:SetScript("OnShow", function(self) self:SetText(tostring(BreakMinutes())) end)
 
     local aboutText = windowBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     aboutText:SetPoint("BOTTOMLEFT", windowBox, "BOTTOMLEFT", 14, 12)
@@ -10756,9 +10745,27 @@ local function CreateRaidMiniFrame()
 
     -- Fila 3: descanso, ventana de buffos y modo normal
     local width3 = (inner - MINI_GAP * 2) / 3
-    local btnBreak = MiniButton(frame, L["Descanso"], width3, L["Descanso"],
-        L["Avisa a la banda de un descanso, a falta de 1 minuto y al terminar. La duración se cambia en Configuración. Púlsalo otra vez para cancelarlo."],
-        function() T.Break() end)
+    -- Al pulsarlo se elige la duración: rápidas, la última usada u "Otro..." para escribirla
+    local btnBreak
+    btnBreak = MiniButton(frame, L["Descanso"], width3, L["Descanso"],
+        L["Elige la duración y se avisa a la banda al empezar, a falta de 1 minuto y al terminar. Con un descanso en marcha puedes cancelarlo."],
+        function(self)
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                if T.IsOnBreak() then
+                    root:CreateButton(L["|cFFFF3333Cancelar descanso|r"], function() T.CancelBreak() end)
+                    return
+                end
+                local last = T.GetBreakMinutes()
+                root:CreateTitle(L["Duración del descanso"])
+                for _, minutes in ipairs({ 3, 5, 10, 15 }) do
+                    root:CreateButton(string.format(L["%d minutos"], minutes) .. (minutes == last and L[" |cFF808080(última)|r"] or ""),
+                        function() T.Break(minutes) end)
+                end
+                root:CreateButton(L["Otro…"], function()
+                    StaticPopup_Show("GUILDCONTROL_BREAK_MINUTES", string.format(L["Minutos de descanso (%d-%d):"], T.BREAK_MIN, T.BREAK_MAX))
+                end)
+            end)
+        end)
     T.AddListener(function()
         btnBreak:SetText(T.IsOnBreak() and L["|cFFFFD100Descanso…|r"] or L["Descanso"])
     end)
@@ -10903,6 +10910,35 @@ function uiModule.ShowDkpSettings()
 end
 
 -- Clic derecho en un jugador de la lista de DKP: sumar (o restar con -) una cantidad
+-- Duración del descanso a mano (botón Descanso > Otro… del modo minimalista)
+StaticPopupDialogs["GUILDCONTROL_BREAK_MINUTES"] = {
+    text = "%s",
+    button1 = ACCEPT,
+    button2 = CANCEL,
+    hasEditBox = true,
+    maxLetters = 2,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local box = self.EditBox or self.editBox
+        local T = addonTable.RaidTools
+        if box then box:SetNumeric(true); box:SetText(tostring(T and T.GetBreakMinutes() or 5)); box:SetFocus(); box:HighlightText() end
+    end,
+    OnAccept = function(self)
+        local box = self.EditBox or self.editBox
+        local minutes = box and tonumber(box:GetText())
+        local T = addonTable.RaidTools
+        if minutes and minutes > 0 and T then T.Break(math.min(T.BREAK_MAX, math.max(T.BREAK_MIN, minutes))) end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["GUILDCONTROL_BREAK_MINUTES"].OnAccept(parent)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
+
 StaticPopupDialogs["GUILDCONTROL_DKP_ADJUST"] = {
     text = "%s",
     button1 = ACCEPT,

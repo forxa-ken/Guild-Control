@@ -6,6 +6,8 @@ versiones/
 Media/*.tga
 Media/*.blp
 Media/*.png
+# El logo predeterminado sí viene con el addon
+!Media/logo.tga
 
 # Configuración personal de Claude Code
 .claude/settings.local.json

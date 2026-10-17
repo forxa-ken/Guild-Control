@@ -94,10 +94,10 @@ function toolsModule.CancelPull()
     toolsModule.Pull(0)
 end
 
--- Descanso: aviso de banda al empezar, a falta de 1 minuto y al terminar. La duración (en
--- minutos) se configura en Configuración (settings.breakMinutes, 5 por defecto). Pulsarlo
--- con un descanso en marcha lo cancela.
-toolsModule.BREAK_DEFAULT, toolsModule.BREAK_MIN, toolsModule.BREAK_MAX = 5, 1, 30
+-- Descanso: aviso de banda al empezar, a falta de 1 minuto y al terminar. La duración se elige
+-- al pulsarlo en el modo minimalista; se recuerda la última (settings.breakMinutes, 5 por
+-- defecto). CancelBreak lo corta.
+toolsModule.BREAK_DEFAULT, toolsModule.BREAK_MIN, toolsModule.BREAK_MAX = 5, 1, 60
 local breakTimers = {}
 
 function toolsModule.GetBreakMinutes()
@@ -109,19 +109,32 @@ function toolsModule.IsOnBreak()
     return #breakTimers > 0
 end
 
-function toolsModule.Break()
-    if not CanLead() then return end
+local function BreakSay(text)
     local channel = (IsInRaid() and "RAID_WARNING") or "PARTY"
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    local function Say(text) send(text, channel) end
+    send(text, channel)
+end
+
+function toolsModule.CancelBreak()
+    if #breakTimers == 0 or not CanLead() then return end
+    for _, timer in ipairs(breakTimers) do timer:Cancel() end
+    wipe(breakTimers)
+    BreakSay(L["Descanso cancelado"])
+    Notify()
+end
+
+-- minutes: duración elegida (se guarda como la última); sin valor, la última usada
+function toolsModule.Break(minutes)
+    if not CanLead() then return end
+    local Say = BreakSay
     if #breakTimers > 0 then
         for _, timer in ipairs(breakTimers) do timer:Cancel() end
         wipe(breakTimers)
-        Say(L["Descanso cancelado"])
-        Notify()
-        return
     end
-    local minutes = toolsModule.GetBreakMinutes()
+    if tonumber(minutes) and GuildControlDB and GuildControlDB.settings then
+        GuildControlDB.settings.breakMinutes = math.floor(tonumber(minutes))
+    end
+    minutes = toolsModule.GetBreakMinutes()
     Say(string.format(L["Descanso de %d minutos. Volvemos a las %s."], minutes, date("%H:%M", time() + minutes * 60)))
     if minutes > 1 then
         table.insert(breakTimers, C_Timer.NewTimer((minutes - 1) * 60, function() Say(L["Queda 1 minuto de descanso."]) end))

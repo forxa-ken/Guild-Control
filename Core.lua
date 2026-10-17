@@ -14,6 +14,8 @@ addonTable.VERSION = (tocVersion == "" or string.find(tocVersion, "@", 1, true))
 addonTable.DONATE_URL = "https://paypal.me/Forxaken"
 -- Perfil del autor en CurseForge (botón "Más addons" del encabezado)
 addonTable.MORE_ADDONS_URL = "https://www.curseforge.com/members/forxa/projects"
+-- Logo predeterminado del encabezado (viene con el addon en Media\logo.tga)
+addonTable.DEFAULT_LOGO = "Interface\\AddOns\\GuildControl\\Media\\logo"
 GuildControlDB = GuildControlDB or {}
 
 addonTable.Core = {}
@@ -71,7 +73,13 @@ function addonTable.InitDB()
     -- definen los oficiales y se comparte (GuildConfig.lua), igual que el Discord.
     if type(GuildControlDB.settings) ~= "table" then GuildControlDB.settings = {} end
     GuildControlDB.settings.guildName = nil   -- el nombre ya no se personaliza: es el del juego
-    if GuildControlDB.settings.guildIcon == nil then GuildControlDB.settings.guildIcon = "tabard" end
+    -- Por defecto, el logo que viene con el addon (Media\logo.tga). Una sola vez se cambia
+    -- también el emblema ("tabard") que era el predeterminado antes.
+    if GuildControlDB.settings.guildIcon == nil
+        or (GuildControlDB.settings.guildIcon == "tabard" and not GuildControlDB.settings.defaultLogoApplied) then
+        GuildControlDB.settings.guildIcon = addonTable.DEFAULT_LOGO
+    end
+    GuildControlDB.settings.defaultLogoApplied = true
     if type(GuildControlDB.settings.guildConfigAt) ~= "number" then GuildControlDB.settings.guildConfigAt = 0 end
 
     -- Idioma de la interfaz: "auto" (el del cliente) o un código de Locales/ (esES, enUS...)
