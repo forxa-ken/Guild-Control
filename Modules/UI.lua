@@ -75,7 +75,7 @@ local function TabHelp(tabName)
 end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Comunidad", "Mis rosters", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Mis rosters", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
 -- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
 local TAB_LABELS = { ["Para mí"] = "Tus novedades" }
 local OFFICER_ONLY_TABS = { ["Roster"] = true, ["Warning"] = true, ["Invitar"] = true, ["Black list"] = true }
@@ -5833,6 +5833,7 @@ local function BuildProfessionsView(parent)
     local searchQuery = ""
     local sortKey, sortAsc = "skill", false
     local Refresh
+    local SetMode   -- miembros por profesión o artesanos y pedidos (se define al final)
 
     -- Izquierda: profesiones con su recuento
     local listBox = CreateBackdropBox(view, 200, 500, "TOPLEFT", view, "TOPLEFT", 10, -10)
@@ -5891,7 +5892,7 @@ local function BuildProfessionsView(parent)
         btn.count:SetPoint("RIGHT", btn, "RIGHT", -8, 0)
         btn:SetScript("OnClick", function(self)
             selectedProf = self.prof
-            Refresh()
+            if SetMode then SetMode("members") else Refresh() end
         end)
         profButtons[index] = btn
         return btn
@@ -6062,7 +6063,284 @@ local function BuildProfessionsView(parent)
         countText:SetText(selectedProf and ("|cFFFFD100" .. #list .. L["|r miembros con "] .. selectedProf) or "")
     end
 
-    view:SetScript("OnShow", Refresh)
+    -- ---------------------------------------------------------------------
+    -- Artesanos: ¿quién me lo hace? y pedidos (Community.lua)
+    -- ---------------------------------------------------------------------
+    local C = addonTable.Community
+    local mode = "members"
+    local craftPanel = CreateBackdropBox(view, 674, 500, "TOPLEFT", listBox, "TOPRIGHT", 6, 0)
+    craftPanel:Hide()
+
+    local craftTitle = craftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    craftTitle:SetPoint("TOPLEFT", craftPanel, "TOPLEFT", 14, -10)
+    craftTitle:SetText(L["Artesanos: ¿quién me lo hace?"])
+
+    local craftSearch = CreateFrame("EditBox", nil, craftPanel, "InputBoxTemplate")
+    craftSearch:SetSize(330, 20)
+    craftSearch:SetPoint("TOPLEFT", craftTitle, "BOTTOMLEFT", 4, -8)
+    craftSearch:SetAutoFocus(false)
+    craftSearch:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    craftSearch:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    local craftPlaceholder = craftSearch:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    craftPlaceholder:SetPoint("LEFT", craftSearch, "LEFT", 2, 0)
+    craftPlaceholder:SetText(L["Busca una receta o Shift+clic en un objeto"])
+    local craftInfo = craftPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    craftInfo:SetPoint("LEFT", craftSearch, "RIGHT", 12, 0)
+    craftInfo:SetWidth(280)
+    craftInfo:SetJustifyH("LEFT")
+
+    -- Shift+clic en un objeto (bolsas, chat, enlaces) con el buscador activo: se busca por su nombre
+    if ChatEdit_InsertLink then
+        hooksecurefunc("ChatEdit_InsertLink", function(link)
+            if link and craftSearch:IsVisible() and craftSearch:HasFocus() then
+                local name = string.match(link, "%[(.-)%]")
+                if name then craftSearch:SetText(name) end
+            end
+        end)
+    end
+
+    local resultsBox = CreateBackdropBox(craftPanel, 650, 206, "TOPLEFT", craftPanel, "TOPLEFT", 12, -60)
+    local resultsScroll = CreateFrame("ScrollFrame", nil, resultsBox, "UIPanelScrollFrameTemplate")
+    resultsScroll:SetPoint("TOPLEFT", resultsBox, "TOPLEFT", 6, -6)
+    resultsScroll:SetPoint("BOTTOMRIGHT", resultsBox, "BOTTOMRIGHT", -26, 6)
+    local resultsChild = CreateFrame("Frame")
+    resultsChild:SetSize(610, 1)
+    resultsScroll:SetScrollChild(resultsChild)
+    local resultsEmpty = resultsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    resultsEmpty:SetPoint("TOPLEFT", resultsBox, "TOPLEFT", 12, -12)
+    resultsEmpty:SetWidth(620)
+    resultsEmpty:SetJustifyH("LEFT")
+
+    -- Pedir: se elige el artesano (conectados primero) y se escribe una nota
+    local function AskOrder(owner, entry)
+        local function Ask(crafter)
+            StaticPopup_Show("GUILDCONTROL_CRAFT_ORDER",
+                string.format(L["Pedido a %s: %s\nNota (cantidad, materiales...):"], ColoredMemberName(crafter), entry.name),
+                nil, { crafter = crafter, recipeID = entry.recipeID })
+        end
+        local others = {}
+        for _, crafter in ipairs(entry.crafters) do
+            if not addonTable.IsMe(crafter) then table.insert(others, crafter) end
+        end
+        if #others == 0 then
+            PrintGC(L["Solo tú conoces esa receta."])
+        elseif #others == 1 then
+            Ask(others[1])
+        else
+            MenuUtil.CreateContextMenu(owner, function(_, root)
+                root:CreateTitle(L["¿A quién se lo pides?"])
+                for _, crafter in ipairs(others) do
+                    root:CreateButton(ColoredMemberName(crafter), function() Ask(crafter) end)
+                end
+            end)
+        end
+    end
+
+    local resultRows = {}
+    local function AcquireResultRow(index)
+        local row = resultRows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, resultsChild)
+        row:SetSize(610, 36)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.04)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -3)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -170, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.who = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.who:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+        row.who:SetPoint("RIGHT", row, "RIGHT", -170, 0)
+        row.who:SetJustifyH("LEFT")
+        row.who:SetWordWrap(false)
+        row.order = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.order:SetSize(78, 22)
+        row.order:SetPoint("RIGHT", row, "RIGHT", -86, 0)
+        row.order:SetText(L["Pedir"])
+        row.whisper = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.whisper:SetSize(78, 22)
+        row.whisper:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.whisper:SetText(L["Susurrar"])
+        resultRows[index] = row
+        return row
+    end
+
+    local function RefreshResults()
+        for _, row in ipairs(resultRows) do row:Hide() end
+        local results = C and C.SearchRecipes(craftSearch:GetText(), 40) or {}
+        for i, entry in ipairs(results) do
+            local row = AcquireResultRow(i)
+            row:SetPoint("TOPLEFT", resultsChild, "TOPLEFT", 0, -(i - 1) * 38)
+            row.name:SetText("|cFFFFD100" .. entry.name .. "|r |cFF808080(" .. entry.profession .. ")|r")
+            local names, firstOnline = {}, nil
+            for _, crafter in ipairs(entry.crafters) do
+                local m = GuildControlDB.members[crafter]
+                if m and m.isOnline and not firstOnline and not addonTable.IsMe(crafter) then firstOnline = crafter end
+                table.insert(names, ColoredMemberName(crafter))
+            end
+            row.who:SetText(table.concat(names, ", "))
+            row.whisper:SetEnabled(firstOnline ~= nil)
+            row.whisper:SetScript("OnClick", function() WhisperTo(firstOnline) end)
+            row.order:SetScript("OnClick", function(self) AskOrder(self, entry) end)
+            row:Show()
+        end
+        resultsChild:SetHeight(math.max(1, #results * 38))
+        local query = strtrim(craftSearch:GetText() or "")
+        resultsEmpty:SetShown(#results == 0)
+        resultsEmpty:SetText(#query < 3
+            and L["Escribe el nombre de una receta o haz Shift+clic en un objeto con el buscador activo. Las recetas las comparte cada jugador con GuildControl al abrir y cerrar su ventana de profesión."]
+            or L["Nadie de la hermandad ha compartido esa receta todavía."])
+        craftInfo:SetText(string.format(L["%d artesanos"], C and C.CountCrafters() or 0))
+    end
+
+    local craftSearchTimer = nil
+    craftSearch:SetScript("OnTextChanged", function(self)
+        craftPlaceholder:SetShown((self:GetText() or "") == "")
+        -- Se busca 0,3 s después de la última tecla (puede haber miles de recetas)
+        if craftSearchTimer then craftSearchTimer:Cancel() end
+        craftSearchTimer = C_Timer.NewTimer(0.3, function()
+            craftSearchTimer = nil
+            RefreshResults()
+        end)
+    end)
+
+    -- Pedidos: los que me hacen (izquierda) y los míos (derecha)
+    local function OrderColumn(titleText, x)
+        local box = CreateBackdropBox(craftPanel, 322, 216, "TOPLEFT", craftPanel, "TOPLEFT", x, -274)
+        box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        box.title:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -8)
+        box.title:SetText(titleText)
+        box.scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+        box.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -28)
+        box.scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -26, 6)
+        box.child = CreateFrame("Frame")
+        box.child:SetSize(290, 1)
+        box.scroll:SetScrollChild(box.child)
+        box.empty = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        box.empty:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -32)
+        box.empty:SetWidth(296)
+        box.empty:SetJustifyH("LEFT")
+        box.rows = {}
+        return box
+    end
+    local forMeBox = OrderColumn(L["Me piden"], 12)
+    local mineBox = OrderColumn(L["Mis pedidos"], 340)
+
+    local function AcquireOrderRow(box, index)
+        local row = box.rows[index]
+        if row then return row end
+        row = CreateFrame("Frame", nil, box.child)
+        row:SetSize(290, 40)
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0.04)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -3)
+        row.name:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.info = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.info:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+        row.info:SetPoint("RIGHT", row, "RIGHT", -132, 0)
+        row.info:SetJustifyH("LEFT")
+        row.info:SetWordWrap(false)
+        row.b1 = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.b1:SetSize(62, 18)
+        row.b1:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -66, 2)
+        row.b2 = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.b2:SetSize(62, 18)
+        row.b2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -2, 2)
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", function(self)
+            if not self.order or not self.order.note or self.order.note == "" then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L["Nota del pedido"], 1, 1, 1)
+            GameTooltip:AddLine(self.order.note, 0.9, 0.9, 0.9, true)
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        box.rows[index] = row
+        return row
+    end
+
+    local function SetButton(btn, text, onClick)
+        if not text then btn:Hide() return end
+        btn:SetText(text)
+        btn:SetScript("OnClick", onClick)
+        btn:Show()
+    end
+
+    local function FillOrders(box, orders, isForMe)
+        for _, row in ipairs(box.rows) do row:Hide() end
+        for i, order in ipairs(orders) do
+            local row = AcquireOrderRow(box, i)
+            row.order = order
+            row:SetPoint("TOPLEFT", box.child, "TOPLEFT", 0, -(i - 1) * 42)
+            local status = "|cFF" .. C.ORDER_COLORS[order.status] .. L[C.ORDER_LABELS[order.status]] .. "|r"
+            row.name:SetText("|cFFFFD100" .. (C.RecipeName(order.recipeID) or ("#" .. order.recipeID)) .. "|r  " .. status)
+            local other = isForMe and order.requester or order.crafter
+            row.info:SetText(ColoredMemberName(other) .. "  |cFF808080" .. date("%d/%m %H:%M", order.at)
+                .. ((order.note and order.note ~= "") and " ·" or "") .. "|r")
+            local id = order.id
+            if isForMe and order.status == "pending" then
+                SetButton(row.b1, L["Aceptar"], function() C.SetOrderStatus(id, "accepted") end)
+                SetButton(row.b2, L["Rechazar"], function() C.SetOrderStatus(id, "rejected") end)
+            elseif isForMe and order.status == "accepted" then
+                SetButton(row.b1, L["Hecho"], function() C.SetOrderStatus(id, "done") end)
+                SetButton(row.b2, L["Susurrar"], function() WhisperTo(order.requester) end)
+            elseif not isForMe and (order.status == "pending" or order.status == "accepted") then
+                SetButton(row.b1, L["Susurrar"], function() WhisperTo(order.crafter) end)
+                SetButton(row.b2, L["Cancelar"], function() C.SetOrderStatus(id, "cancelled") end)
+            else
+                SetButton(row.b1, nil)
+                SetButton(row.b2, L["Susurrar"], function() WhisperTo(other) end)
+            end
+            row:Show()
+        end
+        box.child:SetHeight(math.max(1, #orders * 42))
+        box.empty:SetShown(#orders == 0)
+    end
+
+    local function RefreshOrders()
+        if not C or not C.GetOrders then return end
+        local orders = C.GetOrders()
+        forMeBox.title:SetText(L["Me piden"] .. " (" .. #orders.forMe .. ")")
+        mineBox.title:SetText(L["Mis pedidos"] .. " (" .. #orders.mine .. ")")
+        forMeBox.empty:SetText(L["Nadie te ha pedido nada. Cuando alguien te pida una receta, te avisará y aparecerá aquí."])
+        mineBox.empty:SetText(L["Busca una receta arriba y pulsa Pedir para encargársela a un artesano."])
+        FillOrders(forMeBox, orders.forMe, true)
+        FillOrders(mineBox, orders.mine, false)
+    end
+
+    local function RefreshCraftPanel()
+        if not craftPanel:IsShown() then return end
+        RefreshResults()
+        RefreshOrders()
+    end
+    if C and C.AddListener then C.AddListener(RefreshCraftPanel) end
+
+    -- Botón para cambiar entre la tabla de miembros y los artesanos (encima de Mi profesión)
+    local btnCrafts = CreateFrame("Button", nil, listBox, "UIPanelButtonTemplate")
+    btnCrafts:SetSize(180, 24)
+    btnCrafts:SetPoint("BOTTOM", btnMyProf, "TOP", 0, 4)
+
+    SetMode = function(newMode)
+        mode = newMode
+        right:SetShown(mode == "members")
+        craftPanel:SetShown(mode == "crafts")
+        btnCrafts:SetText(mode == "crafts" and L["Ver miembros"] or L["Artesanos y pedidos"])
+        if mode == "crafts" then RefreshCraftPanel() else Refresh() end
+    end
+    btnCrafts:SetScript("OnClick", function() SetMode(mode == "crafts" and "members" or "crafts") end)
+    btnCrafts:SetText(L["Artesanos y pedidos"])
+    uiModule.OpenCraftOrders = function()
+        SwitchTab("Profesiones")
+        SetMode("crafts")
+    end
+
+    view:SetScript("OnShow", function() if mode == "crafts" then RefreshCraftPanel() else Refresh() end end)
     containers.views["Profesiones"] = view
 end
 
@@ -9500,7 +9778,8 @@ end
 
 local function ColoredName(fullName)
     local m = GuildControlDB.members and GuildControlDB.members[fullName]
-    local short = fullName and (string.match(fullName, "^([^-]+)") or fullName) or "?"
+    -- Con apellido si el juego lo da (Forever)
+    local short = (m and m.displayName) or (fullName and (string.match(fullName, "^([^-]+)") or fullName)) or "?"
     return "|cFF" .. addonTable.GetClassColorHex(m and m.class) .. short .. "|r"
 end
 
@@ -9904,7 +10183,7 @@ local function BuildCommunityView(parent)
     end
 
     -- 2. Récords ----------------------------------------------------------------
-    local recordsBox = CreateColoredPanel(view, L["Récords de la hermandad"], PANEL_COLORS.blue, 437, 250)
+    local recordsBox = CreateColoredPanel(view, L["Récords de la hermandad"], PANEL_COLORS.blue, 437, 506)
     recordsBox:SetPoint("TOPLEFT", lfgBox, "TOPRIGHT", 6, 0)
     local recordsScroll = CreateFrame("ScrollFrame", nil, recordsBox, "UIPanelScrollFrameTemplate")
     recordsScroll:SetPoint("TOPLEFT", recordsBox, "TOPLEFT", 8, -28)
@@ -9917,92 +10196,6 @@ local function BuildCommunityView(parent)
     recordsText:SetWidth(390)
     recordsText:SetJustifyH("LEFT")
     recordsText:SetSpacing(3)
-
-    -- 3. Artesanos --------------------------------------------------------------
-    local craftBox = CreateColoredPanel(view, L["Artesanos: ¿quién me lo hace?"], PANEL_COLORS.blue, 437, 250)
-    craftBox:SetPoint("TOPLEFT", recordsBox, "BOTTOMLEFT", 0, -6)
-    local searchInput = CreateFrame("EditBox", nil, craftBox, "InputBoxTemplate")
-    searchInput:SetSize(260, 20)
-    searchInput:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 18, -32)
-    searchInput:SetAutoFocus(false)
-    searchInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    local searchPlaceholder = searchInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    searchPlaceholder:SetPoint("LEFT", searchInput, "LEFT", 2, 0)
-    searchPlaceholder:SetText(L["Busca una receta (3 letras o más)"])
-    local craftInfo = craftBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    craftInfo:SetPoint("LEFT", searchInput, "RIGHT", 10, 0)
-    craftInfo:SetWidth(130)
-    craftInfo:SetJustifyH("LEFT")
-    local craftScroll = CreateFrame("ScrollFrame", nil, craftBox, "UIPanelScrollFrameTemplate")
-    craftScroll:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 8, -58)
-    craftScroll:SetPoint("BOTTOMRIGHT", craftBox, "BOTTOMRIGHT", -28, 8)
-    local craftChild = CreateFrame("Frame")
-    craftChild:SetSize(397, 1)
-    craftScroll:SetScrollChild(craftChild)
-    local craftEmpty = craftBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    craftEmpty:SetPoint("TOPLEFT", craftBox, "TOPLEFT", 14, -64)
-    craftEmpty:SetWidth(410)
-    craftEmpty:SetJustifyH("LEFT")
-    local craftRows = {}
-    local function AcquireCraftRow(index)
-        local row = craftRows[index]
-        if row then return row end
-        row = CreateFrame("Frame", nil, craftChild)
-        row:SetSize(397, 34)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -2)
-        row.name:SetPoint("RIGHT", row, "RIGHT", -84, 0)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
-        row.who = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.who:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
-        row.who:SetPoint("RIGHT", row, "RIGHT", -84, 0)
-        row.who:SetJustifyH("LEFT")
-        row.who:SetWordWrap(false)
-        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        row.button:SetSize(78, 20)
-        row.button:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-        row.button:SetText(L["Susurrar"])
-        craftRows[index] = row
-        return row
-    end
-    local function RefreshCrafts()
-        for _, row in ipairs(craftRows) do row:Hide() end
-        local results = C.SearchRecipes(searchInput:GetText(), 40)
-        for i, entry in ipairs(results) do
-            local row = AcquireCraftRow(i)
-            row:SetPoint("TOPLEFT", craftChild, "TOPLEFT", 0, -(i - 1) * 36)
-            row.name:SetText("|cFFFFD100" .. entry.name .. "|r |cFF808080(" .. entry.profession .. ")|r")
-            local names, firstOnline = {}, nil
-            for _, crafter in ipairs(entry.crafters) do
-                local m = GuildControlDB.members[crafter]
-                if m and m.isOnline and not firstOnline then firstOnline = crafter end
-                table.insert(names, ColoredName(crafter) .. ((m and m.isOnline) and " |TInterface\\COMMON\\Indicator-Green:10:10|t" or ""))
-            end
-            row.who:SetText(table.concat(names, ", "))
-            local target = firstOnline or entry.crafters[1]
-            row.button:SetEnabled(firstOnline ~= nil)
-            row.button:SetScript("OnClick", function() WhisperTo(target) end)
-            row:Show()
-        end
-        craftChild:SetHeight(math.max(1, #results * 36))
-        local query = strtrim(searchInput:GetText() or "")
-        craftEmpty:SetShown(#results == 0)
-        craftEmpty:SetText(#query < 3
-            and L["Escribe el nombre de una receta. Las recetas las comparte cada jugador con GuildControl al abrir y cerrar su ventana de profesión."]
-            or L["Nadie de la hermandad ha compartido esa receta todavía."])
-        craftInfo:SetText(string.format(L["%d artesanos"], C.CountCrafters()))
-    end
-    local searchTimer = nil
-    searchInput:SetScript("OnTextChanged", function(self)
-        searchPlaceholder:SetShown((self:GetText() or "") == "")
-        -- Se busca 0,3 s después de la última tecla (puede haber miles de recetas)
-        if searchTimer then searchTimer:Cancel() end
-        searchTimer = C_Timer.NewTimer(0.3, function()
-            searchTimer = nil
-            RefreshCrafts()
-        end)
-    end)
 
     Refresh = function()
         if not view:IsShown() or not C then return end
@@ -10083,8 +10276,6 @@ local function BuildCommunityView(parent)
         end
         recordsText:SetText(table.concat(lines, "\n"))
         recordsChild:SetHeight(math.max(1, recordsText:GetStringHeight() + 6))
-
-        RefreshCrafts()
     end
 
     if C then C.AddListener(function() Refresh() end) end
@@ -10910,6 +11101,36 @@ function uiModule.ShowDkpSettings()
 end
 
 -- Clic derecho en un jugador de la lista de DKP: sumar (o restar con -) una cantidad
+-- Nota de un pedido a un artesano (Profesiones > Artesanos y pedidos > Pedir)
+StaticPopupDialogs["GUILDCONTROL_CRAFT_ORDER"] = {
+    text = "%s",
+    button1 = L["Pedir"],
+    button2 = CANCEL,
+    hasEditBox = true,
+    maxLetters = 80,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local box = self.EditBox or self.editBox
+        if box then box:SetText(""); box:SetFocus() end
+    end,
+    OnAccept = function(self, data)
+        local box = self.EditBox or self.editBox
+        local C = addonTable.Community
+        if data and C and C.CreateOrder then
+            local order = C.CreateOrder(data.crafter, data.recipeID, box and box:GetText() or "")
+            if order then PrintGC(L["Pedido enviado. Te avisará cuando lo acepte o lo termine."]) end
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["GUILDCONTROL_CRAFT_ORDER"].OnAccept(parent, parent.data)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
+
 -- Duración del descanso a mano (botón Descanso > Otro… del modo minimalista)
 StaticPopupDialogs["GUILDCONTROL_BREAK_MINUTES"] = {
     text = "%s",

@@ -335,6 +335,158 @@ function communityModule.CountCrafters()
 end
 
 -- =========================================================================
+-- PEDIDOS A ARTESANOS
+-- =========================================================================
+-- Un jugador pide una receta a un artesano. GuildControlDB.craftOrders[id] =
+--   { id, requester, crafter, recipeID, note, status, at, updatedAt }
+-- status: "pending" (pedido), "accepted" (aceptado), "done" (hecho), "rejected" (rechazado),
+-- "cancelled" (cancelado por quien lo pidió). Prefijo GuildControlOrd en la hermandad:
+--   O;id;artesano;recipeID;hora;nota   pedido nuevo (lo envía quien pide)
+--   U;id;estado;hora                    cambio de estado (artesano o quien pide)
+--   Q                                   al entrar: cada uno reenvía sus pedidos abiertos
+-- Solo guardan el pedido el artesano y quien lo pide. Los cerrados se borran a los 3 días y
+-- los abiertos a los 14.
+local ORDER_PREFIX = "GuildControlOrd"
+local ORDER_OPEN = { pending = true, accepted = true }
+local ORDER_STATUSES = { pending = true, accepted = true, done = true, rejected = true, cancelled = true }
+communityModule.ORDER_LABELS = { pending = "Pedido", accepted = "Aceptado", done = "Hecho",
+                                 rejected = "Rechazado", cancelled = "Cancelado" }
+communityModule.ORDER_COLORS = { pending = "FFD100", accepted = "66B3FF", done = "00FF00",
+                                 rejected = "FF3333", cancelled = "808080" }
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    C_ChatInfo.RegisterAddonMessagePrefix(ORDER_PREFIX)
+end
+
+local function OrderStore()
+    if type(GuildControlDB.craftOrders) ~= "table" then GuildControlDB.craftOrders = {} end
+    local store, now = GuildControlDB.craftOrders, GetServerTime()
+    for id, order in pairs(store) do
+        local age = now - (order.updatedAt or order.at or 0)
+        if (ORDER_OPEN[order.status] and age > 14 * 86400) or (not ORDER_OPEN[order.status] and age > 3 * 86400) then
+            store[id] = nil
+        end
+    end
+    return store
+end
+
+local function SendOrder(order)
+    Send(ORDER_PREFIX, table.concat({ "O", order.id, order.crafter, order.recipeID, order.at, order.note or "" }, ";"))
+    if order.status ~= "pending" then
+        Send(ORDER_PREFIX, table.concat({ "U", order.id, order.status, order.updatedAt or order.at }, ";"))
+    end
+end
+
+-- Pide una receta a un artesano. Devuelve el pedido o nil
+function communityModule.CreateOrder(crafter, recipeID, note)
+    recipeID = tonumber(recipeID)
+    crafter = NormalizeName(crafter)
+    if not crafter or not recipeID or crafter == MyName() then return nil end
+    local now = GetServerTime()
+    local order = {
+        id = (string.match(UnitName("player") or "?", "^(%S+)") or "?") .. "-" .. now .. "-" .. math.random(100, 999),
+        requester = MyName(), crafter = crafter, recipeID = recipeID, note = Clean(note, 80),
+        status = "pending", at = now, updatedAt = now,
+    }
+    OrderStore()[order.id] = order
+    SendOrder(order)
+    Notify()
+    return order
+end
+
+-- El artesano acepta, termina o rechaza; quien lo pidió lo cancela
+function communityModule.SetOrderStatus(id, status)
+    local order = OrderStore()[id]
+    if not order or not ORDER_STATUSES[status] then return end
+    local me = MyName()
+    local allowed = (order.crafter == me and (status == "accepted" or status == "done" or status == "rejected"))
+        or (order.requester == me and status == "cancelled")
+    if not allowed then return end
+    order.status, order.updatedAt = status, GetServerTime()
+    Send(ORDER_PREFIX, table.concat({ "U", order.id, status, order.updatedAt }, ";"))
+    Notify()
+end
+
+-- { forMe = {pedidos que me hacen}, mine = {mis pedidos} }, abiertos primero y luego por fecha
+function communityModule.GetOrders()
+    local me = MyName()
+    local forMe, mine = {}, {}
+    for _, order in pairs(OrderStore()) do
+        if order.crafter == me then table.insert(forMe, order) end
+        if order.requester == me then table.insert(mine, order) end
+    end
+    local function Sort(a, b)
+        local openA, openB = ORDER_OPEN[a.status] and 1 or 0, ORDER_OPEN[b.status] and 1 or 0
+        if openA ~= openB then return openA > openB end
+        return (a.updatedAt or 0) > (b.updatedAt or 0)
+    end
+    table.sort(forMe, Sort)
+    table.sort(mine, Sort)
+    return { forMe = forMe, mine = mine }
+end
+
+-- Pedidos abiertos que me han hecho (para avisos)
+function communityModule.CountOpenOrdersForMe()
+    local count = 0
+    for _, order in ipairs(communityModule.GetOrders().forMe) do
+        if ORDER_OPEN[order.status] then count = count + 1 end
+    end
+    return count
+end
+
+local function OrderAlert(text)
+    if addonTable.Personal and addonTable.Personal.Alert then addonTable.Personal.Alert(text) end
+end
+
+local function OnOrderMessage(sender, msg)
+    local me = MyName()
+    local kind = string.sub(msg, 1, 2)
+    if kind == "O;" then
+        local _, id, crafter, recipeID, at, note = strsplit(";", msg, 6)
+        crafter, recipeID, at = NormalizeName(crafter), tonumber(recipeID), tonumber(at)
+        if not id or not crafter or not recipeID or not at then return end
+        -- Solo me interesa si soy el artesano (o quien lo pidió, desde otro personaje)
+        if crafter ~= me and sender ~= me then return end
+        local store = OrderStore()
+        local isNew = store[id] == nil
+        store[id] = store[id] or { id = id, requester = sender, crafter = crafter, recipeID = recipeID,
+                                    note = Clean(note, 80), status = "pending", at = at, updatedAt = at }
+        if isNew and crafter == me and GetServerTime() - at < 600 then
+            OrderAlert(string.format(L["%s te pide: %s"], Ambiguate(addonTable.GetGameName(sender), "none"),
+                communityModule.RecipeName(recipeID) or ("#" .. recipeID)))
+        end
+        Notify()
+    elseif kind == "U;" then
+        local _, id, status, at = strsplit(";", msg, 4)
+        at = tonumber(at)
+        local order = id and OrderStore()[id]
+        if not order or not ORDER_STATUSES[status] or not at or at < (order.updatedAt or 0) then return end
+        -- Solo el artesano cambia el estado (y quien lo pidió, para cancelarlo)
+        local valid = (sender == order.crafter and status ~= "cancelled") or (sender == order.requester and status == "cancelled")
+        if not valid then return end
+        local changed = order.status ~= status
+        order.status, order.updatedAt = status, at
+        if changed and order.requester == me then
+            OrderAlert(string.format(L["Tu pedido de %s: %s"], communityModule.RecipeName(order.recipeID) or ("#" .. order.recipeID),
+                L[communityModule.ORDER_LABELS[status]]))
+        elseif changed and order.crafter == me and status == "cancelled" then
+            OrderAlert(string.format(L["%s ha cancelado el pedido de %s."], Ambiguate(addonTable.GetGameName(sender), "none"),
+                communityModule.RecipeName(order.recipeID) or ("#" .. order.recipeID)))
+        end
+        Notify()
+    elseif msg == "Q" then
+        -- Reenvío mis pedidos abiertos (como artesano o como quien pide) a quien acaba de entrar
+        C_Timer.After(2 + math.random() * 4, function()
+            for _, order in pairs(OrderStore()) do
+                if ORDER_OPEN[order.status] and (order.requester == me or order.crafter == me)
+                    and (order.requester == sender or order.crafter == sender) then
+                    SendOrder(order)
+                end
+            end
+        end)
+    end
+end
+
+-- =========================================================================
 -- EVENTOS
 -- =========================================================================
 local frame = CreateFrame("Frame")
@@ -346,7 +498,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if type(GuildControlDB) ~= "table" then return end
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
-        if isInitialLogin or isReloadingUi then C_Timer.After(24, function() Send(LFG_PREFIX, "Q") end) end
+        if isInitialLogin or isReloadingUi then
+            C_Timer.After(24, function() Send(LFG_PREFIX, "Q") end)
+            C_Timer.After(27, function() Send(ORDER_PREFIX, "Q") end)
+        end
         return
     elseif event == "TRADE_SKILL_LIST_UPDATE" then
         -- Se recorre la lista 2 s después del último aviso (llegan muchos seguidos)
@@ -365,11 +520,13 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
     local prefix, msg, channel, sender = ...
-    if (prefix ~= LFG_PREFIX and prefix ~= CRAFT_PREFIX) or channel ~= "GUILD" then return end
+    if (prefix ~= LFG_PREFIX and prefix ~= CRAFT_PREFIX and prefix ~= ORDER_PREFIX) or channel ~= "GUILD" then return end
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
     if type(msg) ~= "string" or not sender or addonTable.IsMe(sender) then return end
     local fullSender = NormalizeName(sender)
-    if prefix == LFG_PREFIX then
+    if prefix == ORDER_PREFIX then
+        OnOrderMessage(fullSender, msg)
+    elseif prefix == LFG_PREFIX then
         OnLfgMessage(fullSender, msg)
     elseif string.sub(msg, 1, 2) == "R;" then
         OnCraftMessage(fullSender, msg)
