@@ -1733,7 +1733,8 @@ local ROSTER_ROW_HEIGHT = 18
 -- Nombre corto con el color de su clase (gris si está desconectado)
 local function ColoredMemberName(fullName)
     local m = GuildControlDB.members[fullName] or {}
-    local short = string.match(fullName, "^([^-]+)") or fullName
+    -- Forever: con apellido si el juego lo da (displayName), si no el nombre corto
+    local short = m.displayName or string.match(fullName, "^([^-]+)") or fullName
     local hex = addonTable.GetClassColorHex(m.class)
     if not m.isOnline then return "|cFF" .. hex .. short .. "|r|cFF808080 ·|r" end
     return "|cFF" .. hex .. short .. "|r"
@@ -1778,115 +1779,78 @@ local function BuildRosterView(parent)
     local Refresh   -- declaración adelantada
 
     -- ---------------------------------------------------------------------
-    -- Barra superior: selector, nombre y crear/duplicar/eliminar
+    -- Barra superior: banda de Raid (cada banda tiene su roster), publicar y eliminar
     -- ---------------------------------------------------------------------
     local dropRoster = CreateFrame("DropdownButton", "GC_RosterSelect", view, "WowStyle1DropdownTemplate")
     dropRoster:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
-    dropRoster:SetWidth(150)
+    dropRoster:SetWidth(300)
 
-    local nameInput = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
-    nameInput:SetSize(150, 20)
-    nameInput:SetPoint("LEFT", dropRoster, "RIGHT", 16, 0)
-    nameInput:SetAutoFocus(false)
-    nameInput:SetMaxLetters(30)
-    -- La ayuda va en el tooltip (antes una etiqueta encima se salía del marco)
-    nameInput:SetScript("OnEnter", function(self)
+    local function EventLabel(event)
+        local day = string.gsub(event.date or "", "^%d+-(%d+)-(%d+)$", "%2/%1")
+        return day .. " " .. (event.time or "") .. "  " .. (event.title or "?")
+    end
+
+    dropRoster:SetupMenu(function(_, root)
+        local E = addonTable.RaidEvents
+        local events = E and E.GetUpcoming() or {}
+        if #events == 0 then root:CreateTitle(L["No hay bandas: créala en la pestaña Raid"]) end
+        for _, event in ipairs(events) do
+            local id = event.id
+            root:CreateRadio(EventLabel(event),
+                function() local selected = R.GetSelectedEvent(); return selected ~= nil and selected.id == id end,
+                function()
+                    R.SelectEvent(id)
+                    Refresh()
+                end)
+        end
+    end)
+
+    -- Los oficiales ven los cambios en vivo; los jugadores solo lo que se publica aquí
+    local btnPublish = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnPublish:SetSize(170, 22)
+    btnPublish:SetPoint("LEFT", dropRoster, "RIGHT", 12, 0)
+    btnPublish:SetText(L["Publicar a la hermandad"])
+    btnPublish:SetScript("OnClick", function()
+        if not R.GetSelectedEvent() then return end
+        local roster = R.GetSelected()
+        local parts = R.Publish(roster)
+        if parts == 0 then
+            PrintGC(L["|cFFFF3333No se pudo publicar el roster.|r"])
+        else
+            PrintGC(L["Roster publicado a la hermandad: |cFFFFD100"] .. roster.name .. "|r")
+        end
+        Refresh()
+    end)
+    btnPublish:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(L["Nombre del roster"], 1, 1, 1)
-        GameTooltip:AddLine(L["Escríbelo y pulsa Enter para guardarlo, o elige una banda con el botón Banda."], 0.8, 0.8, 0.8, true)
+        GameTooltip:SetText(L["Publicar a la hermandad"], 1, 1, 1)
+        GameTooltip:AddLine(L["Los oficiales ven los cambios del roster en vivo. Los jugadores solo lo ven en Mis rosters cuando lo publicas, tal como está en ese momento; si lo cambias después, vuelve a publicarlo."], 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
-    nameInput:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btnPublish:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local function SaveName()
-        R.Rename(R.GetSelected(), nameInput:GetText())
-        nameInput:ClearFocus()
-        Refresh()
-    end
-    nameInput:SetScript("OnEnterPressed", SaveName)
-    nameInput:SetScript("OnEscapePressed", function(self)
-        self:ClearFocus()
-        self:SetText(R.GetSelected().name)
-    end)
+    local publishStatus = view:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    publishStatus:SetPoint("LEFT", btnPublish, "RIGHT", 10, 0)
 
-    -- Bandas del diario de encuentros del juego: al elegir una, el roster toma su nombre
-    -- y "Añadir jefe" ofrece sus jefes
-    local btnRaid = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnRaid:SetSize(64, 22)
-    btnRaid:SetPoint("LEFT", nameInput, "RIGHT", 6, 0)
-    btnRaid:SetText(L["Banda"])
-    btnRaid:SetScript("OnClick", function(self)
-        local tiers = R.GetRaidTiers(3)
-        if #tiers == 0 then
-            PrintGC(L["|cFFFF3333No se pudo leer el diario de encuentros del juego.|r"])
-            return
-        end
-        MenuUtil.CreateContextMenu(self, function(_, root)
-            root:CreateTitle(L["Bandas del diario de encuentros"])
-            for i, tier in ipairs(tiers) do
-                -- La expansión actual se muestra directamente; las anteriores en submenú
-                local parentMenu = root
-                if i > 1 then parentMenu = root:CreateButton(tier.name) else root:CreateTitle(tier.name) end
-                for _, raid in ipairs(tier.raids) do
-                    parentMenu:CreateButton(raid.name, function()
-                        R.SetRaid(R.GetSelected(), raid)
-                        Refresh()
-                    end)
-                end
-            end
-        end)
-    end)
-
-    local btnNew = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnNew:SetSize(70, 22)
-    btnNew:SetPoint("LEFT", btnRaid, "RIGHT", 8, 0)
-    btnNew:SetText(L["Nuevo"])
-    btnNew:SetScript("OnClick", function()
-        R.Touch(R.Create())
-        Refresh()
-        nameInput:SetFocus()
-        nameInput:HighlightText()
-    end)
-
-    local btnDuplicate = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnDuplicate:SetSize(80, 22)
-    btnDuplicate:SetPoint("LEFT", btnNew, "RIGHT", 6, 0)
-    btnDuplicate:SetText(L["Duplicar"])
-    btnDuplicate:SetScript("OnClick", function()
-        R.Duplicate(R.GetSelected())
-        Refresh()
-    end)
-
-    -- Eliminar pide un segundo clic en 4 s para confirmar
+    -- Eliminar (dos clics): borra el roster de esta banda y lo retira de Mis rosters
     local btnDelete = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnDelete:SetSize(90, 22)
-    btnDelete:SetPoint("LEFT", btnDuplicate, "RIGHT", 6, 0)
-    btnDelete:SetText(L["Eliminar"])
+    btnDelete:SetSize(120, 22)
+    btnDelete:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
+    btnDelete:SetText(L["Eliminar roster"])
     local deleteArmedUntil = 0
     btnDelete:SetScript("OnClick", function(self)
+        if not R.GetSelectedEvent() then return end
         if GetTime() < deleteArmedUntil then
             deleteArmedUntil = 0
-            self:SetText(L["Eliminar"])
+            self:SetText(L["Eliminar roster"])
             R.Delete(R.GetSelected())
             Refresh()
         else
             deleteArmedUntil = GetTime() + 4
             self:SetText(L["|cFFFF3333¿Seguro?|r"])
             C_Timer.After(4, function()
-                if GetTime() >= deleteArmedUntil then self:SetText(L["Eliminar"]) end
+                if GetTime() >= deleteArmedUntil then self:SetText(L["Eliminar roster"]) end
             end)
-        end
-    end)
-
-    dropRoster:SetupMenu(function(_, rootDescription)
-        for _, roster in ipairs(R.GetAll()) do
-            local id = roster.id
-            rootDescription:CreateRadio(roster.name,
-                function() return R.GetSelected().id == id end,
-                function()
-                    R.Select(id)
-                    Refresh()
-                end)
         end
     end)
 
@@ -1910,8 +1874,10 @@ local function BuildRosterView(parent)
         end
     end)
 
+    dropDifficulty:Hide()   -- Classic: una sola dificultad
+
     local sizeLabel = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sizeLabel:SetPoint("LEFT", dropDifficulty, "RIGHT", 14, 0)
+    sizeLabel:SetPoint("LEFT", criteria, "LEFT", 12, 0)
     sizeLabel:SetText(L["Tamaño:"])
 
     local btnSizeDown = CreateFrame("Button", nil, criteria, "UIPanelButtonTemplate")
@@ -1985,7 +1951,7 @@ local function BuildRosterView(parent)
 
     local candTitle = candPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     candTitle:SetPoint("TOPLEFT", candPanel, "TOPLEFT", 10, -8)
-    candTitle:SetText(L["Candidatos"])
+    candTitle:SetText(L["Apuntados a la banda"])
 
     local candSearch = CreateFrame("EditBox", nil, candPanel, "InputBoxTemplate")
     candSearch:SetSize(200, 20)
@@ -2080,7 +2046,7 @@ local function BuildRosterView(parent)
                     root:CreateButton(L["Susurrar"], function() WhisperTo(name) end)
                 end)
             else
-                R.AddMember(R.GetSelected(), self.fullName)
+                R.AddMember(R.GetSelected(), self.fullName, self.slot)
                 Refresh()
             end
         end)
@@ -2090,21 +2056,27 @@ local function BuildRosterView(parent)
         return row
     end
 
-    local function RefreshCandidates(roster)
+    -- Candidatos = quienes se apuntaron a la banda (no Tarde ni Ausente, que van abajo) y aún
+    -- no están en el roster, agrupados por el rol con el que se apuntaron
+    local VALID_SIGNUP_SLOT = { tank = true, healer = true, dps = true }
+    local function RefreshCandidates(roster, event)
         for _, row in ipairs(candRows) do row:Hide() end
         local maxLevel = chkMaxLevel:GetChecked() and MaxPlayerLevel() or nil
         local groups = { tank = {}, healer = {}, dps = {}, none = {} }
-        local effective = R.GetEffectiveMembers(roster)
-        for fullName, m in pairs(GuildControlDB.members) do
-            local pass = not effective[fullName]
+        local effective = roster and R.GetEffectiveMembers(roster) or {}
+        for fullName, signup in pairs(event and event.signups or {}) do
+            local m = GuildControlDB.members[fullName] or {}
+            local pass = signup.status ~= "absent" and signup.status ~= "late" and not effective[fullName]
                 and ((not chkOnline:GetChecked()) or m.isOnline)
                 and ((not maxLevel) or (tonumber(m.level) or 0) >= maxLevel)
             if pass and candQuery ~= "" then
                 local className = string.lower(R.GetClassName(m.class))
                 pass = string.find(string.lower(fullName), candQuery, 1, true) or string.find(className, candQuery, 1, true)
             end
-            -- Agrupados por su rol definido; quien no lo tiene va a "Sin rol"
-            if pass then table.insert(groups[R.GetDefinedSlot(fullName) or "none"], fullName) end
+            if pass then
+                local slot = VALID_SIGNUP_SLOT[signup.role] and signup.role or R.GetDefinedSlot(fullName) or "none"
+                table.insert(groups[slot], fullName)
+            end
         end
 
         local index, y = 0, 0
@@ -2112,7 +2084,7 @@ local function BuildRosterView(parent)
         for _, slot in ipairs({ "tank", "healer", "dps", "none" }) do
             local list = groups[slot]
             table.sort(list, function(a, b)
-                local ma, mb = GuildControlDB.members[a], GuildControlDB.members[b]
+                local ma, mb = GuildControlDB.members[a] or {}, GuildControlDB.members[b] or {}
                 if (ma.isOnline and true or false) ~= (mb.isOnline and true or false) then return ma.isOnline and true or false end
                 return a < b
             end)
@@ -2129,9 +2101,10 @@ local function BuildRosterView(parent)
                 index = index + 1
                 local row = AcquireCandRow(index)
                 row.fullName = fullName
+                row.slot = slot ~= "none" and slot or nil
                 row:SetPoint("TOPLEFT", candChild, "TOPLEFT", 0, -y)
                 row.text:SetText("  " .. RoleIcon(slot, 12) .. " " .. ColoredMemberName(fullName))
-                row.level:SetText(tostring(GuildControlDB.members[fullName].level or ""))
+                row.level:SetText(tostring((GuildControlDB.members[fullName] or {}).level or ""))
                 row:Show()
                 y = y + ROSTER_ROW_HEIGHT
             end
@@ -2256,6 +2229,7 @@ local function BuildRosterView(parent)
     -- integrantes se colocan dentro en una cuadrícula de "cols" columnas
     local BLOCK_COLORS = {
         tank = { 0.25, 0.5, 1 }, healer = { 0.25, 0.85, 0.35 }, dps = { 0.95, 0.3, 0.3 }, bench = { 0.6, 0.6, 0.6 },
+        late = { 1, 0.82, 0 }, absent = { 1, 0.2, 0.2 },
     }
     local BLOCK_HEADER = 24
     local blocks = {}
@@ -2284,7 +2258,10 @@ local function BuildRosterView(parent)
     CreateBlock("tank", 8, -8, 150, 238, 1)
     CreateBlock("healer", 164, -8, 150, 238, 1)
     CreateBlock("dps", 320, -8, 316, 238, 2)
-    CreateBlock("bench", 8, -252, 628, 114, 4)
+    -- Abajo: banca (elegida por el oficial), Tarde (se pueden meter con un clic) y Ausentes
+    CreateBlock("bench", 8, -252, 206, 114, 2)
+    CreateBlock("late", 219, -252, 206, 114, 2)
+    CreateBlock("absent", 430, -252, 206, 114, 2)
 
     local function AcquireSlotRow(block, index)
         local row = block.rows[index]
@@ -2304,6 +2281,22 @@ local function BuildRosterView(parent)
         row:SetScript("OnClick", function(self)
             local name = self.fullName
             if not name then return end
+            -- Tarde: entra al roster con su rol; Ausente: solo susurrar
+            if block.slot == "late" or block.slot == "absent" then
+                MenuUtil.CreateContextMenu(self, function(_, root)
+                    root:CreateTitle(name)
+                    if block.slot == "late" then
+                        for _, slot in ipairs(R.SLOTS) do
+                            root:CreateButton(L["Añadir a "] .. L[R.SLOT_LABELS[slot]], function()
+                                R.AddMember(R.GetSelected(), name, slot)
+                                Refresh()
+                            end)
+                        end
+                    end
+                    root:CreateButton(L["Susurrar"], function() WhisperTo(name) end)
+                end)
+                return
+            end
             MenuUtil.CreateContextMenu(self, function(_, root)
                 root:CreateTitle(name)
                 for _, slot in ipairs(R.SLOTS) do
@@ -2332,8 +2325,9 @@ local function BuildRosterView(parent)
 
     local function RefreshBlock(block, names, target)
         local count = #names
-        if block.slot == "bench" then
-            block.title:SetText(L["Suplentes ("] .. count .. ")")
+        local SIMPLE_TITLES = { bench = L["Banca"], late = L["Tarde"], absent = L["Ausentes"] }
+        if SIMPLE_TITLES[block.slot] then
+            block.title:SetText(SIMPLE_TITLES[block.slot] .. " (" .. count .. ")")
         else
             local color = (count == target) and "|cFF00FF00" or (count > target and "|cFFFF7F00" or "|cFFFFD100")
             block.title:SetText(RoleIcon(block.slot, 16) .. " " .. L[R.SLOT_LABELS[block.slot]] .. " " .. color .. count .. "/" .. target .. "|r")
@@ -2391,26 +2385,8 @@ local function BuildRosterView(parent)
             addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
         end
     end)
-    -- Los cambios se envían solos; este botón reenvía el roster ahora mismo
-    local btnShare = CreateAction(L["Compartir"], 90, btnExport, function()
-        local roster = R.GetSelected()
-        local parts = R.ShareRoster(roster)
-        if parts == 0 then
-            PrintGC(L["|cFFFF3333No se pudo compartir el roster.|r"])
-        else
-            PrintGC(L["Compartiendo |cFFFFD100"] .. roster.name .. L["|r con la hermandad ("] .. parts .. L[" mensajes)."])
-        end
-    end)
-    btnShare:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(L["Compartir roster"], 1, 1, 1)
-        GameTooltip:AddLine(L["Los cambios del roster se envían solos a quien use GuildControl en la hermandad. Este botón lo reenvía ahora."], 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    btnShare:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     -- Mensaje editable para los integrantes (hermandad o susurro a cada uno)
-    local btnMessage = CreateAction(L["Mensaje"], 90, btnShare, function()
+    local btnMessage = CreateAction(L["Mensaje"], 90, btnExport, function()
         if uiModule.ShowRosterMessage then uiModule.ShowRosterMessage() end
     end)
 
@@ -2481,29 +2457,53 @@ local function BuildRosterView(parent)
     -- ---------------------------------------------------------------------
     -- Refresco general
     -- ---------------------------------------------------------------------
+    -- Sin bandas en Raid no hay roster que montar
+    local noEventText = compPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    noEventText:SetPoint("CENTER", compPanel, "CENTER", 0, 0)
+    noEventText:SetWidth(560)
+    noEventText:SetText(L["No hay bandas programadas. Crea una en la pestaña Raid y aparecerá en el desplegable."])
+
+    -- Lo que cambia en Raid (inscripciones nuevas, bandas creadas) se ve al momento
+    if addonTable.RaidEvents and addonTable.RaidEvents.AddListener then
+        addonTable.RaidEvents.AddListener(function() if view:IsShown() then Refresh() end end)
+    end
+
+    -- Tarde y Ausentes de la banda (los que ya están en el roster no salen en Tarde)
+    local function SignupsWithStatus(event, status, effective)
+        local list = {}
+        for name, signup in pairs(event.signups or {}) do
+            if signup.status == status and not effective[name] then table.insert(list, name) end
+        end
+        table.sort(list)
+        return list
+    end
+
     Refresh = function()
         if not view:IsShown() then return end
+        local event = R.GetSelectedEvent()
+        noEventText:SetShown(event == nil)
+        btnPublish:SetEnabled(event ~= nil)
+        btnDelete:SetEnabled(event ~= nil)
+        if not event then
+            dropRoster:SetText(L["Elige una banda"])
+            publishStatus:SetText("")
+            criteriaStatus:SetText("")
+            for _, block in pairs(blocks) do RefreshBlock(block, {}, 0) end
+            RefreshCandidates(nil, nil)
+            if activeTab == "Roster" then SetPreviewText(L[PREVIEW_DEFAULT_TEXT]) end
+            return
+        end
         local roster = R.GetSelected()
-        R.Prune(roster)
-        -- Sin variantes por jefe en el roster (se planifica en Raid)
+        -- Sin variantes por jefe en el roster
         if roster.selectedVariant then R.SelectVariant(roster, nil) end
 
-        dropRoster:SetText(roster.name)
-        if not nameInput:HasFocus() then nameInput:SetText(roster.name) end
-        dropDifficulty:SetText(R.DifficultyLabel(roster))
-
-        -- Jefe seleccionado, diferencias con la base y rosters recibidos
-        local variant = R.GetSelectedVariant(roster)
-        dropVariant:SetText(variant and variant.name or L["Base"])
-        btnDeleteVariant:SetShown(variant ~= nil)
-        if GetTime() >= clearArmedUntil then btnClear:SetText(ClearLabel()) end
-        local diff = R.GetVariantDiff(roster)
-        if diff then
-            variantDiffText:SetText("|cFF00FF00" .. #diff.entering .. L[" entran|r · |cFFFF3333"] .. #diff.leaving
-                .. L[" salen|r · |cFFFFD100"] .. #diff.roleChanges .. L[" cambian de rol|r"])
+        dropRoster:SetText(EventLabel(event))
+        if roster.published and roster.publishedAt then
+            publishStatus:SetText(L["|cFF00FF00Publicado|r el "] .. date("%d/%m %H:%M", roster.publishedAt))
         else
-            variantDiffText:SetText(L["|cFF808080Base: se aplica a todos los jefes.|r"])
+            publishStatus:SetText(L["|cFFFF7F00Sin publicar|r (solo lo ven los oficiales)"])
         end
+        if GetTime() >= clearArmedUntil then btnClear:SetText(ClearLabel()) end
 
         local targets = R.GetTargets(roster)
         sizeText:SetText(roster.size)
@@ -2523,7 +2523,10 @@ local function BuildRosterView(parent)
         RefreshBlock(blocks.healer, bySlot.healer, targets.healer)
         RefreshBlock(blocks.dps, bySlot.dps, targets.dps)
         RefreshBlock(blocks.bench, bySlot.bench, 0)
-        RefreshCandidates(roster)
+        local effective = R.GetEffectiveMembers(roster)
+        RefreshBlock(blocks.late, SignupsWithStatus(event, "late", effective), 0)
+        RefreshBlock(blocks.absent, SignupsWithStatus(event, "absent", effective), 0)
+        RefreshCandidates(roster, event)
 
         if activeTab == "Roster" then SetPreviewText(BuildSummaryText(roster)) end
     end
@@ -6457,9 +6460,23 @@ local function BuildRaidView(parent)
         return nil
     end
 
+    -- Roster de la banda: oficiales, el suyo (en vivo); jugadores, solo el publicado
+    local function FindEventRoster(event)
+        if not event then return nil end
+        local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        if isOfficer then
+            local own = R.FindByEvent(event.id)
+            if own then return own end
+        end
+        for _, item in ipairs(R.GetSharedRosters()) do
+            if item.roster.eventId == event.id then return item.roster end
+        end
+        return FindRosterByName(event.rosterName)
+    end
+
     -- Vista previa del roster asociado: sus integrantes por rol y qué ha respondido cada uno
     local function ShowRosterPreview(event)
-        local roster = event and FindRosterByName(event.rosterName)
+        local roster = FindEventRoster(event)
         if not roster then
             SetPreviewText(L["|cFF808080Esta banda no tiene un roster asociado o no lo tienes.|r"])
             return
@@ -6550,8 +6567,6 @@ local function BuildRaidView(parent)
         { label = RoleIcon("healer", 14) .. L[" Sanador"], status = "signed", role = "healer", width = 96 },
         { label = RoleIcon("dps", 14) .. L[" DPS"], status = "signed", role = "dps", width = 74 },
         { label = L["Tarde"], status = "late", width = 64 },
-        { label = L["Tentativo"], status = "tentative", width = 78 },
-        { label = L["Banca"], status = "bench", width = 64 },
         { label = L["Ausente"], status = "absent", width = 70 },
     }
     local previousSign = nil
@@ -7184,7 +7199,7 @@ local function BuildRaidView(parent)
         countsText:SetText(L["Apuntados: |cFF00FF00"] .. counts.total .. "|r/" .. event.size
             .. "   " .. RoleIcon("tank", 14) .. " " .. counts.tank .. "   " .. RoleIcon("healer", 14) .. " " .. counts.healer
             .. "   " .. RoleIcon("dps", 14) .. " " .. counts.dps
-            .. L["   ·   Tentativos "] .. counts.tentative .. L["   ·   Banca "] .. counts.bench .. L["   ·   Ausentes "] .. counts.absent)
+            .. L["   ·   Tarde "] .. counts.late .. L["   ·   Ausentes "] .. counts.absent)
 
         local byRole = E.GetSignupsByRole(event)
         local function ColumnText(label, role, list)

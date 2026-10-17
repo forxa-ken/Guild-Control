@@ -1335,4 +1335,22 @@ L["|cFFFF3333Pega el enlace del objeto con Shift+clic o un enlace de Wowhead (wo
 
 -- Permiso de Invitar para jugadores
 L["Los jugadores pueden usar Invitar (reclutar)"] = "Players can use Invite (recruiting)"
+
+
+
+-- Roster por banda de Raid
+L["No hay bandas: créala en la pestaña Raid"] = "No raids: create one in the Raid tab"
+L["Publicar a la hermandad"] = "Publish to the guild"
+L["|cFFFF3333No se pudo publicar el roster.|r"] = "|cFFFF3333Could not publish the roster.|r"
+L["Roster publicado a la hermandad: |cFFFFD100"] = "Roster published to the guild: |cFFFFD100"
+L["Los oficiales ven los cambios del roster en vivo. Los jugadores solo lo ven en Mis rosters cuando lo publicas, tal como está en ese momento; si lo cambias después, vuelve a publicarlo."] = "Officers see roster changes live. Players only see it in My rosters when you publish it, as it is at that moment; if you change it later, publish it again."
+L["Eliminar roster"] = "Delete roster"
+L["Apuntados a la banda"] = "Signed up for the raid"
+L["Añadir a "] = "Add to "
+L["Ausentes"] = "Absent"
+L["No hay bandas programadas. Crea una en la pestaña Raid y aparecerá en el desplegable."] = "No raids scheduled. Create one in the Raid tab and it will appear in the dropdown."
+L["Elige una banda"] = "Choose a raid"
+L["|cFF00FF00Publicado|r el "] = "|cFF00FF00Published|r on "
+L["|cFFFF7F00Sin publicar|r (solo lo ven los oficiales)"] = "|cFFFF7F00Not published|r (only officers can see it)"
+L["   ·   Tarde "] = "   ·   Late "
 addonTable.RegisterLocale("enUS", "English", L)
