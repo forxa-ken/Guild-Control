@@ -392,6 +392,8 @@ end
 -- Miembros de la hermandad en C_Club (puntuación M+ y profesiones). Recorrer la lista es caro
 -- en hermandades grandes: se hace una vez y la usan los dos módulos. maxAge = segundos que
 -- vale la copia (55 por defecto).
+local CLUB_FIELDS = { "guid", "profession1Name", "profession1Rank", "profession2Name", "profession2Rank", "overallDungeonScore" }
+local function IsSecret(value) return issecretvalue ~= nil and issecretvalue(value) == true end
 local clubCache, clubCacheAt = nil, -1000
 function addonTable.GetClubMemberInfos(maxAge)
     if clubCache and GetTime() - clubCacheAt < (maxAge or 55) then return clubCache end
@@ -399,11 +401,23 @@ function addonTable.GetClubMemberInfos(maxAge)
     local clubId = C_Club.GetGuildClubId()
     if not clubId then return nil end
     local ok, memberIds = pcall(C_Club.GetClubMembers, clubId)
-    if not ok or type(memberIds) ~= "table" then return nil end
+    -- En 12.x, durante un encuentro o en momentos restringidos, C_Club puede devolver valores
+    -- secretos (no se pueden recorrer ni comparar): se usa la copia anterior y se reintenta luego
+    if not ok or IsSecret(memberIds) or type(memberIds) ~= "table" then return clubCache end
     local list = {}
     for _, memberId in ipairs(memberIds) do
-        local okInfo, info = pcall(C_Club.GetMemberInfo, clubId, memberId)
-        if okInfo and info then list[#list + 1] = info end
+        if not IsSecret(memberId) then
+            local okInfo, info = pcall(C_Club.GetMemberInfo, clubId, memberId)
+            if okInfo and info and not IsSecret(info) then
+                -- Solo los campos que usan Profesiones y Míticas+, y solo si no son secretos
+                local copy = {}
+                for _, field in ipairs(CLUB_FIELDS) do
+                    local value = info[field]
+                    if not IsSecret(value) then copy[field] = value end
+                end
+                if copy.guid then list[#list + 1] = copy end
+            end
+        end
     end
     clubCache, clubCacheAt = list, GetTime()
     return list
