@@ -558,9 +558,27 @@ function newsModule.GetUpcomingRaids(limit)
     return result
 end
 
+-- El mensaje del día se guarda en una copia: en 12.x GetGuildRosterMOTD está bloqueada en
+-- combate, durante un encuentro o con el chat restringido (ADDON_ACTION_BLOCKED), y Resumen se
+-- refresca también desde eventos de chat (logros de la hermandad)
+local cachedMotd = nil
+
+local function IsSecret(value) return issecretvalue ~= nil and issecretvalue(value) == true end
+
+local function CanReadMotd()
+    if InCombatLockdown() then return false end
+    if IsEncounterInProgress and IsEncounterInProgress() then return false end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return false end
+    return true
+end
+
+local function SetMotd(motd)
+    if type(motd) == "string" and not IsSecret(motd) then cachedMotd = motd end
+end
+
 function newsModule.GetMOTD()
-    local motd = GetGuildRosterMOTD and GetGuildRosterMOTD() or ""
-    return motd or ""
+    if GetGuildRosterMOTD and CanReadMotd() then SetMotd(GetGuildRosterMOTD()) end
+    return cachedMotd or ""
 end
 
 -- Semana (lunes a domingo) de una clave de fecha "AAAAMMDD...": devuelve clave y texto
@@ -626,6 +644,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         -- Segundo aviso del mismo jefe (si ENCOUNTER_END llegó sin datos): se une al registro
         local encounterID, encounterName = ...
         OnEncounterEnd(encounterID, encounterName, nil, nil, true)
+    elseif event == "GUILD_MOTD" then
+        -- El evento trae el mensaje nuevo: así no hace falta pedirlo al juego
+        SetMotd((...))
+        Notify()
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, msg, channel, sender = ...
         if prefix ~= BOSS_PREFIX or channel ~= "GUILD" then return end
