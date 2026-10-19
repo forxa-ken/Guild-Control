@@ -505,6 +505,11 @@ local function BuildAnnouncementsBar(parent)
     end)
 
     RefreshFields()
+    -- Llega un cambio de otro oficial (Announcements.lua): sin pisar lo que se está escribiendo
+    function uiModule.RefreshAnnouncementFields()
+        if msgInput:HasFocus() or timeInput:HasFocus() then return end
+        RefreshFields()
+    end
 
     -- Perfil de jugador: en lugar de los anuncios se muestra un resumen de su ficha
     local playerInfo = CreateFrame("Frame", nil, annBar)
@@ -557,6 +562,8 @@ end
 
 local function SwitchTab(tabName)
     activeTab = tabName
+    -- Botín abierto en su ventana flotante: vuelve a la ventana principal
+    if tabName == "Botín" and uiModule.HideLootFloat then uiModule.HideLootFloat() end
     -- El botón de la pestaña activa se ve gris (desactivado)
     local sidebar = containers.sidebar
     if sidebar and sidebar.tabButtons then
@@ -2378,18 +2385,14 @@ local function BuildRosterView(parent)
             PrintGC(L["Invitando a |cFFFFD100"] .. count .. L["|r titulares. Con más de 4 el grupo se convierte en banda cuando acepte el primero."])
         end
     end)
-    -- Abre el anuncio de la composición para revisarlo y editarlo antes de enviarlo
-    local btnAnnounce = CreateAction(L["Anunciar"], 80, btnInvite, function()
-        if uiModule.ShowRosterAnnounce then uiModule.ShowRosterAnnounce() end
+    -- Anuncio editable para los integrantes (hermandad o susurro a cada uno)
+    local btnMessage = CreateAction(L["Anuncio"], 90, btnInvite, function()
+        if uiModule.ShowRosterMessage then uiModule.ShowRosterMessage() end
     end)
-    local btnExport = CreateAction(L["Exportar CSV"], 100, btnAnnounce, function()
+    local btnExport = CreateAction(L["Exportar CSV"], 100, btnMessage, function()
         if addonTable.CSV and addonTable.CSV.ShowText then
             addonTable.CSV.ShowText(R.BuildCSV(R.GetSelected()))
         end
-    end)
-    -- Mensaje editable para los integrantes (hermandad o susurro a cada uno)
-    local btnMessage = CreateAction(L["Mensaje"], 90, btnExport, function()
-        if uiModule.ShowRosterMessage then uiModule.ShowRosterMessage() end
     end)
 
     -- En la base vacía el roster; en un jefe lo restablece a la base. Pide un segundo clic.
@@ -2398,7 +2401,7 @@ local function BuildRosterView(parent)
     local function ClearLabel()
         return R.GetSelectedVariant(R.GetSelected()) and L["Restablecer jefe"] or L["Vaciar roster"]
     end
-    btnClear = CreateAction(L["Vaciar roster"], 120, btnMessage, function(self)
+    btnClear = CreateAction(L["Vaciar roster"], 120, btnExport, function(self)
         if GetTime() < clearArmedUntil then
             clearArmedUntil = 0
             R.Clear(R.GetSelected())
@@ -3435,7 +3438,7 @@ local function CreateRosterMessageFrame()
 
     local function Refresh()
         local roster = R.GetSelected()
-        frame.title:SetText(L["Mensaje para "] .. R.GetDisplayName(roster))
+        frame.title:SetText(L["Anuncio para "] .. R.GetDisplayName(roster))
         if selectedEventId ~= false and not SelectedEvent() then
             -- Por defecto, la próxima banda
             local events = RosterEvents(roster)
@@ -8969,7 +8972,7 @@ local function BuildConfigView(parent)
     scroll:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -30)
     scroll:SetPoint("BOTTOMRIGHT", view, "BOTTOMRIGHT", -26, 6)
     local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(870, 962)
+    content:SetSize(870, 1282)
     scroll:SetScrollChild(content)
 
     -- Cada sección es un panel con franja de título (y como si empezara bajo el título de la vista)
@@ -9416,7 +9419,7 @@ local function BuildConfigView(parent)
     -- ---------------------------------------------------------------------
     -- 9.6 Canales del chat: canales de idioma y chat de oficiales
     -- ---------------------------------------------------------------------
-    local chatChannelsBox = Section(L["Canales del chat"], 10, -796, 880, 156)
+    local chatChannelsBox = Section(L["Canales del chat"], 10, -796, 880, 260)
     local CHANNEL_COLUMNS = { join = 300, game = 450, tab = 650 }
     local function ColumnHeader(text, column)
         local fs = chatChannelsBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -9428,6 +9431,10 @@ local function BuildConfigView(parent)
     ColumnHeader(L["Pestaña en GuildControl"], "tab")
 
     local CHANNEL_ROWS = {
+        { key = "guild", label = L["Hermandad"], tabOnly = true },
+        { key = "whisper", label = L["Susurros"], tabOnly = true },
+        { key = "raid", label = L["Banda"], tabOnly = true },
+        { key = "party", label = L["Grupo (y mazmorra)"], tabOnly = true },
         { key = "english", label = L["lobosenglish (inglés)"] },
         { key = "spanish", label = L["lobosespañol (español)"] },
         { key = "officer", label = L["Oficiales (chat del juego)"], officer = true },
@@ -9457,7 +9464,9 @@ local function BuildConfigView(parent)
             table.insert(channelChecks, chk)
             if row.officer then table.insert(officerRow, chk) end
         end
-        if row.officer then
+        if row.tabOnly then
+            -- Canales del juego: solo se elige si se ve su pestaña
+        elseif row.officer then
             Check("game", function() return Chat() and Chat().ShowsInGame("officer") end,
                 function(value) Chat().SetOfficerInGame(value) end)
         else
@@ -9471,10 +9480,111 @@ local function BuildConfigView(parent)
     end
 
     local channelsHint = chatChannelsBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    channelsHint:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", 16, -126)
+    channelsHint:SetPoint("TOPLEFT", chatChannelsBox, "TOPLEFT", 16, -230)
     channelsHint:SetWidth(850)
     channelsHint:SetJustifyH("LEFT")
     channelsHint:SetText(L["Los canales se unen por su nombre, que es el mismo en cualquier idioma del juego. El número (/5, /6...) lo pone cada cliente y puede ser distinto: compruébalo con /chatlist. Desde el chat de GuildControl se escribe por nombre. Por defecto entras en el canal del idioma de tu juego."])
+
+    -- ---------------------------------------------------------------------
+    -- 9.7 Premios DKP por insignia (solo oficiales)
+    -- ---------------------------------------------------------------------
+    local badgeBox = Section(L["Premios DKP por insignia"], 10, -1062, 880, 214)
+    local PMod = addonTable.Personal
+    local badgeRewardRows = {}
+    local RefreshBadgeRewards
+    for i, badge in ipairs(PMod and PMod.BADGES or {}) do
+        local y = -32 - (i - 1) * 28
+        local row = CreateFrame("Frame", nil, badgeBox)
+        row:SetSize(850, 26)
+        row:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 14, y)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(22, 22)
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+        row.icon:SetTexture(badge.icon)
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.label:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
+        row.label:SetWidth(130)
+        row.label:SetJustifyH("LEFT")
+        row.desc = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.desc:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
+        row.desc:SetWidth(380)
+        row.desc:SetJustifyH("LEFT")
+        row.desc:SetWordWrap(false)
+        row.desc:SetText(L[badge.desc])
+        row.input = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        row.input:SetSize(60, 20)
+        row.input:SetPoint("LEFT", row.desc, "RIGHT", 14, 0)
+        row.input:SetAutoFocus(false)
+        row.input:SetNumeric(true)
+        row.input:SetMaxLetters(4)
+        row.unit = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.unit:SetPoint("LEFT", row.input, "RIGHT", 6, 0)
+        row.unit:SetText("DKP")
+        local function SaveAmount(self)
+            local D = addonTable.Dkp
+            if D and D.GetBadgeReward and D.GetBadgeRewards()[badge.key] then D.SetBadgeReward(badge.key, self:GetText()) end
+            self:ClearFocus()
+            RefreshBadgeRewards()
+        end
+        row.input:SetScript("OnEnterPressed", SaveAmount)
+        row.input:SetScript("OnEditFocusLost", function(self)
+            local D = addonTable.Dkp
+            local current = D and D.GetBadgeRewards()[badge.key]
+            if current and tonumber(self:GetText()) ~= current then D.SetBadgeReward(badge.key, self:GetText()) end
+            RefreshBadgeRewards()
+        end)
+        row.input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        -- Quitar la insignia del premio o volver a añadirla con su valor predeterminado
+        row.toggle = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.toggle:SetSize(80, 22)
+        row.toggle:SetPoint("LEFT", row.unit, "RIGHT", 14, 0)
+        row.toggle:SetScript("OnClick", function()
+            local D = addonTable.Dkp
+            if not D then return end
+            if D.GetBadgeRewards()[badge.key] then
+                D.RemoveBadgeReward(badge.key)
+            else
+                D.SetBadgeReward(badge.key, D.DEFAULT_BADGE_REWARDS[badge.key] or 0)
+            end
+            RefreshBadgeRewards()
+        end)
+        row.badge = badge
+        badgeRewardRows[i] = row
+    end
+
+    local btnBadgeDefaults = CreateFrame("Button", nil, badgeBox, "UIPanelButtonTemplate")
+    btnBadgeDefaults:SetSize(200, 22)
+    btnBadgeDefaults:SetPoint("BOTTOMRIGHT", badgeBox, "BOTTOMRIGHT", -14, 12)
+    btnBadgeDefaults:SetText(L["Restablecer predeterminadas"])
+    btnBadgeDefaults:SetScript("OnClick", function()
+        if addonTable.Dkp and addonTable.Dkp.ResetBadgeRewards then addonTable.Dkp.ResetBadgeRewards() end
+        RefreshBadgeRewards()
+    end)
+
+    local badgeHint = badgeBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    badgeHint:SetPoint("BOTTOMLEFT", badgeBox, "BOTTOMLEFT", 16, 16)
+    badgeHint:SetPoint("RIGHT", btnBadgeDefaults, "LEFT", -12, 0)
+    badgeHint:SetJustifyH("LEFT")
+
+    RefreshBadgeRewards = function()
+        local D = addonTable.Dkp
+        if not D or not D.GetBadgeRewards then return end
+        local rewards = D.GetBadgeRewards()
+        for _, row in ipairs(badgeRewardRows) do
+            local amount = rewards[row.badge.key]
+            row.label:SetText((amount and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r")
+            row.icon:SetDesaturated(not amount)
+            row.input:SetShown(amount ~= nil)
+            row.unit:SetShown(amount ~= nil)
+            if amount and not row.input:HasFocus() then row.input:SetText(tostring(amount)) end
+            row.toggle:SetText(amount and L["Quitar"] or L["Añadir"])
+        end
+        badgeHint:SetText((D.IsActive() and "" or L["|cFFFF7F00El sistema de botín no es DKP: no se dan premios.|r "])
+            .. L["Se dan una vez por jugador e insignia. Los da un oficial conectado cada 10 minutos y se comparten con la hermandad."])
+    end
+    if addonTable.Dkp and addonTable.Dkp.AddListener then
+        addonTable.Dkp.AddListener(function() if badgeBox:IsVisible() then RefreshBadgeRewards() end end)
+    end
 
     view:SetScript("OnShow", function()
         local s = settings()
@@ -9490,6 +9600,7 @@ local function BuildConfigView(parent)
             if width then box:SetWidth(width) end
         end
         guildBox:SetShown(officerView)
+        badgeBox:SetShown(officerView)
         channelsBox:Show()
         if officerView then
             Place(windowBox, 578, -36)
@@ -9498,7 +9609,8 @@ local function BuildConfigView(parent)
             Place(channelsBox, 10, -660, 430)
             Place(soundBox, 448, -660, 442)
             Place(chatChannelsBox, 10, -796)
-            content:SetHeight(962)
+            Place(badgeBox, 10, -1062)
+            content:SetHeight(1282)
         else
             -- Arriba: Ventana a la izquierda; a la derecha, sonido y (si puede invitar) canales
             local canInvite = s.playerInvite == true
@@ -9509,10 +9621,11 @@ local function BuildConfigView(parent)
             Place(greetBox, 10, -308)
             Place(welcomeBox, 10, -542)
             Place(chatChannelsBox, 10, -660)
-            content:SetHeight(826)
+            content:SetHeight(930)
         end
         chkOnTop:SetChecked(s.windowOnTop)
         RefreshChannelChecks()
+        RefreshBadgeRewards()
         chkGreet:SetChecked(s.autoGreet)
         chkWelcome:SetChecked(s.welcomeNew)
         welcomeInput:SetText(s.welcomeMessage or "")
@@ -9559,8 +9672,9 @@ local CHAT_CHANNEL_STYLE = {
     english = { color = "FFC0A0", tag = "EN" }, spanish = { color = "FFD27F", tag = "ES" },
 }
 
--- Canales que se pueden ocultar: los de idioma (si no estoy en ellos o los oculto) y el de
--- oficiales (solo oficiales). Ocultar un canal quita su pestaña y sus mensajes de Todo.
+-- Canales que se pueden ocultar (Configuración > Canales del chat): todos menos Todo; los de
+-- idioma además si no estoy en ellos y el de oficiales si no tengo permiso. Ocultar un canal
+-- quita su pestaña y sus mensajes de Todo.
 local function IsChatChannelShown(key)
     local chat = addonTable.GuildChat
     if not chat then return true end
@@ -9570,7 +9684,9 @@ local function IsChatChannelShown(key)
     if chat.GetLangChannel and chat.GetLangChannel(key) then
         return chat.UsesChannel(key) and chat.ShowsTab(key)
     end
-    return true
+    if key == "all" or not chat.ShowsTab then return true end
+    if key == "instance" then key = "party" end   -- mazmorra va con Grupo
+    return chat.ShowsTab(key)
 end
 
 local function ChatEntryTime(entry)
@@ -10235,8 +10351,12 @@ local function BuildForMeView(parent)
             local has = earned[row.badge.key]
             row.icon:SetDesaturated(not has)
             row.icon:SetAlpha(has and 1 or 0.4)
-            row.text:SetText((has and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r  " .. (has and "|cFFFFFFFF" or "|cFF606060")
-                .. L[row.badge.desc] .. "|r")
+            -- Premio en DKP de la insignia (solo con el sistema DKP)
+            local D = addonTable.Dkp
+            local reward = D and D.IsActive() and D.GetBadgeReward and D.GetBadgeReward(row.badge.key)
+            row.text:SetText((has and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r  "
+                .. (reward and ((has and "|cFF00FF00" or "|cFF607060") .. "+" .. reward .. " DKP|r  ") or "")
+                .. (has and "|cFFFFFFFF" or "|cFF606060") .. L[row.badge.desc] .. "|r")
         end
     end
 
@@ -11045,7 +11165,7 @@ local function AfterCombat(fn)
     PrintGC(L["En combate no se puede cambiar de modo: se hará al salir del combate."])
 end
 
-local MINI_WIDTH, MINI_HEIGHT, MINI_PAD, MINI_GAP = 244, 112, 8, 4
+local MINI_WIDTH, MINI_HEIGHT, MINI_PAD, MINI_GAP = 244, 138, 8, 4
 
 local function SaveMiniPosition(frame)
     local point, _, relativePoint, x, y = frame:GetPoint(1)
@@ -11169,12 +11289,94 @@ local function CreateRaidMiniFrame()
             if addonTable.RaidTools then addonTable.RaidTools.RequestReports() end
             uiModule.ShowBuffWindow(nil)
         end),
-        MiniButton(frame, L["Modo normal"], width3, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end),
+        MiniButton(frame, L["Botín"], width3, L["Botín"], L["Abre el botín en una ventana flotante sin salir del modo minimalista."], function()
+            uiModule.ToggleLootFloat()
+        end),
     }
     for i, btn in ipairs(row3) do
-        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width3 + MINI_GAP), -MINI_HEIGHT + MINI_PAD + 22)
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width3 + MINI_GAP), -82)
     end
+    -- Fila 4: volver a la ventana completa
+    local btnNormal = MiniButton(frame, L["Modo normal"], inner, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
+    btnNormal:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD, -108)
     return frame
+end
+
+-- -------------------------------------------------------------------------
+-- Botín en ventana flotante
+-- -------------------------------------------------------------------------
+-- La vista Botín se pasa a una ventana aparte (sobre todo para el modo minimalista, que oculta
+-- la principal). Al cerrarla vuelve a su sitio. settings.lootFloatPos guarda la posición.
+local lootFloat = nil
+
+local function ReturnLootView()
+    local view = containers.views and containers.views["Botín"]
+    if not view or not containers.mainContent then return end
+    view:SetParent(containers.mainContent)
+    view:ClearAllPoints()
+    view:SetAllPoints(containers.mainContent)
+    view:SetShown(activeTab == "Botín")
+end
+
+local function CreateLootFloat()
+    local frame = CreateFrame("Frame", "GuildControlLootFloat", UIParent, "BasicFrameTemplateWithInset")
+    frame:SetSize(912, 560)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetToplevel(true)
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, relativePoint, x, y = self:GetPoint(1)
+        GuildControlDB.settings.lootFloatPos = { point = point, relativePoint = relativePoint, x = x, y = y }
+    end)
+    local pos = GuildControlDB.settings.lootFloatPos
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        frame:SetPoint("CENTER", UIParent, "CENTER", 0, -40)
+    end
+    tinsert(UISpecialFrames, "GuildControlLootFloat")
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+    title:SetText(L["GuildControl · Botín"])
+
+    frame.holder = CreateFrame("Frame", nil, frame)
+    frame.holder:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -26)
+    frame.holder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 6)
+    frame:SetScript("OnHide", ReturnLootView)
+    frame:Hide()
+    return frame
+end
+
+function uiModule.ShowLootFloat()
+    addonTable.InitDB()
+    if not GC_UI then uiModule.CreateUI() end
+    local view = containers.views["Botín"]
+    if not view then return end
+    if not lootFloat then lootFloat = CreateLootFloat() end
+    view:SetParent(lootFloat.holder)
+    view:ClearAllPoints()
+    view:SetAllPoints(lootFloat.holder)
+    lootFloat:Show()
+    lootFloat:Raise()
+    view:Show()
+end
+
+function uiModule.HideLootFloat()
+    if lootFloat and lootFloat:IsShown() then lootFloat:Hide() end
+end
+
+function uiModule.IsLootFloatShown()
+    return lootFloat ~= nil and lootFloat:IsShown()
+end
+
+function uiModule.ToggleLootFloat()
+    if uiModule.IsLootFloatShown() then uiModule.HideLootFloat() else uiModule.ShowLootFloat() end
 end
 
 function uiModule.EnterMiniMode()
@@ -11183,8 +11385,11 @@ function uiModule.EnterMiniMode()
         addonTable.InitDB()
         if not raidMiniFrame then raidMiniFrame = CreateRaidMiniFrame() end
         GuildControlDB.settings.raidMini = true
+        -- Si estabas en Botín, el botín sigue abierto en su ventana flotante
+        local keepLoot = GC_UI and GC_UI:IsShown() and activeTab == "Botín"
         if GC_UI then GC_UI:Hide() end
         raidMiniFrame:Show()
+        if keepLoot then uiModule.ShowLootFloat() end
     end)
 end
 

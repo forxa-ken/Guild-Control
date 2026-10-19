@@ -66,6 +66,11 @@ dkpModule.DEFAULT_PRICES = {
     other = { normal = 15, heroic = 25, mythic = 40 },
 }
 
+-- Premio en DKP por cada insignia de Tus novedades (Personal.BADGES). Se da una sola vez por
+-- jugador e insignia (badgeAwards["Nombre-Reino:clave"] = 1). Los oficiales pueden cambiar las
+-- cantidades, quitar insignias del premio y volver a estas.
+dkpModule.DEFAULT_BADGE_REWARDS = { veteran = 50, loyal = 30, lucky = 10, artisan = 15, upToDate = 10 }
+
 -- Hueco del objeto -> categoría de precio
 local SLOT_CATEGORY = {
     INVTYPE_2HWEAPON = "weapon2h", INVTYPE_RANGED = "weapon2h", INVTYPE_RANGEDRIGHT = "weapon2h",
@@ -134,6 +139,11 @@ local function State()
             if type(row[tier]) ~= "number" then row[tier] = value end
         end
     end
+    if type(db.settings.badgeRewards) ~= "table" then
+        db.settings.badgeRewards = {}
+        for key, value in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do db.settings.badgeRewards[key] = value end
+    end
+    if type(db.badgeAwards) ~= "table" then db.badgeAwards = {} end
     if type(db.balances) ~= "table" then db.balances = {} end
     if type(db.since) ~= "table" then db.since = {} end
     if type(db.log) ~= "table" then db.log = {} end
@@ -206,6 +216,7 @@ function dkpModule.Publish()
     local data = R.SerializeTable({
         version = 1, system = db.system, settings = db.settings, balances = db.balances, since = db.since,
         bossKeys = db.bossKeys, lastWeekly = db.lastWeekly, updatedAt = db.updatedAt, log = log,
+        badgeAwards = db.badgeAwards,
     })
     -- Un envío nuevo sustituye al que estuviera a medias
     wipe(sendQueue)
@@ -427,6 +438,80 @@ function dkpModule.UpdateSeniority()
 end
 
 -- =========================================================================
+-- PREMIOS POR INSIGNIA
+-- =========================================================================
+function dkpModule.GetBadgeRewards() return State().settings.badgeRewards end
+
+function dkpModule.GetBadgeReward(key)
+    local amount = State().settings.badgeRewards[key]
+    return amount and amount > 0 and amount or nil
+end
+
+function dkpModule.SetBadgeReward(key, amount)
+    if not IsOfficer() or not dkpModule.DEFAULT_BADGE_REWARDS[key] then return false end
+    State().settings.badgeRewards[key] = math.max(0, math.min(1000, math.floor(tonumber(amount) or 0)))
+    Touch()
+    return true
+end
+
+function dkpModule.RemoveBadgeReward(key)
+    if not IsOfficer() then return false end
+    State().settings.badgeRewards[key] = nil
+    Touch()
+    return true
+end
+
+function dkpModule.ResetBadgeRewards()
+    if not IsOfficer() then return false end
+    local rewards = {}
+    for key, value in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do rewards[key] = value end
+    State().settings.badgeRewards = rewards
+    Touch()
+    return true
+end
+
+-- Los premios los da un solo oficial: el primero por orden alfabético de los oficiales
+-- conectados que usan GuildControl (así no se dan dos veces antes de sincronizar)
+local function IsBadgeAwarder()
+    local me = MyName()
+    for name, m in pairs(GuildControlDB.members or {}) do
+        if name < me and m.isOnline and IsOfficerName(name) and addonTable.GetAddonUser and addonTable.GetAddonUser(name) then
+            return false
+        end
+    end
+    return true
+end
+
+-- Da el premio de cada insignia nueva (una vez por jugador e insignia)
+function dkpModule.ApplyBadgeRewards()
+    if not IsOfficer() or not dkpModule.IsActive() or not IsBadgeAwarder() then return end
+    local PM = addonTable.Personal
+    if not (PM and PM.GetBadges and PM.BADGES) then return end
+    local db = State()
+    local given = {}   -- [clave de insignia] = nº de jugadores premiados
+    for name in pairs(GuildControlDB.members or {}) do
+        for _, badge in ipairs(PM.GetBadges(name)) do
+            local amount = dkpModule.GetBadgeReward(badge.key)
+            local awardKey = name .. ":" .. badge.key
+            if amount and not db.badgeAwards[awardKey] then
+                db.badgeAwards[awardKey] = 1
+                db.balances[name] = (db.balances[name] or 0) + amount
+                given[badge.key] = (given[badge.key] or 0) + 1
+            end
+        end
+    end
+    local changed = false
+    for _, badge in ipairs(PM.BADGES) do
+        local count = given[badge.key]
+        if count then
+            AddLog(dkpModule.GetBadgeReward(badge.key), L["Insignia: "] .. L[badge.label], count .. L[" jugadores"])
+            changed = true
+        end
+    end
+    if changed then Touch() end
+end
+
+-- =========================================================================
 -- SEMANAL: DECAY Y DKP POR ANTIGÜEDAD
 -- =========================================================================
 function dkpModule.GetLastWeeklyReset()
@@ -558,6 +643,23 @@ local function ApplyIncoming(payload, sender)
                 end
             end
         end
+        -- Premios por insignia (solo las claves conocidas; las que faltan se quitaron)
+        if type(payload.settings.badgeRewards) == "table" then
+            local rewards = {}
+            for key in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do
+                if tonumber(payload.settings.badgeRewards[key]) then rewards[key] = Num(payload.settings.badgeRewards[key], 0, 1000, 0) end
+            end
+            db.settings.badgeRewards = rewards
+        end
+    end
+    if type(payload.badgeAwards) == "table" then
+        local awards = {}
+        for key in pairs(payload.badgeAwards) do
+            if type(key) == "string" then awards[string.sub(key, 1, 80)] = 1 end
+        end
+        -- Se unen con los propios: un premio dado no se pierde
+        for key in pairs(db.badgeAwards) do awards[key] = 1 end
+        db.badgeAwards = awards
     end
     local balances, since, bossKeys = {}, {}, {}
     for name, value in pairs(type(payload.balances) == "table" and payload.balances or {}) do
@@ -628,6 +730,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             if not dkpModule.IsActive() or not IsOfficer() then return end
             dkpModule.UpdateSeniority()
             ApplyWeekly()
+            dkpModule.ApplyBadgeRewards()
         end
         C_Timer.After(45, Periodic)
         C_Timer.NewTicker(600, Periodic)
