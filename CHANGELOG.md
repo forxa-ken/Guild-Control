@@ -2,10 +2,20 @@
 
 ## Sin publicar
 
-- **Resumen**: **normas de la hermandad**. Los oficiales las escriben en Configuración > Normas de la hermandad y llegan a todos (aviso al cambiar); la vista previa las muestra mientras no hay nada seleccionado y el botón **Normas** vuelve a ellas. «Ahora en la hermandad» dice cuántos conectados no tienen rol y qué roles hay conectados; «Esta semana» lleva la calavera en los jefes y las altas y bajas como insignias de color; sin bandas próximas, «Para ti» resume tu personaje (clase, nivel, especialización, rol, rango y DKP o +1). Las altas llevan el icono y el color de su clase bajo un banner con el icono de la hermandad.
+- **Resumen**: **normas de la hermandad**. Los oficiales las escriben en Configuración > Normas de la hermandad y llegan a todos (aviso al cambiar) y se leen con el botón **Normas** del Resumen. «Ahora en la hermandad» dice cuántos conectados no tienen rol y qué roles hay conectados; «Esta semana» lleva la calavera en los jefes y las altas y bajas como insignias de color; sin bandas próximas, «Para ti» resume tu personaje (clase, nivel, especialización, rol, rango y DKP o +1). Las altas llevan el icono y el color de su clase bajo un banner con el icono de la hermandad.
 - **Miembros**: la vista previa tiene una cabecera con el icono y el color de la clase, nivel, rango y estado, las insignias como iconos y una etiqueta por cada banda próxima en cuyo roster está (clic: abre el roster o la banda). La columna Roster desaparece de la lista.
 - **Ayudante** (antes «modo minimalista», `/gct ayudante`): botones **Buff check** y **Pizarra**, y cada botón explica lo que hace al pasar el ratón. Raid ya no tiene los botones Buff check y Pizarra, y sus botones llevan tooltip. **Recordar al roster** pasa a la pestaña Roster.
 - Corregido: la ventana de lista de deseos de los oficiales salía en blanco la primera vez y no avisaba de lo que caía nada más entrar.
+- **Menú lateral por grupos** plegables (General, Banda, Comunidad, Personal y Gestión) con Resumen siempre arriba y **Expandir todo**; se pueden abrir varios a la vez y se recuerdan. Logros va en General y Míticas+ en Comunidad. Comunidad pasa a llamarse **Buscar grupo** y Tus novedades, **Mi diario**.
+- **Resumen**: barra con **Noticias**, **Récords** (salen de Buscar grupo), **Normas** y **Actualizar**; las cajas de arriba y de la derecha se desplazan si no cabe todo.
+- **Mi perfil**: subpestañas Perfil, **Lista de deseos** (viene de Mi diario) y **Disponibilidad** (días y horas en que puedes jugar, compartida con la hermandad); botón **Mis profesiones** (abre tu profesión) y asistencia por roster.
+- **Mi diario**: panel **Mi semana** con jefes, DKP ganados y gastados, tus Míticas+ y mejor llave, objetos, insignias nuevas y deseos caídos. El aviso de un deseo que cae suena.
+- **Invitar**: días de juego en el mensaje, 5 mensajes guardados, aviso periódico para publicar con un clic e invitación automática a quien te susurra.
+- **Recordar al roster** deja el aviso a los desconectados, que lo ven en la ventana de tareas al entrar.
+- Raid: el título de Nueva banda lo da la banda del diario. Ayudante: Buff check se cierra con otro clic.
+- Configuración: subpestaña **Normas** con iconos de banda, viñetas y vista previa; cerrar la ventana al entrar en combate; ocultar el botón del minimapa. Canales del chat: solo el del idioma de tu juego, y lobosespañol ya no tiene pestaña propia (sus mensajes salen en Todo).
+- Tooltips en los botones de Roster, Botín y Configuración.
+- Corregido: los jugadores veían **Publicar de nuevo** en Raid.
 
 ## 5.0.0-beta8
 

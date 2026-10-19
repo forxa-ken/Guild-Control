@@ -481,6 +481,13 @@ function addonTable.CreateMinimapButton()
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     UpdatePosition()
+    addonTable.ApplyMinimapButton()
+end
+
+-- Configuración > Ocultar el botón del minimapa (GuildControlDB.minimap.hide)
+function addonTable.ApplyMinimapButton()
+    if not GuildControlMinimapButton then return end
+    GuildControlMinimapButton:SetShown(not (GuildControlDB.minimap and GuildControlDB.minimap.hide))
 end
 
 local isSyncingRoster = false

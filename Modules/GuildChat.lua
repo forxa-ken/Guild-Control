@@ -114,18 +114,12 @@ function chatModule.IsEnglishClient()
     return ClientLocale() == "en"
 end
 
+-- Solo el canal del idioma del cliente (ya no se elige: Configuración no tiene la opción Unirme;
+-- settings.channelJoin y settings.englishChannel se ignoran)
 function chatModule.UsesChannel(key)
     local channel = chatModule.GetLangChannel(key)
     if not channel then return false end
-    local s = Settings()
-    -- Ajuste antiguo (solo existía el canal en inglés)
-    if s and key == "english" and s.englishChannel ~= nil and (type(s.channelJoin) ~= "table" or s.channelJoin.english == nil) then
-        SettingsTable("channelJoin").english = s.englishChannel == true
-        s.englishChannel = nil
-    end
-    local value = SettingsTable("channelJoin")[key]
-    if value == nil then return ClientLocale() == channel.locale end
-    return value == true
+    return ClientLocale() == channel.locale
 end
 
 function chatModule.ShowsInGame(key)

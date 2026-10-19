@@ -175,6 +175,28 @@ function eventsModule.Update(event, fields)
     return event
 end
 
+-- Recordar al roster: los integrantes desconectados que no se han apuntado lo verán en la
+-- ventana de tareas al entrar (event.remind = {at, names[nombre] = true}; viaja con el evento)
+function eventsModule.SetReminder(event, names)
+    if not event or not IsOfficer() then return end
+    local remind = { at = time(), names = {} }
+    for _, name in ipairs(names) do remind.names[name] = true end
+    event.remind = remind
+    eventsModule.Publish(event)
+    Notify()
+end
+
+-- Bandas próximas en las que un oficial me recordó que me apunte y aún no lo he hecho
+function eventsModule.GetMyReminders()
+    local me, list = MyName(), {}
+    for _, event in ipairs(eventsModule.GetUpcoming()) do
+        if event.remind and event.remind.names and event.remind.names[me] and not event.signups[me] then
+            table.insert(list, event)
+        end
+    end
+    return list
+end
+
 function eventsModule.Delete(event)
     if not event then return end
     Store()[event.id] = nil
@@ -735,6 +757,16 @@ local function SanitizeEvent(raw)
         createdBy = Clean(raw.createdBy, 40), updatedAt = tonumber(raw.updatedAt) or 0,
         signups = {}, groups = {}, groupsAt = tonumber(raw.groupsAt) or 0,
     }
+    if type(raw.remind) == "table" and type(raw.remind.names) == "table" then
+        local remind, count = { at = tonumber(raw.remind.at) or 0, names = {} }, 0
+        for name in pairs(raw.remind.names) do
+            if type(name) == "string" and count < 80 then
+                remind.names[string.sub(name, 1, 60)] = true
+                count = count + 1
+            end
+        end
+        event.remind = remind
+    end
     for name, s in pairs(type(raw.signups) == "table" and raw.signups or {}) do
         if type(name) == "string" and type(s) == "table" and STATUS_LABELS[s.status] then
             event.signups[string.sub(name, 1, 60)] = { status = s.status, role = VALID_ROLES[s.role] and s.role or nil,
@@ -768,6 +800,9 @@ local function MergeEvent(incoming)
     end
     if (incoming.groupsAt or 0) > (existing.groupsAt or 0) then
         existing.groups, existing.groupsAt = incoming.groups, incoming.groupsAt
+    end
+    if incoming.remind and incoming.remind.at > ((existing.remind and existing.remind.at) or 0) then
+        existing.remind = incoming.remind
     end
 end
 

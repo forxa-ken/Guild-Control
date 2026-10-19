@@ -283,6 +283,81 @@ function profilesModule.Broadcast(force)
         profile.note or "", tostring(ProfileAt(profile) > 0 and ProfileAt(profile) or time()), profile.charType or "", profile.mainName or "", profile.focus or "", profile.offSpec or "" }, ";"))
 end
 
+-- -------------------------------------------------------------------------
+-- Disponibilidad semanal (Mi perfil > Disponibilidad). Los campos de ausencia viajan vacíos
+-- (la ausencia larga se quitó; se mantienen en el mensaje por compatibilidad)
+-- profile.avail / member.avail = {at, days = "1010100" (lunes..domingo), from, to ("HH:MM"),
+--   absFrom, absTo ("AAAA-MM-DD"), absNote}
+-- Mensaje "A;fecha;días;desde;hasta;ausenciaDesde;ausenciaHasta;motivo" (y "RA;Nombre-Reino;..."
+-- al reenviar). Los clientes antiguos ignoran estos mensajes.
+-- -------------------------------------------------------------------------
+local AVAIL_DAYS = { "Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do" }
+profilesModule.AVAIL_DAYS = AVAIL_DAYS
+
+local function CleanAvail(raw)
+    if type(raw) ~= "table" then return nil end
+    local days = tostring(raw.days or "")
+    if not string.match(days, "^[01]+$") or #days ~= 7 then days = "0000000" end
+    local function Time(v) v = tostring(v or ""); return string.match(v, "^%d%d?:%d%d$") and v or "" end
+    local function Date(v) v = tostring(v or ""); return string.match(v, "^%d%d%d%d%-%d%d%-%d%d$") and v or "" end
+    local avail = { at = tonumber(raw.at) or 0, days = days, from = Time(raw.from), to = Time(raw.to),
+                    absFrom = Date(raw.absFrom), absTo = Date(raw.absTo), absNote = Clean(raw.absNote, 60) }
+    if avail.absFrom == "" or avail.absTo == "" or avail.absTo < avail.absFrom then
+        avail.absFrom, avail.absTo, avail.absNote = "", "", ""
+    end
+    return avail
+end
+
+local function AvailFields(avail)
+    return { tostring(avail.at or 0), avail.days or "0000000", avail.from or "", avail.to or "",
+             avail.absFrom or "", avail.absTo or "", avail.absNote or "" }
+end
+
+local function ApplyAvail(fullName, avail)
+    local m = GuildControlDB.members[fullName]
+    if not m or not avail then return false end
+    if type(m.avail) == "table" and (m.avail.at or 0) >= avail.at then return false end
+    m.avail = avail
+    return true
+end
+
+function profilesModule.GetMyAvailability()
+    local profile = profilesModule.GetMyProfile()
+    return profile.avail or { at = 0, days = "0000000", from = "", to = "", absFrom = "", absTo = "", absNote = "" }
+end
+
+function profilesModule.SaveMyAvailability(raw)
+    raw.at = time()
+    local avail = CleanAvail(raw)
+    local profile = profilesModule.GetMyProfile()
+    profile.avail = avail
+    ApplyAvail(profilesModule.GetMyFullName(), avail)
+    profilesModule.BroadcastAvailability()
+    NotifyChange()
+    return avail
+end
+
+function profilesModule.BroadcastAvailability()
+    local avail = profilesModule.GetMyProfile().avail
+    if IsInGuild() and avail then SendRole("A;" .. table.concat(AvailFields(avail), ";")) end
+end
+
+-- Texto para vistas previas, o nil si no ha indicado nada
+function profilesModule.GetAvailabilityText(m)
+    local a = m and m.avail
+    if type(a) ~= "table" then return nil end
+    local lines = {}
+    local days = {}
+    for i = 1, 7 do
+        if string.sub(a.days or "", i, i) == "1" then table.insert(days, L[AVAIL_DAYS[i]]) end
+    end
+    if #days > 0 then
+        table.insert(lines, L["Disponible: "] .. "|cFFFFFFFF" .. table.concat(days, ", ")
+            .. ((a.from ~= "" and a.to ~= "") and (" (" .. a.from .. "-" .. a.to .. ")") or "") .. "|r")
+    end
+    return #lines > 0 and table.concat(lines, "\n") or nil
+end
+
 function profilesModule.RequestRoles()
     if IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         C_ChatInfo.SendAddonMessage(REQUEST_PREFIX, "REQ", "GUILD")
@@ -318,6 +393,9 @@ local function StartRelay()
                 msg = Build(string.sub(d.note or "", 1, math.max(0, #(d.note or "") - (#msg - 250))))
             end
             table.insert(queue, msg)
+        end
+        if type(m.avail) == "table" and (m.avail.at or 0) > 0 then
+            table.insert(queue, "RA;" .. fullName .. ";" .. table.concat(AvailFields(m.avail), ";"))
         end
     end
     if #queue == 0 or relayTicker then return end
@@ -408,6 +486,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
             C_Timer.After(12, function()
                 profilesModule.ApplyAccountProfiles()
                 profilesModule.Broadcast(true)
+                profilesModule.BroadcastAvailability()
                 profilesModule.RequestRoles()
             end)
         end
@@ -423,6 +502,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 
     if prefix == REQUEST_PREFIX then
         profilesModule.Broadcast(false)
+        profilesModule.BroadcastAvailability()
         ScheduleRelay()
         return
     end
@@ -437,6 +517,13 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
             changed = ApplyDeclared(NormalizeName(fields[2]), main, secondary, spec, note, tonumber(fields[7]) or 0,
                 { charType = fields[8], mainName = Clean(fields[9], 40), focus = fields[10], offSpec = Clean(fields[11], 30) })
         end
+    elseif fields[1] == "A" or fields[1] == "RA" then
+        local o = fields[1] == "RA" and 1 or 0
+        if o == 1 then CancelRelay() end
+        local who = o == 1 and fields[2] and NormalizeName(fields[2]) or fullSender
+        local avail = CleanAvail({ at = fields[2 + o], days = fields[3 + o], from = fields[4 + o], to = fields[5 + o],
+            absFrom = fields[6 + o], absTo = fields[7 + o], absNote = fields[8 + o] })
+        changed = ApplyAvail(who, avail)
     elseif fields[1] == "v1" or fields[1] == "v2" then
         local main, secondary, spec, note = ParseRoleFields(fields[2], fields[3], fields[4], fields[5])
         if main then

@@ -211,6 +211,11 @@ local function CheckLoot()
         if id and recent and wishes[id] and not notifiedWishDrops[item.key] and item.state ~= "done" then
             notifiedWishDrops[item.key] = true
             personalModule.Alert(L["Ha caído un objeto de tu lista de deseos: "] .. LT.DisplayLink(item.link))
+            if personalModule.IsEnabled() then PlaySound(SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959) end
+            -- Para el resumen de la semana (Mi diario)
+            local log = Store("wishDropLog")
+            table.insert(log, 1, { at = time(), link = item.link })
+            while #log > 30 do table.remove(log) end
         end
         -- Oficiales: ventana flotante con quién lo quiere (los de la banda primero)
         if id and recent and isOfficer and not notifiedOfficerDrops[item.key] and item.state == "pending" then
@@ -401,6 +406,54 @@ function personalModule.GetBadges(name)
         end
     end
     return result
+end
+
+-- Resumen de la semana (desde el reinicio semanal) para Mi diario:
+-- { bosses = {nombres}, raids, gained, spent, items = {enlaces}, badges = {insignias nuevas}, wishDrops = {enlaces} }
+function personalModule.GetWeekSummary(name)
+    name = name or MyName()
+    local since = addonTable.GetLastWeeklyReset and addonTable.GetLastWeeklyReset() or (time() - 7 * 86400)
+    local summary = { bosses = {}, raids = 0, gained = 0, spent = 0, items = {}, badges = {}, wishDrops = {} }
+
+    local E = addonTable.RaidEvents
+    for _, raid in ipairs(E and E.GetHistory and E.GetHistory() or {}) do
+        local mark = raid.marks and raid.marks[name]
+        local start = E.EventStart and E.EventStart(raid) or 0
+        if start >= since and (mark == "present" or mark == "late") then
+            summary.raids = summary.raids + 1
+            for _, boss in ipairs((E.GetHistoryBosses(raid))) do
+                if boss.at then table.insert(summary.bosses, boss.name or "?") end
+            end
+        end
+    end
+    for _, change in ipairs(personalModule.GetLedger(name)) do
+        if (change.at or 0) >= since then
+            if change.delta > 0 then summary.gained = summary.gained + change.delta else summary.spent = summary.spent - change.delta end
+        end
+    end
+    local LT = addonTable.Loot
+    for _, award in ipairs(LT and LT.GetHistory() or {}) do
+        if award.winner == name and (award.at or 0) >= since then table.insert(summary.items, LT.DisplayLink(award.link)) end
+    end
+    -- Insignias: se apunta cuándo se vio cada una por primera vez (la primera vez, todas cuentan como viejas)
+    local seenAll = Store("badgeSeen")
+    local first = seenAll[name] == nil
+    seenAll[name] = seenAll[name] or {}
+    for _, badge in ipairs(personalModule.GetBadges(name)) do
+        if not seenAll[name][badge.key] then seenAll[name][badge.key] = first and 0 or time() end
+        if seenAll[name][badge.key] >= since then table.insert(summary.badges, badge) end
+    end
+    if name == MyName() then
+        for _, drop in ipairs(Store("wishDropLog")) do
+            if (drop.at or 0) >= since then table.insert(summary.wishDrops, drop.link) end
+        end
+        -- Míticas+ de esta semana (historial del juego, solo el propio personaje)
+        local M = addonTable.MythicPlus
+        if M and M.GetMyWeeklyRuns then
+            summary.mplusRuns, summary.mplusBest, summary.mplusMap = M.GetMyWeeklyRuns()
+        end
+    end
+    return summary
 end
 
 -- Todas las insignias: las de serie y después las nuevas de los oficiales
