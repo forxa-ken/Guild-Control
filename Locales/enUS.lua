@@ -1521,4 +1521,11 @@ L["%s ha aceptado tu solicitud y te invita al grupo."] = "%s accepted your reque
 L["%s ha rechazado tu solicitud para su grupo."] = "%s declined your request to join the group."
 L["cualquier rol"] = "any role"
 L["[GuildControl] Busco %s (%s, %d/%d): %s · Apúntate en GuildControl > Comunidad o susúrrame."] = "[GuildControl] LF %s (%s, %d/%d): %s · Sign up in GuildControl > Community or whisper me."
+-- Roles por clase
+L["|cFFFF3333Un %s no puede ser %s.|r"] = "|cFFFF3333A %s cannot be %s.|r"
+L["Rol DPS"] = "DPS role"
+L["(tu clase solo puede ser DPS)"] = "(your class can only be DPS)"
+L["|cFFFF3333Este grupo busca roles que tu clase no puede llevar.|r"] = "|cFFFF3333This group is looking for roles your class cannot play.|r"
+L["Nadie de la hermandad tiene %s todavía."] = "Nobody in the guild has %s yet."
+L["(autor desconectado)"] = "(author offline)"
 addonTable.RegisterLocale("enUS", "English", L)

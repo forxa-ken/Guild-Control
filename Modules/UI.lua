@@ -10895,6 +10895,9 @@ local function BuildCommunityView(parent)
             end
             local minutes = math.max(0, math.floor((now - (post.at or now)) / 60))
             local status = full and ("|cFF00FF00" .. L["Completo"] .. "|r") or ("|cFF808080" .. count .. "/" .. post.slots .. "|r")
+            if C.IsAuthorOnline and not C.IsAuthorOnline(post) then
+                status = status .. "  |cFFFF7F00" .. L["(autor desconectado)"] .. "|r"
+            end
             row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. ColoredName(post.author)
                 .. "  |cFF808080" .. string.format(L["hace %d min"], minutes) .. "  ·|r  " .. status)
             row.bg:SetColorTexture(full and 0.3 or 1, 1, full and 0.3 or 1, full and 0.06 or 0.04)
@@ -10940,8 +10943,9 @@ local function BuildCommunityView(parent)
                 row.button2:Show()
                 row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
             else
-                row.button:SetText(full and L["Completo"] or L["Me apunto"])
-                row.button:SetEnabled(not full)
+                local authorOnline = not C.IsAuthorOnline or C.IsAuthorOnline(post)
+                row.button:SetText(not authorOnline and L["Desconectado"] or (full and L["Completo"] or L["Me apunto"]))
+                row.button:SetEnabled(not full and authorOnline)
                 -- Con un solo rol buscado se apunta directamente; con varios se elige
                 row.button:SetScript("OnClick", function(self)
                     if #wanted == 1 then

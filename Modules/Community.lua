@@ -74,7 +74,8 @@ end
 -- =========================================================================
 -- BUSCAR GRUPO
 -- =========================================================================
-local posts = {}   -- [id] = { id, author, at, activity, slots, text, members = { [nombre] = true } }
+local posts = {}   -- [id] = { id, author, at, activity, slots, text, members = { [nombre] = rol } } (GuildControlDB.lfgPosts al entrar)
+local relayTimer = nil   -- reenvío de anuncios de otros a quien entra (se cancela si otro lo hace antes)
 
 local function Expire()
     local now = GetServerTime()
@@ -327,14 +328,15 @@ local function OnLfgMessage(sender, msg)
         local id, have = strsplit(";", string.sub(msg, 3), 2)
         local post = posts[id]
         local t, h, d, u = string.match(have or "", "^t(%d+)h(%d+)d(%d+)u(%d+)$")
-        if not post or post.author ~= sender or not t then return end
+        -- Del autor siempre; de otro (reenvío) solo si no se sabía nada
+        if not post or not t or (post.author ~= sender and post.have) then return end
         post.have = { tank = tonumber(t), healer = tonumber(h), dps = tonumber(d), unknown = tonumber(u) }
         Notify()
     elseif kind == "M;" then
-        -- Apuntados de un anuncio (los manda su autor al responder a Q)
+        -- Apuntados de un anuncio (los manda su autor, o quien lo reenvía, al responder a Q)
         local id, list = strsplit(";", string.sub(msg, 3), 2)
         local post = posts[id]
-        if not post or post.author ~= sender or not list then return end
+        if not post or not list then return end
         post.accepted = post.accepted or {}
         -- "Nombre=rol" (pendiente) o "Nombre=rol!" (aceptado)
         for name, role, accepted in string.gmatch(list, "([^,=]+)=(%a+)(!?)") do
@@ -344,32 +346,93 @@ local function OnLfgMessage(sender, msg)
             end
         end
         Notify()
+    elseif kind == "R;" then
+        -- Anuncio reenviado por otro (su autor está desconectado o cambió de personaje)
+        if relayTimer then relayTimer:Cancel(); relayTimer = nil end
+        local _, id, at, activity, slots, author, roles, text = strsplit(";", msg, 8)
+        at = tonumber(at)
+        if not id or not at or not author or not text or GetServerTime() - at > POST_MAX_AGE then return end
+        local post = posts[id]
+        if post and (post.at or 0) >= at then return end
+        post = post or { id = id, members = {}, accepted = {} }
+        post.author, post.at = author, at
+        post.activity = VALID_ACTIVITY[activity] and activity or "other"
+        post.slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4)))
+        post.text = Clean(text, 120)
+        post.roles = RolesFromString(roles)
+        posts[id] = post
+        Notify()
     elseif msg == "Q" then
-        -- Reenvía mis anuncios abiertos (y quién se ha apuntado) a quien acaba de entrar
+        -- Alguien acaba de entrar: le mando mis anuncios abiertos y, si nadie lo hace antes, los
+        -- de autores que no están conectados (así no se pierden al cambiar de personaje)
         C_Timer.After(1 + math.random() * 4, function()
             for _, post in pairs(posts) do
-                if post.author == MyName() then
-                    SendPost(post)
-                    SendHave(post)
-                    -- Sin pasar de 255 bytes: con muchos apuntados se manda en varios mensajes
-                    local chunk, size = {}, 0
-                    local function Flush()
-                        if #chunk > 0 then Send(LFG_PREFIX, "M;" .. post.id .. ";" .. table.concat(chunk, ",")) end
-                        chunk, size = {}, 0
-                    end
-                    for name, role in pairs(post.members) do
-                        if type(role) == "string" then
-                            local part = name .. "=" .. role .. (communityModule.IsAccepted(post, name) and "!" or "")
-                            if size + #part + 1 > 200 then Flush() end
-                            table.insert(chunk, part)
-                            size = size + #part + 1
-                        end
-                    end
-                    Flush()
-                end
+                if post.author == MyName() then communityModule.SendFull(post) end
             end
         end)
+        if not relayTimer then
+            relayTimer = C_Timer.NewTimer(4 + math.random() * 6, function()
+                relayTimer = nil
+                Expire()
+                for _, post in pairs(posts) do
+                    if post.author ~= MyName() and not communityModule.IsAuthorOnline(post) then communityModule.SendFull(post) end
+                end
+            end)
+        end
     end
+end
+
+-- Apuntados de un anuncio, sin pasar de 255 bytes (con muchos, en varios mensajes)
+local function SendMembers(post)
+    local chunk, size = {}, 0
+    local function Flush()
+        if #chunk > 0 then Send(LFG_PREFIX, "M;" .. post.id .. ";" .. table.concat(chunk, ",")) end
+        chunk, size = {}, 0
+    end
+    for name, role in pairs(post.members) do
+        if type(role) == "string" then
+            local part = name .. "=" .. role .. (communityModule.IsAccepted(post, name) and "!" or "")
+            if size + #part + 1 > 200 then Flush() end
+            table.insert(chunk, part)
+            size = size + #part + 1
+        end
+    end
+    Flush()
+end
+
+-- Manda un anuncio entero: el autor con N y sus roles de grupo actuales; otro, con R (lleva el
+-- nombre del autor) y los roles que se conocían. En los dos casos, las solicitudes.
+function communityModule.SendFull(post)
+    if post.author == MyName() then
+        SendPost(post)
+        SendHave(post)
+    else
+        Send(LFG_PREFIX, table.concat({ "R", post.id, post.at, post.activity, post.slots, post.author,
+            RolesToString(post.roles), post.text }, ";"))
+        local h = post.have
+        if h then Send(LFG_PREFIX, "H;" .. post.id .. ";t" .. h.tank .. "h" .. h.healer .. "d" .. h.dps .. "u" .. h.unknown) end
+    end
+    SendMembers(post)
+end
+
+-- ¿Está conectado el autor? (sin datos, se da por conectado)
+function communityModule.IsAuthorOnline(post)
+    if not post or post.author == MyName() then return true end
+    local m = GuildControlDB.members and GuildControlDB.members[post.author]
+    return m == nil or m.isOnline == true
+end
+
+-- Los anuncios se guardan (GuildControlDB.lfgPosts) para que no se pierdan al relogear o al
+-- cambiar de personaje; siguen caducando a las 2 horas. Al entrar, mis anuncios se reenvían.
+function communityModule.LoadPosts()
+    if type(GuildControlDB.lfgPosts) ~= "table" then
+        GuildControlDB.lfgPosts = posts
+        return
+    end
+    for id, post in pairs(posts) do GuildControlDB.lfgPosts[id] = post end
+    posts = GuildControlDB.lfgPosts
+    Expire()
+    Notify()
 end
 
 -- Anuncia un grupo mío en el chat de hermandad (para quien no usa GuildControl)
@@ -820,7 +883,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         if isInitialLogin or isReloadingUi then
+            communityModule.LoadPosts()
             C_Timer.After(24, function() Send(LFG_PREFIX, "Q") end)
+            -- Mis anuncios guardados vuelven a la hermandad (por si relogueé)
+            C_Timer.After(26, function()
+                for _, post in pairs(posts) do
+                    if post.author == MyName() then communityModule.SendFull(post) end
+                end
+            end)
             C_Timer.After(27, function() Send(ORDER_PREFIX, "Q") end)
             C_Timer.After(30, communityModule.RequestRecipes)
         end
