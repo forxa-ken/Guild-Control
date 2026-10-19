@@ -1,5 +1,13 @@
 # GuildControl
 
+## 5.0.0-beta8
+
+- **Lista de deseos**: cuando cae en la banda un objeto que alguien del grupo tiene en su lista, a los oficiales les sale una ventana flotante con quién lo quiere, **Abrir tirada** y **Ver en Botín**. Los avisos de lista de deseos ya no saltan con objetos antiguos de la sesión al entrar.
+- **Precio fijo**: solo puede pedir un objeto quien tenga los DKP para pagarlo (el precio en Main-spec o lo de Off-spec). El botón al que no te llega sale desactivado y en la lista aparece «Sin DKP».
+- Corregido: al cancelar o volver a abrir una tirada seguían las pujas y peticiones anteriores.
+- Corregido: se aceptaban pujas por encima de los DKP del jugador o por debajo de la mínima.
+- Corregido: error al abrir Comunidad (Récords).
+
 ## 5.0.0-beta7
 
 - Corregido: la ventana no se abría (ni con `/gct` ni con el icono del minimapa) porque UI.lua pasaba del límite de 200 variables locales de Lua y el juego no lo cargaba.
