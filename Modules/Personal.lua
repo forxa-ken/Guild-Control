@@ -478,12 +478,17 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         if not (isInitialLogin or isReloadingUi) then return end
-        -- Los avisos empiezan cuando el addon ya tiene sus datos (sin avisar de todo lo antiguo)
-        C_Timer.After(30, function()
-            if addonTable.Loot then
-                for _, award in ipairs(addonTable.Loot.GetHistory()) do if award.id then notifiedAwards[award.id] = true end end
-                addonTable.Loot.AddListener(CheckLoot)
+        -- Botín: lo guardado ya se da por avisado y el resto se vigila desde ya (con la espera de
+        -- 30 s, lo que caía nada más entrar no avisaba hasta el siguiente objeto)
+        if addonTable.Loot then
+            for _, award in ipairs(addonTable.Loot.GetHistory()) do if award.id then notifiedAwards[award.id] = true end end
+            for _, item in ipairs(addonTable.Loot.GetItems()) do
+                if item.key then notifiedWishDrops[item.key], notifiedOfficerDrops[item.key] = true, true end
             end
+            addonTable.Loot.AddListener(CheckLoot)
+        end
+        -- Los demás avisos empiezan cuando el addon ya tiene sus datos (sin avisar de todo lo antiguo)
+        C_Timer.After(30, function()
             if addonTable.Dkp then
                 CheckDkp()
                 addonTable.Dkp.AddListener(CheckDkp)

@@ -864,7 +864,7 @@ SlashCmdList["GUILDCONTROL"] = function(msg)
         if addonTable.UI.ShowBajas then addonTable.UI.ShowBajas() end
     elseif cmd == "csv" then
         if addonTable.CSV and addonTable.CSV.ShowFrame then addonTable.CSV.ShowFrame() end
-    elseif cmd == "mini" or cmd == "banda" or cmd == "raid" then
+    elseif cmd == "ayudante" or cmd == "helper" or cmd == "mini" or cmd == "banda" or cmd == "raid" then
         if addonTable.UI.EnterMiniMode then addonTable.UI.EnterMiniMode() end
     elseif cmd == "pizarra" or cmd == "board" then
         if addonTable.Board then addonTable.InitDB(); addonTable.Board.Toggle() end
@@ -877,7 +877,7 @@ SlashCmdList["GUILDCONTROL"] = function(msg)
         print(L[" /gct - Abre/Cierra la interfaz principal."])
         print(L[" /gct csv - Panel de exportación CSV para Google Sheets."])
         print(L[" /gct bajas - Historial de bajas registradas."])
-        print(L[" /gct mini - Modo minimalista de banda."])
+        print(L[" /gct ayudante - Ayudante de banda (panel pequeño)."])
         print(L[" /gct pizarra - Pizarra para explicar un jefe."])
         print(L[" /gct recetas - Diagnóstico: quién usa el addon y pide las recetas a la hermandad."])
     end

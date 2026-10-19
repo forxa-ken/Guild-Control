@@ -1,5 +1,12 @@
 # GuildControl
 
+## Sin publicar
+
+- **Resumen**: **normas de la hermandad**. Los oficiales las escriben en Configuración > Normas de la hermandad y llegan a todos (aviso al cambiar); la vista previa las muestra mientras no hay nada seleccionado y el botón **Normas** vuelve a ellas. «Ahora en la hermandad» dice cuántos conectados no tienen rol y qué roles hay conectados; «Esta semana» lleva la calavera en los jefes y las altas y bajas como insignias de color; sin bandas próximas, «Para ti» resume tu personaje (clase, nivel, especialización, rol, rango y DKP o +1). Las altas llevan el icono y el color de su clase bajo un banner con el icono de la hermandad.
+- **Miembros**: la vista previa tiene una cabecera con el icono y el color de la clase, nivel, rango y estado, las insignias como iconos y una etiqueta por cada banda próxima en cuyo roster está (clic: abre el roster o la banda). La columna Roster desaparece de la lista.
+- **Ayudante** (antes «modo minimalista», `/gct ayudante`): botones **Buff check** y **Pizarra**, y cada botón explica lo que hace al pasar el ratón. Raid ya no tiene los botones Buff check y Pizarra, y sus botones llevan tooltip. **Recordar al roster** pasa a la pestaña Roster.
+- Corregido: la ventana de lista de deseos de los oficiales salía en blanco la primera vez y no avisaba de lo que caía nada más entrar.
+
 ## 5.0.0-beta8
 
 - **Lista de deseos**: cuando cae en la banda un objeto que alguien del grupo tiene en su lista, a los oficiales les sale una ventana flotante con quién lo quiere, **Abrir tirada** y **Ver en Botín**. Los avisos de lista de deseos ya no saltan con objetos antiguos de la sesión al entrar.

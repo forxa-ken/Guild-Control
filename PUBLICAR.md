@@ -92,6 +92,7 @@ Gestión completa de tu hermandad: bandas con inscripciones al estilo Raid-Helpe
 
 **Para oficiales**
 - **Raid** al estilo Raid-Helper: crea la banda, mira quién se apunta, reparte los grupos y aplícalos en la banda con un clic. Pasa lista en el modo **Asistencia** (también tomándola del grupo actual); se envía sola a los demás oficiales.
+- **Ayudante de banda**: un panel pequeño con comprobación de listos, pull 10/5, marcas de banda, descanso con aviso, buff check (buffos, frascos, comida, runas y pociones), el botín en una ventana flotante y la pizarra de jefes.
 - **Roster** con contenedores por rol, criterios de composición, cobertura de utilidades por clase y armaduras. Los cambios llegan **al momento** a los demás oficiales, como las bandas.
 - **Warning**: inactivos, miembros sin rol, alters sin principal, baja asistencia, titulares inactivos, rangos a revisar, notas públicas y lista negra. Clic en la caja Warnings del encabezado para abrirlo.
 - **Lista negra** con avisos al entrar en la hermandad o en tu grupo, marca en el tooltip y bloqueo de invitaciones.
@@ -100,7 +101,7 @@ Gestión completa de tu hermandad: bandas con inscripciones al estilo Raid-Helpe
 
 Lo que se comparte entre jugadores (roles, rosters, bandas, asistencia, llaves y jefes derrotados) solo llega a quien también tiene GuildControl instalado.
 
-Comandos: `/gct` (o `/gctc`), `/gct csv`, `/gct bajas`.
+Comandos: `/gct` (o `/gctc`), `/gct ayudante` (ayudante de banda), `/gct pizarra` (pizarra de jefes), `/gct csv`, `/gct bajas`.
 
 Es una **beta**: si encuentras un error, deja un comentario explicando qué estabas haciendo. Un addon como BugSack ayuda a copiar el error completo.
 

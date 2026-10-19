@@ -69,6 +69,8 @@ local TAB_HELP_DKP = {
 }
 
 local function TabHelp(tabName)
+    -- Resumen: las normas de la hermandad (texto ya traducido; L[] lo devuelve igual)
+    if tabName == "Resumen" and uiModule.RulesPreviewText then return uiModule.RulesPreviewText() end
     if TAB_HELP_DKP[tabName] and addonTable.Loot and addonTable.Loot.IsDkp and addonTable.Loot.IsDkp() then
         return TAB_HELP_DKP[tabName]
     end
@@ -564,6 +566,8 @@ end
 -- =========================================================================
 local function SetPreviewText(text)
     if containers.preview and containers.preview.infoText then
+        -- Cada vista previa nueva empieza sin la cabecera de personaje
+        if containers.preview.SetCharacter then containers.preview.SetCharacter(nil) end
         containers.preview.infoText:SetText(text or L[PREVIEW_DEFAULT_TEXT])
         if containers.preview.UpdateScroll then containers.preview.UpdateScroll() end
         -- Cada vista previa nueva empieza sin botón de acción
@@ -707,9 +711,149 @@ local function BuildPreviewPanel(parent)
     infoText:SetJustifyH("LEFT")
     infoText:SetJustifyV("TOP")
 
+    -- Bloque opcional sobre el texto (vista previa de un miembro): cabecera del personaje,
+    -- fila de insignias y etiquetas (rosters). preview.SetCharacter(nil) lo oculta.
+    local head = CreateFrame("Frame", nil, child)
+    head:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+    head:SetSize(176, 64)
+    head:Hide()
+    head.bg = head:CreateTexture(nil, "BACKGROUND")
+    head.bg:SetAllPoints()
+    head.bar = head:CreateTexture(nil, "ARTWORK")
+    head.bar:SetPoint("TOPLEFT", head, "TOPLEFT", 0, 0)
+    head.bar:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 0, 0)
+    head.bar:SetWidth(3)
+    head.icon = head:CreateTexture(nil, "ARTWORK")
+    head.icon:SetSize(34, 34)
+    head.icon:SetPoint("TOPLEFT", head, "TOPLEFT", 8, -7)
+    head.name = head:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    head.name:SetPoint("TOPLEFT", head.icon, "TOPRIGHT", 7, 0)
+    head.name:SetPoint("RIGHT", head, "RIGHT", -4, 0)
+    head.name:SetJustifyH("LEFT")
+    head.name:SetWordWrap(false)
+    head.info = head:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    head.info:SetPoint("TOPLEFT", head.name, "BOTTOMLEFT", 0, -2)
+    head.info:SetPoint("RIGHT", head, "RIGHT", -4, 0)
+    head.info:SetJustifyH("LEFT")
+    head.info:SetWordWrap(false)
+    head.rank = head:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    head.rank:SetPoint("TOPLEFT", head.info, "BOTTOMLEFT", 0, -2)
+    head.rank:SetPoint("RIGHT", head, "RIGHT", -4, 0)
+    head.rank:SetJustifyH("LEFT")
+    head.rank:SetWordWrap(false)
+    head.status = head:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    head.status:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 8, 5)
+    head.status:SetPoint("RIGHT", head, "RIGHT", -4, 0)
+    head.status:SetJustifyH("LEFT")
+    head.status:SetWordWrap(false)
+    head.badgeButtons, head.tagButtons = {}, {}
+    head.tagsTitle = child:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    head.tagsTitle:Hide()
+
+    local function PooledButton(pool, i, withBg)
+        local btn = pool[i]
+        if btn then return btn end
+        btn = CreateFrame("Button", nil, child)
+        if withBg then
+            btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+            btn.bg:SetAllPoints()
+            btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            btn.text:SetPoint("CENTER")
+            btn:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight", "ADD")
+        else
+            btn.icon = btn:CreateTexture(nil, "ARTWORK")
+            btn.icon:SetAllPoints()
+        end
+        btn:SetScript("OnEnter", function(self)
+            if not self.tipTitle then return end
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:SetText(self.tipTitle, 1, 0.82, 0)
+            if self.tipText and self.tipText ~= "" then GameTooltip:AddLine(self.tipText, 1, 1, 1, true) end
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        btn:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+        pool[i] = btn
+        return btn
+    end
+
+    -- info = { name, classFile, className, level, rank, statusText, badges = { {icon, label, desc} },
+    --          tagsTitle, tags = { {text, color = {r, g, b}, tip, onClick} } }
+    function preview.SetCharacter(info)
+        for _, btn in ipairs(head.badgeButtons) do btn:Hide() end
+        for _, btn in ipairs(head.tagButtons) do btn:Hide() end
+        head.tagsTitle:Hide()
+        head:SetShown(info ~= nil)
+        infoText:ClearAllPoints()
+        if not info then
+            infoText:SetPoint("TOPLEFT", child, "TOPLEFT", 2, 0)
+            return
+        end
+        local c = info.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[info.classFile]
+        local r, g, b = c and c.r or 0.6, c and c.g or 0.6, c and c.b or 0.6
+        head.bg:SetColorTexture(1, 1, 1, 1)
+        local ok = CreateColor and pcall(head.bg.SetGradient, head.bg, "HORIZONTAL", CreateColor(r, g, b, 0.3), CreateColor(r, g, b, 0.05))
+        if not ok then head.bg:SetColorTexture(r, g, b, 0.18) end
+        head.bar:SetColorTexture(r, g, b, 0.9)
+        local coords = info.classFile and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[info.classFile]
+        if coords then
+            head.icon:SetTexture("Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes")
+            head.icon:SetTexCoord(unpack(coords))
+        else
+            head.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            head.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        head.name:SetText("|cFF" .. addonTable.GetClassColorHex(info.classFile) .. (info.name or "") .. "|r")
+        head.info:SetText(L["Nivel "] .. (info.level or "?") .. " · " .. (info.className or L["Desconocida"]))
+        head.rank:SetText(info.rank or "")
+        head.status:SetText(info.statusText or "")
+
+        local y = -(head:GetHeight() + 6)
+        -- Insignias: iconos pequeños con tooltip
+        for i, badge in ipairs(info.badges or {}) do
+            local btn = PooledButton(head.badgeButtons, i, false)
+            btn:SetSize(18, 18)
+            btn.icon:SetTexture(badge.icon)
+            btn.tipTitle, btn.tipText, btn.onClick = badge.label, badge.desc, nil
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", child, "TOPLEFT", 2 + ((i - 1) % 8) * 21, y - math.floor((i - 1) / 8) * 21)
+            btn:Show()
+        end
+        if info.badges and #info.badges > 0 then y = y - math.ceil(#info.badges / 8) * 21 - 4 end
+
+        -- Etiquetas (rosters): se colocan seguidas y bajan de línea si no caben
+        if info.tagsTitle then
+            head.tagsTitle:ClearAllPoints()
+            head.tagsTitle:SetPoint("TOPLEFT", child, "TOPLEFT", 2, y)
+            head.tagsTitle:SetText(info.tagsTitle)
+            head.tagsTitle:Show()
+            y = y - 16
+            local x = 2
+            for i, tag in ipairs(info.tags or {}) do
+                local btn = PooledButton(head.tagButtons, i, true)
+                btn.text:SetText(tag.text)
+                local tc = tag.color or { 0.6, 0.6, 0.6 }
+                btn.bg:SetColorTexture(tc[1], tc[2], tc[3], 0.25)
+                btn.text:SetTextColor(math.min(1, tc[1] + 0.3), math.min(1, tc[2] + 0.3), math.min(1, tc[3] + 0.3))
+                local w = math.min(172, btn.text:GetStringWidth() + 12)
+                btn:SetSize(w, 16)
+                if x > 2 and x + w > 174 then x, y = 2, y - 19 end
+                btn:ClearAllPoints()
+                btn:SetPoint("TOPLEFT", child, "TOPLEFT", x, y)
+                btn.tipTitle, btn.tipText, btn.onClick = tag.tipTitle, tag.tip, tag.onClick
+                btn:EnableMouse(tag.onClick ~= nil or tag.tipTitle ~= nil)
+                btn:Show()
+                x = x + w + 4
+            end
+            y = y - 19 - 6
+        end
+        infoText:SetPoint("TOPLEFT", child, "TOPLEFT", 2, y)
+    end
+
     -- Ajusta el alto del contenido y muestra la barra solo si hace falta
     function preview.UpdateScroll()
-        local height = infoText:GetStringHeight() + 6
+        local top = select(5, infoText:GetPoint(1)) or 0
+        local height = -top + infoText:GetStringHeight() + 6
         child:SetHeight(math.max(1, height))
         scroll:SetVerticalScroll(0)
         if scroll.ScrollBar then scroll.ScrollBar:SetShown(height > scroll:GetHeight()) end
@@ -949,8 +1093,7 @@ local MEMBER_COLUMNS = {
     { title = "Enfoque",  x = 434, w = 56,  key = "focus" },
     { title = "Prof. 1",  x = 490, w = 76,  key = "prof1" },
     { title = "Prof. 2",  x = 566, w = 76,  key = "prof2" },
-    { title = "Zona",     x = 642, w = 96,  key = "zone" },
-    { title = "Roster",   x = 738, w = 52,  key = "roster" },
+    { title = "Zona",     x = 642, w = 148, key = "zone" },
     { title = "Conexión", x = 790, w = 60,  key = "lastOnline" },
 }
 
@@ -984,7 +1127,7 @@ local function RoleCellColor(data, isOnline)
     return isOnline and "FFFFFF" or "888888"
 end
 
--- Valores que se muestran vacíos cuando no hay dato (profesiones, roster, enfoque y tipo)
+-- Valores que se muestran vacíos cuando no hay dato (profesiones, enfoque y tipo)
 local function ProfessionCell(value)
     if not value or value == "Ninguna" then return "" end
     return string.match(value, "^(.-)%s+%d+$") or value
@@ -993,10 +1136,6 @@ end
 -- Zona conocida del miembro (la última si está desconectado)
 local function ZoneCell(value)
     return (value and value ~= "Desconocida") and value or ""
-end
-
-local function RosterCell(value)
-    return (value and value ~= "Sin Roster") and value or ""
 end
 
 -- El enfoque solo se muestra si el jugador lo declaró en Mi perfil
@@ -1020,7 +1159,6 @@ local function MemberSortValue(entry, key)
     local value
     if key == "role" then value = HasDefinedRole(data) and data.role or ""
     elseif key == "prof1" or key == "prof2" then value = ProfessionCell(data[key])
-    elseif key == "roster" then value = RosterCell(data.roster)
     elseif key == "focus" then value = FocusCell(data)
     elseif key == "charType" then value = CharTypeCell(data)
     elseif key == "zone" then value = ZoneCell(data.zone)
@@ -1241,37 +1379,90 @@ local function BuildMembersView(parent)
             .. ((entry.note and entry.note ~= "") and (": " .. entry.note) or "") .. "|r\n\n"
     end
 
-    -- Insignias del miembro (Personal.lua)
-    local function BadgesLine(fullName)
+    -- Insignias del miembro (Personal.lua), como iconos con tooltip
+    local function MemberBadges(fullName)
         local PM = addonTable.Personal
-        local badges = PM and PM.GetBadges(fullName) or {}
-        if #badges == 0 then return "" end
-        local parts = {}
-        for _, badge in ipairs(badges) do table.insert(parts, "|T" .. badge.icon .. ":14:14|t " .. L[badge.label]) end
-        return L["Insignias: "] .. table.concat(parts, ", ") .. "\n\n"
+        local list = {}
+        for _, badge in ipairs(PM and PM.GetBadges(fullName) or {}) do
+            table.insert(list, { icon = badge.icon, label = L[badge.label], desc = L[badge.desc or ""] })
+        end
+        return list
+    end
+
+    -- Rosters en los que está (los del oficial y los publicados): una etiqueta por banda con
+    -- el color y el icono de su puesto. Clic: el roster en Roster (oficiales) o la banda en Raid.
+    local SLOT_TAG_COLORS = { tank = { 0.25, 0.5, 1 }, healer = { 0.25, 0.85, 0.35 }, dps = { 0.95, 0.3, 0.3 }, bench = { 0.6, 0.6, 0.6 } }
+    local function RosterTags(fullName)
+        local R = addonTable.Roster
+        local isOfficer = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
+        local tags, seen = {}, {}
+        local function Add(roster)
+            local slot = roster and roster.members and roster.members[fullName]
+            local key = roster and (roster.syncId or roster.name)
+            if not slot or seen[key] then return end
+            seen[key] = true
+            local eventId, rosterId = roster.eventId, roster.id
+            table.insert(tags, {
+                text = (RoleIcon(slot, 12) ~= "" and (RoleIcon(slot, 12) .. " ") or "") .. roster.name,
+                color = SLOT_TAG_COLORS[slot] or SLOT_TAG_COLORS.bench,
+                tipTitle = roster.name,
+                tip = L[R.SLOT_LABELS[slot] or ""] .. "\n|cFF808080" .. (isOfficer and L["Clic: abrir en Roster"] or L["Clic: ver la banda en Raid"]) .. "|r",
+                onClick = function()
+                    if isOfficer then
+                        if eventId then R.SelectEvent(eventId) elseif rosterId then R.Select(rosterId) end
+                        SwitchTab("Roster")
+                    elseif uiModule.OpenRaidEvent then
+                        uiModule.OpenRaidEvent(eventId)
+                    end
+                end,
+            })
+        end
+        -- Solo los activos: rosters de bandas de Raid que no han pasado, por orden de fecha
+        local E = addonTable.RaidEvents
+        if R and E then
+            local shared = R.GetSharedRosters()
+            for _, event in ipairs(E.GetUpcoming()) do
+                Add(R.FindByEvent(event.id))
+                for _, item in ipairs(shared) do
+                    if item.roster.eventId == event.id then Add(item.roster) end
+                end
+            end
+        end
+        if #tags == 0 then table.insert(tags, { text = L["Sin roster activo"], color = { 0.4, 0.4, 0.4 } }) end
+        return tags
     end
 
     local function ShowMemberPreview(fullName, data)
         selectedMember = data
         selectedFullName = fullName
         SetPreviewText(
-            "|cFFFFD100" .. fullName .. "|r\n\n" ..
             BlacklistPreviewLine(fullName) ..
-            BadgesLine(fullName) ..
-            L["Nivel: "] .. (data.level or 0) .. "\n" ..
-            L["Clase: "] .. (data.class or L["Desconocida"]) .. "\n" ..
-            L["Rango: "] .. (data.rank or L["Recluta"]) .. "\n" ..
             L["Rol: "] .. (HasDefinedRole(data) and (RoleIcon(data.role) .. " " .. L[data.role]) or L["|cFF808080sin definir|r"]) .. "\n" ..
             ((addonTable.Profiles and addonTable.Profiles.GetCharTypeText(data)) and
                 (L["Personaje: |cFFFFD100"] .. addonTable.Profiles.GetCharTypeText(data) .. "|r\n") or "") ..
             BuildDeclaredText(data) ..
-            L["Enfoque: "] .. (FocusCell(data) ~= "" and FocusCell(data) or L["|cFF808080sin definir|r"]) .. "\n" ..
-            L["Roster: "] .. (data.roster or L["Sin Roster"]) .. "\n\n" ..
+            L["Enfoque: "] .. (FocusCell(data) ~= "" and FocusCell(data) or L["|cFF808080sin definir|r"]) .. "\n\n" ..
             L["Prof. 1: "] .. (data.prof1 or L["Ninguna"]) .. "\n" ..
-            L["Prof. 2: "] .. (data.prof2 or L["Ninguna"]) .. "\n\n" ..
-            L["Estado: "] .. (data.isOnline and L["|cFF00FF00En línea|r"] or ("|cFF888888" .. addonTable.FormatLastOnline(data.lastOnline or "Desconectado") .. "|r")) .. "\n" ..
+            L["Prof. 2: "] .. (data.prof2 or L["Ninguna"]) .. "\n" ..
+            -- El estado va en la cabecera; aquí, el desglose de profesiones por expansión
             BuildExpansionText(fullName)
         )
+        -- Cabecera: nombre con el color de la clase, nivel, icono, rango y estado
+        local className = data.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class
+        local zone = ZoneCell(data.zone)
+        local status = data.isOnline
+            and ("|TInterface\\COMMON\\Indicator-Green:12:12|t |cFF00FF00" .. L["En línea"] .. "|r" .. (zone ~= "" and (" |cFFBFBFBF· " .. zone .. "|r") or ""))
+            or ("|TInterface\\COMMON\\Indicator-Gray:12:12|t |cFF888888" .. addonTable.FormatLastOnline(data.lastOnline or "Desconectado") .. "|r")
+        if containers.preview and containers.preview.SetCharacter then
+            containers.preview.SetCharacter({
+                name = data.displayName or string.match(fullName, "^([^-]+)") or fullName,
+                classFile = data.class, className = className, level = data.level or 0,
+                rank = data.rank or L["Recluta"], statusText = status,
+                badges = MemberBadges(fullName),
+                tagsTitle = L["Rosters"], tags = RosterTags(fullName),
+            })
+            containers.preview.UpdateScroll()
+        end
     end
 
     -- Pool de filas: se reutilizan en cada refresco
@@ -1376,7 +1567,6 @@ local function BuildMembersView(parent)
                 { ProfessionCell(data.prof1), isOnline and "FFFFFF" or dim },
                 { ProfessionCell(data.prof2), isOnline and "FFFFFF" or dim },
                 { ZoneCell(data.zone), isOnline and "FFFFFF" or dim },
-                { RosterCell(data.roster), isOnline and "00FFFF" or dim },
                 { addonTable.FormatLastOnline(data.lastOnline or "Online"), isOnline and "00FF00" or dim },
             }
             for c, v in ipairs(values) do
@@ -2446,6 +2636,17 @@ local function BuildRosterView(parent)
             end)
         end
     end)
+    -- Susurra a los del roster conectados que no se han apuntado a la banda
+    local btnRemindRoster = CreateAction(L["Recordar al roster"], 150, btnClear, function()
+        if uiModule.RemindRoster then uiModule.RemindRoster(R.GetSelectedEvent()) end
+    end)
+    btnRemindRoster:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(L["Recordar al roster"], 1, 1, 1)
+        GameTooltip:AddLine(L["Susurra a los integrantes del roster que están conectados y aún no se han apuntado a la banda en Raid."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnRemindRoster:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- ---------------------------------------------------------------------
     -- Resumen en el panel de vista previa: jefe, cobertura, armaduras y asistencia
@@ -4338,6 +4539,31 @@ local function BuildSummaryView(parent)
         Refresh()
     end)
 
+    -- Normas de la hermandad en la vista previa (lo que se ve sin nada seleccionado)
+    local showingRules = false
+    local function RulesPreviewText()
+        showingRules = true
+        local rules = addonTable.GuildConfig and addonTable.GuildConfig.GetRules() or ""
+        if rules == "" then
+            return L["|cFFFFD100Normas de la hermandad|r"] .. "\n\n"
+                .. L["|cFF808080La hermandad todavía no tiene normas escritas. Los oficiales las escriben en Configuración.|r"]
+                .. "\n\n" .. L[PREVIEW_DEFAULT_TEXT]
+        end
+        return L["|cFFFFD100Normas de la hermandad|r"] .. "\n\n" .. rules
+    end
+    uiModule.RulesPreviewText = RulesPreviewText
+
+    local btnRules = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
+    btnRules:SetSize(90, 22)
+    btnRules:SetPoint("RIGHT", btnRefresh, "LEFT", -4, 0)
+    btnRules:SetText(L["Normas"])
+    btnRules:SetScript("OnClick", function() SetPreviewText(RulesPreviewText()) end)
+    if addonTable.GuildConfig then
+        addonTable.GuildConfig.AddListener(function()
+            if showingRules and activeTab == "Resumen" and view:IsShown() then SetPreviewText(RulesPreviewText()) end
+        end)
+    end
+
     local filterButtons = {}
     for _, filter in ipairs(N.FILTERS) do
         local btn = CreateFrame("Button", nil, feedBox, "UIPanelButtonTemplate")
@@ -4436,6 +4662,7 @@ local function BuildSummaryView(parent)
     end
 
     local function ShowNewsPreview(item)
+        showingRules = false
         if item.kind == "achievement" or item.kind == "guildAchievement" then
             -- Quién y cuándo, y debajo el detalle completo del logro (descripción, puntos,
             -- recompensa y criterios)
@@ -4503,7 +4730,17 @@ local function BuildSummaryView(parent)
         card.date = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         card.date:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -6)
         card.subtitle = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        card.subtitle:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 12, 9)
+        -- Banner de bienvenida: icono de la hermandad, recuento a la derecha y línea inferior
+        card.logo = CreateGuildIconHolder(card, 42)
+        card.logo:SetPoint("LEFT", card, "LEFT", 10, 0)
+        card.count = card:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+        card.count:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -9)
+        card.countLabel = card:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        card.countLabel:SetPoint("TOPRIGHT", card.count, "BOTTOMRIGHT", 0, -3)
+        card.underline = card:CreateTexture(nil, "ARTWORK")
+        card.underline:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 0, 0)
+        card.underline:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", 0, 0)
+        card.underline:SetHeight(2)
 
         -- Tooltip del logro o del objeto, y vista previa al hacer clic
         card:SetScript("OnEnter", function(self)
@@ -4541,7 +4778,18 @@ local function BuildSummaryView(parent)
     -- Una tarjeta puede ser noticia o cabecera de semana
     -- subtitleText: cabecera grande (la de las últimas altas) con un subtítulo debajo
     local BIG_HEADER_HEIGHT = 58
-    local function SetupCard(card, item, headerText, subtitleText)
+    -- Fondo en degradado de izquierda a derecha (si el cliente no lo admite, color liso)
+    local function SetGradientBg(tex, r, g, b, alphaLeft, alphaRight)
+        tex:SetColorTexture(1, 1, 1, 1)
+        local ok = CreateColor and pcall(tex.SetGradient, tex, "HORIZONTAL", CreateColor(r, g, b, alphaLeft), CreateColor(r, g, b, alphaRight))
+        if not ok and tex.SetGradientAlpha then
+            ok = pcall(tex.SetGradientAlpha, tex, "HORIZONTAL", r, g, b, alphaLeft, r, g, b, alphaRight)
+        end
+        if not ok then tex:SetColorTexture(r, g, b, alphaLeft) end
+    end
+
+    -- banner (cabecera grande): { logo = true, count = "+3", countLabel = "...", color = {r, g, b} }
+    local function SetupCard(card, item, headerText, subtitleText, banner)
         local isHeader = headerText ~= nil
         local isBig = isHeader and subtitleText ~= nil
         card.item = item
@@ -4552,26 +4800,62 @@ local function BuildSummaryView(parent)
         card.detail:SetShown(not isHeader)
         card.date:SetShown(not isHeader)
         card.subtitle:SetShown(isBig)
+        card.logo:SetShown(banner ~= nil and banner.logo == true)
+        card.count:SetShown(banner ~= nil and banner.count ~= nil)
+        card.countLabel:SetShown(banner ~= nil and banner.count ~= nil)
+        card.underline:SetShown(banner ~= nil)
+        card.icon:SetTexCoord(0, 1, 0, 1)
         card.title:ClearAllPoints()
+        card.subtitle:ClearAllPoints()
         card.title:SetFontObject(isBig and "GameFontNormalHuge" or "GameFontHighlight")
         if isHeader then
-            card.bg:SetColorTexture(1, 0.82, 0, isBig and 0.14 or 0.08)
+            local left = 12
+            if banner then
+                local c = banner.color or { 1, 0.82, 0 }
+                SetGradientBg(card.bg, c[1], c[2], c[3], 0.32, 0.04)
+                card.underline:SetColorTexture(c[1], c[2], c[3], 0.8)
+                if banner.logo then
+                    card.logo:SetGuildIcon(GuildControlDB.settings.guildIcon or addonTable.DEFAULT_LOGO)
+                    left = 62
+                end
+                if banner.count then
+                    card.count:SetText(banner.count)
+                    card.countLabel:SetText(banner.countLabel or "")
+                end
+            else
+                card.bg:SetColorTexture(1, 0.82, 0, isBig and 0.14 or 0.08)
+            end
             if isBig then
-                card.title:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -9)
+                card.title:SetPoint("TOPLEFT", card, "TOPLEFT", left, -9)
+                card.subtitle:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", left, 9)
                 card.subtitle:SetText(subtitleText)
             else
                 card.title:SetPoint("LEFT", card, "LEFT", 10, 0)
             end
-            card.title:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+            card.title:SetPoint("RIGHT", card, "RIGHT", banner and banner.count and -110 or -10, 0)
             card.title:SetText("|cFFFFD100" .. headerText .. "|r")
         else
-            card.bg:SetColorTexture(1, 1, 1, 0.04)
             card.title:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 10, -1)
             card.title:SetPoint("RIGHT", card, "RIGHT", -60, 0)
             local color = NEWS_KIND_COLORS[item.kind] or NEWS_KIND_COLORS.other
-            card.bar:SetColorTexture(color[1], color[2], color[3], 0.9)
             card.icon:SetTexture(item.icon)
             card.title:SetText(item.title or "")
+            -- Altas: icono de clase, nombre y fila con el color de su clase
+            local classColor = item.kind == "join" and item.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[item.class]
+            if classColor then
+                color = { classColor.r, classColor.g, classColor.b }
+                SetGradientBg(card.bg, color[1], color[2], color[3], 0.22, 0.03)
+                local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[item.class]
+                if coords then
+                    card.icon:SetTexture("Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes")
+                    card.icon:SetTexCoord(unpack(coords))
+                end
+                card.title:SetText("|cFF" .. addonTable.GetClassColorHex(item.class) .. (item.shortName or "") .. "|r"
+                    .. L[" se ha unido a la hermandad"])
+            else
+                card.bg:SetColorTexture(1, 1, 1, 0.04)
+            end
+            card.bar:SetColorTexture(color[1], color[2], color[3], 0.9)
             card.detail:SetText(item.detail or "")
             card.date:SetText(item.dateText or "")
         end
@@ -4667,6 +4951,31 @@ local function BuildSummaryView(parent)
             row.text:SetText(line.text)
             row.onClick = line.onClick
             row:EnableMouse(line.onClick ~= nil)
+            -- Insignias de color detrás del texto: { {text = "+3", color = {r, g, b}}, ... }
+            row.badges = row.badges or {}
+            for _, badge in ipairs(row.badges) do badge:Hide() end
+            local x = row.text:GetStringWidth() + 6
+            for b, info in ipairs(line.badges or {}) do
+                local badge = row.badges[b]
+                if not badge then
+                    badge = CreateFrame("Frame", nil, row)
+                    badge:SetHeight(INFO_LINE_HEIGHT - 2)
+                    badge.bg = badge:CreateTexture(nil, "BACKGROUND")
+                    badge.bg:SetAllPoints()
+                    badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    badge.text:SetPoint("CENTER")
+                    row.badges[b] = badge
+                end
+                local c = info.color
+                badge.bg:SetColorTexture(c[1], c[2], c[3], 0.22)
+                badge.text:SetText(info.text)
+                badge.text:SetTextColor(c[1], c[2], c[3])
+                badge:SetWidth(math.max(26, badge.text:GetStringWidth() + 12))
+                badge:ClearAllPoints()
+                badge:SetPoint("LEFT", row, "LEFT", x, 0)
+                x = x + badge:GetWidth() + 4
+                badge:Show()
+            end
             row:Show()
         end
     end
@@ -4719,23 +5028,32 @@ local function BuildSummaryView(parent)
                 .. (signup.role and (" " .. RoleIcon(signup.role, 12)) or "")) or L["|cFFFF7F00sin responder|r"]
             Add("|cFFFFD100" .. ShortEventDate(nextEvent) .. "|r  " .. nextEvent.title, GoTo("Raid"))
             Add(L["Tu respuesta: "] .. answer, GoTo("Raid"))
-        else
-            Add(L["|cFF808080Sin bandas próximas|r"])
         end
 
         local profile = P.GetMyProfile()
-        if not (profile and profile.main) then Add(L["|cFFFF7F00No has declarado tu rol|r"], GoTo("Mi perfil")) end
-
-        local threshold = GuildControlDB.settings.lowAttendance or 70
-        local shown = 0
-        for _, roster in ipairs(MyRosters(me)) do
-            local stats = E.GetAttendanceStats(roster.name, me)
-            if stats.percent and shown < 2 then
-                shown = shown + 1
-                local color = stats.percent < threshold and "FF3333" or "00FF00"
-                Add(L["Asistencia en "] .. roster.name .. ": |cFF" .. color .. stats.percent .. "%|r", GoTo(isOfficer and "Roster" or "Raid"))
+        if not nextEvent then
+            -- Sin bandas próximas: resumen del personaje (clase, nivel, rama, rol, rango y saldo)
+            local className, classFile = UnitClass("player")
+            -- Especialización del juego (ya viene en el idioma del cliente)
+            local specIndex = GetSpecialization and GetSpecialization()
+            local spec = specIndex and select(2, GetSpecializationInfo(specIndex)) or nil
+            Add("|cFF" .. addonTable.GetClassColorHex(classFile) .. (className or "") .. "|r  |cFF808080" .. L["Nivel "] .. (UnitLevel("player") or "?")
+                .. (spec and (" · " .. spec) or "") .. "|r", GoTo("Mi perfil"))
+            if profile and profile.main then
+                Add(L["Tu rol: "] .. RoleIcon(profile.main, 12) .. " |cFF00FF00" .. L[profile.main] .. "|r"
+                    .. (profile.secondary and (" / " .. RoleIcon(profile.secondary, 12) .. " " .. L[profile.secondary]) or ""), GoTo("Mi perfil"))
+            end
+            local m = GuildControlDB.members[me]
+            if m and m.rank then Add(L["Rango: "] .. "|cFFFFD100" .. m.rank .. "|r", GoTo("Miembros")) end
+            local D, Lo = addonTable.Dkp, addonTable.Loot
+            if D and D.IsActive and D.IsActive() then
+                Add(L["Tus DKP: "] .. "|cFFFFD100" .. (D.GetBalance(me) or 0) .. "|r", GoTo("Botín"))
+            elseif Lo and Lo.GetPoints then
+                Add(L["Tus +1: "] .. "|cFFFFD100" .. (Lo.GetPoints(me) or 0) .. "|r", GoTo("Botín"))
             end
         end
+        if not (profile and profile.main) then Add(L["|cFFFF7F00No has declarado tu rol|r"], GoTo("Mi perfil")) end
+        if not nextEvent then Add(L["|cFF808080Sin bandas próximas|r"], GoTo("Raid")) end
 
         local key = M.GetKeystone(me)
         if key then
@@ -4747,6 +5065,18 @@ local function BuildSummaryView(parent)
         else
             Add(L["|cFFFF7F00Aún no has hecho Míticas+ esta semana|r"], GoTo("Míticas+"))
         end
+
+        -- Asistencia al final: la caja corta en 7 líneas y, sin bandas, el resumen del personaje ocupa 5
+        local threshold = GuildControlDB.settings.lowAttendance or 70
+        local shown = 0
+        for _, roster in ipairs(MyRosters(me)) do
+            local stats = E.GetAttendanceStats(roster.name, me)
+            if stats.percent and shown < 2 then
+                shown = shown + 1
+                local color = stats.percent < threshold and "FF3333" or "00FF00"
+                Add(L["Asistencia en "] .. roster.name .. ": |cFF" .. color .. stats.percent .. "%|r", GoTo(isOfficer and "Roster" or "Raid"))
+            end
+        end
         return lines
     end
 
@@ -4757,14 +5087,23 @@ local function BuildSummaryView(parent)
         local online, total = 0, 0
         local instances = R.GetInstanceNames()
         local inInstance = {}
+        local roles = { tank = 0, healer = 0, dps = 0, none = 0 }
         for name, m in pairs(GuildControlDB.members) do
             total = total + 1
             if m.isOnline then
                 online = online + 1
                 if m.zone and instances[m.zone] then table.insert(inInstance, { name = name, m = m }) end
+                local slot = R.GetDefinedSlot and R.GetDefinedSlot(name)
+                local key = (slot and roles[slot]) and slot or "none"
+                roles[key] = roles[key] + 1
             end
         end
-        Add(L["Conectados: "] .. "|cFF00FF00" .. online .. "|r / " .. total, GoTo("Miembros"))
+        Add(L["Conectados: "] .. "|cFF00FF00" .. online .. "|r / " .. total
+            .. (roles.none > 0 and ("  |cFF808080" .. string.format(L["(%d sin rol)"], roles.none) .. "|r") or ""), GoTo("Miembros"))
+        -- Roles de los conectados: "1 Tanque | 0 Sanadores | 3 DPS"
+        local function RolePart(n, one, many) return "|cFFFFFFFF" .. n .. "|r " .. (n == 1 and one or many) end
+        Add("|cFFBFBFBF" .. RolePart(roles.tank, L["Tanque"], L["Tanques"]) .. "  |  " .. RolePart(roles.healer, L["Sanador"], L["Sanadores"])
+            .. "  |  " .. RolePart(roles.dps, L["DPS"], L["DPS"]) .. "|r", GoTo("Miembros"))
 
         local favOnline = {}
         for _, name in ipairs(F.GetAll()) do
@@ -4806,10 +5145,13 @@ local function BuildSummaryView(parent)
                 if log.action == "ALTA" then joins = joins + 1 elseif log.action == "BAJA" then leaves = leaves + 1 end
             end
         end
-        Add(L["Jefes derrotados: "] .. "|cFFFFD100" .. CountSince("boss") .. "|r", ShowFilter("boss"))
+        Add("|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:14:14|t " .. L["Jefes derrotados: "] .. "|cFFFFD100" .. CountSince("boss") .. "|r", ShowFilter("boss"))
         Add(L["Logros de la hermandad: "] .. "|cFFFFD100" .. CountSince("guildAchievement") .. "|r", ShowFilter("guildAchievement"))
         Add(L["Logros de personajes: "] .. "|cFFFFD100" .. CountSince("achievement") .. "|r", ShowFilter("achievement"))
-        Add(L["Altas: "] .. "|cFF00FF00" .. joins .. "|r" .. L["   Bajas: "] .. "|cFFFF3333" .. leaves .. "|r", ShowFilter("join"))
+        table.insert(lines, { text = L["Altas / Bajas"], onClick = ShowFilter("join"), badges = {
+            { text = "+" .. joins, color = { 0.3, 0.9, 0.35 } },
+            { text = "-" .. leaves, color = { 1, 0.5, 0.5 } },
+        } })
         local bestName, bestLevel, bestMap = M.GetGuildWeeklyBest()
         if bestName then
             Add(L["Mejor llave: "] .. "|cFFA335EE+" .. bestLevel .. "|r " .. (M.GetMapName(bestMap) or ""), GoTo("Míticas+"))
@@ -4904,7 +5246,9 @@ local function BuildSummaryView(parent)
                 index = 1
                 local header = AcquireCard(index)
                 header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, 0)
-                SetupCard(header, nil, L["¡Bienvenidos a la hermandad!"], L["Las 5 últimas incorporaciones"])
+                SetupCard(header, nil, L["¡Bienvenidos a la hermandad!"], L["Las 5 últimas incorporaciones"], {
+                    logo = true, count = "+" .. N.CountJoinsSince(30), countLabel = L["en 30 días"], color = { 0.25, 0.85, 0.35 },
+                })
                 y = BIG_HEADER_HEIGHT + 6
                 lastWeek = false
             end
@@ -4915,7 +5259,7 @@ local function BuildSummaryView(parent)
                 index = 1
                 local header = AcquireCard(index)
                 header:SetPoint("TOPLEFT", feedChild, "TOPLEFT", 0, 0)
-                SetupCard(header, nil, L["¡Abandonan el barco!"], L["Bajas de los últimos 30 días"])
+                SetupCard(header, nil, L["¡Abandonan el barco!"], L["Bajas de los últimos 30 días"], { color = { 0.6, 0.6, 0.6 } })
                 y = BIG_HEADER_HEIGHT + 6
                 lastWeek = false
             end
@@ -6754,6 +7098,30 @@ local function RaidEventDateText(event, long)
     return string.sub(weekday, 1, 3) .. " " .. d .. "/" .. mo .. " " .. event.time
 end
 
+-- Recordar al roster (botón de la pestaña Roster): susurra a los integrantes conectados del
+-- roster de la banda que todavía no se han apuntado
+function uiModule.RemindRoster(event)
+    if not event then
+        PrintGC(L["Elige una banda de Raid para recordar a su roster."])
+        return
+    end
+    local roster = addonTable.Roster and addonTable.Roster.FindByEvent(event.id)
+    if not roster or not next(roster.members) then
+        PrintGC(L["Esta banda aún no tiene roster (se monta en la pestaña Roster)."])
+        return
+    end
+    local me, sent = string.match(UnitName("player") or "", "^(%S+)"), 0   -- sin apellido (Forever)
+    for name in pairs(roster.members) do
+        local m = GuildControlDB.members[name]
+        if not event.signups[name] and m and m.isOnline and string.match(name, "^([^-]+)") ~= me then
+            SendWhisper(name, L["¡Hola! Hay banda ("] .. event.title .. L[") el "] .. RaidEventDateText(event, true)
+                .. L[". Apúntate en GuildControl > Raid, por favor."])
+            sent = sent + 1
+        end
+    end
+    PrintGC(L["Recordatorios enviados a |cFFFFD100"] .. sent .. L["|r miembros del roster sin responder."])
+end
+
 local function SignupName(name, signup)
     local m = GuildControlDB.members[name] or {}
     local short = string.match(name, "^([^-]+)") or name
@@ -6790,34 +7158,35 @@ local function BuildRaidView(parent)
     local function SelectedEvent() return E.Get(selectedEventId) end
     local function IsOfficerProfile() return not addonTable.Profiles or addonTable.Profiles.IsOfficer() end
 
+    -- Tooltip con la explicación de cada botón (también si está desactivado)
+    local function Tip(btn, titleText, text)
+        btn:SetMotionScriptsWhileDisabled(true)
+        btn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(titleText, 1, 1, 1)
+            GameTooltip:AddLine(text, 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
     local title = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", view, "TOPLEFT", 16, -12)
     title:SetText(L["Raid"])
 
-    -- Herramientas para la banda: panel minimalista y buff check
+    -- Ayudante: panel pequeño para la banda (listos, pull, marcas, buffos, pizarra...)
     local btnMini = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnMini:SetSize(130, 22)
+    btnMini:SetSize(110, 22)
     btnMini:SetPoint("LEFT", title, "RIGHT", 20, 0)
-    btnMini:SetText(L["Modo minimalista"])
+    btnMini:SetText(L["Ayudante"])
     btnMini:SetScript("OnClick", function() if uiModule.EnterMiniMode then uiModule.EnterMiniMode() end end)
     btnMini:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(L["Modo minimalista"], 1, 1, 1)
-        GameTooltip:AddLine(L["Cambia la ventana por un panel pequeño para la banda: listos, pull, marcas y buff check."], 0.8, 0.8, 0.8, true)
+        GameTooltip:SetText(L["Ayudante"], 1, 1, 1)
+        GameTooltip:AddLine(L["Cambia la ventana por un panel pequeño para la banda: listos, pull, marcas, descanso, buff check, botín y pizarra."], 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     btnMini:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    local btnBuffCheck = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnBuffCheck:SetSize(100, 22)
-    btnBuffCheck:SetPoint("LEFT", btnMini, "RIGHT", 6, 0)
-    btnBuffCheck:SetText(L["Buff check"])
-    btnBuffCheck:SetScript("OnClick", function() if uiModule.BuffCheck then uiModule.BuffCheck() end end)
-    -- Pizarra para explicar los jefes (Board.lua)
-    local btnBoard = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
-    btnBoard:SetSize(80, 22)
-    btnBoard:SetPoint("LEFT", btnBuffCheck, "RIGHT", 6, 0)
-    btnBoard:SetText(L["Pizarra"])
-    btnBoard:SetScript("OnClick", function() if addonTable.Board then addonTable.Board.Toggle() end end)
 
     local btnAttendance = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnAttendance:SetSize(110, 22)
@@ -6839,6 +7208,10 @@ local function BuildRaidView(parent)
     btnHistory:SetPoint("RIGHT", btnPlanning, "LEFT", -6, 0)
     btnHistory:SetText(L["Historial"])
     btnHistory:SetScript("OnClick", function() mode = "history"; editing = nil; selectedEventId = nil; Refresh() end)
+    Tip(btnAttendance, L["Asistencia"], L["Solo oficiales: pasa lista en la banda elegida (presente, tarde, ausente o justificado). Se envía a la hermandad y cuenta en Roster y Warning."])
+    Tip(btnGroups, L["Vista de grupos"], L["Reparte a los apuntados en los 8 grupos de la banda; los oficiales pueden publicarlos y aplicarlos en la banda."])
+    Tip(btnPlanning, L["Planning raid"], L["Las próximas bandas: detalles, quién se ha apuntado y tu respuesta."])
+    Tip(btnHistory, L["Historial"], L["Bandas ya jugadas, con los jefes que murieron y la asistencia."])
 
     -- ---------------------------------------------------------------------
     -- Lista de bandas (izquierda, común a los dos modos)
@@ -6853,6 +7226,7 @@ local function BuildRaidView(parent)
     btnNew:SetPoint("TOPRIGHT", listBox, "TOPRIGHT", -8, -6)
     btnNew:SetText(L["Nueva"])
     btnNew:SetScript("OnClick", function() editing = "new"; mode = "planning"; Refresh() end)
+    Tip(btnNew, L["Nueva banda"], L["Solo oficiales: crea una banda con fecha y hora y la publica en la hermandad para que se apunten."])
 
     local eventButtons = {}
     local function AcquireEventButton(index)
@@ -6965,6 +7339,7 @@ local function BuildRaidView(parent)
     btnRosterPreview:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -14, -36)
     btnRosterPreview:SetText(L["Ver roster"])
     btnRosterPreview:SetScript("OnClick", function() ShowRosterPreview(SelectedEvent()) end)
+    Tip(btnRosterPreview, L["Ver roster"], L["Muestra en la vista previa el roster de esta banda (el tuyo o el que publicaron los oficiales)."])
 
     -- Acciones de oficial: editar, eliminar, invitar y recordar
     local officerBar = CreateFrame("Frame", nil, detail)
@@ -6975,6 +7350,7 @@ local function BuildRaidView(parent)
     btnEdit:SetPoint("LEFT", officerBar, "LEFT", 0, 0)
     btnEdit:SetText(L["Editar"])
     btnEdit:SetScript("OnClick", function() editing = SelectedEvent(); Refresh() end)
+    Tip(btnEdit, L["Editar"], L["Cambia el título, la banda, la fecha, la hora o la descripción y la vuelve a publicar."])
     local deleteArmedUntil = 0
     local btnDelete = CreateFrame("Button", nil, officerBar, "UIPanelButtonTemplate")
     btnDelete:SetSize(100, 22)
@@ -6993,6 +7369,8 @@ local function BuildRaidView(parent)
             C_Timer.After(4, function() if GetTime() >= deleteArmedUntil then self:SetText(L["Eliminar"]) end end)
         end
     end)
+
+    Tip(btnDelete, L["Eliminar"], L["Borra la banda para toda la hermandad. Pide un segundo clic para confirmar."])
 
     -- Barra de inscripción (todos)
     local signBar = CreateFrame("Frame", nil, detail)
@@ -7018,11 +7396,16 @@ local function BuildRaidView(parent)
 
     local signButtons = {}
     local SIGN_OPTIONS = {
-        { label = RoleIcon("tank", 14) .. L[" Tanque"], status = "signed", role = "tank", width = 92 },
-        { label = RoleIcon("healer", 14) .. L[" Sanador"], status = "signed", role = "healer", width = 96 },
-        { label = RoleIcon("dps", 14) .. L[" DPS"], status = "signed", role = "dps", width = 74 },
-        { label = L["Tarde"], status = "late", width = 64 },
-        { label = L["Ausente"], status = "absent", width = 70 },
+        { label = RoleIcon("tank", 14) .. L[" Tanque"], status = "signed", role = "tank", width = 92, title = L["Tanque"],
+            tip = L["Te apuntas como tanque (solo si tu clase puede serlo)."] },
+        { label = RoleIcon("healer", 14) .. L[" Sanador"], status = "signed", role = "healer", width = 96, title = L["Sanador"],
+            tip = L["Te apuntas como sanador (solo si tu clase puede serlo)."] },
+        { label = RoleIcon("dps", 14) .. L[" DPS"], status = "signed", role = "dps", width = 74, title = L["DPS"],
+            tip = L["Te apuntas como DPS."] },
+        { label = L["Tarde"], status = "late", width = 64, title = L["Tarde"],
+            tip = L["Vienes, pero llegarás tarde. Conserva el rol que elegiste (o el de Mi perfil)."] },
+        { label = L["Ausente"], status = "absent", width = 70, title = L["Ausente"],
+            tip = L["No puedes venir. La nota de al lado sirve para explicar el motivo."] },
     }
     local previousSign = nil
     for _, option in ipairs(SIGN_OPTIONS) do
@@ -7040,7 +7423,7 @@ local function BuildRaidView(parent)
             E.SignUp(event, option.status, role, CurrentSpecName(), noteInput:GetText())
         end)
         btn.role = option.role
-        btn:SetMotionScriptsWhileDisabled(true)
+        Tip(btn, option.title, option.tip)
         table.insert(signButtons, btn)
         previousSign = btn
     end
@@ -7114,46 +7497,24 @@ local function BuildRaidView(parent)
     btnInvite:SetPoint("LEFT", footer, "LEFT", 0, 0)
     btnInvite:SetText(L["Invitar a los apuntados"])
     btnInvite:SetScript("OnClick", function() local ev = SelectedEvent(); if ev then InviteSigned(ev) end end)
-
-    local btnRemind = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
-    btnRemind:SetSize(200, 22)
-    btnRemind:SetPoint("LEFT", btnInvite, "RIGHT", 6, 0)
-    btnRemind:SetText(L["Recordar al roster"])
-    btnRemind:SetScript("OnClick", function()
-        local event = SelectedEvent()
-        if not event then return end
-        -- El roster de la banda (se monta en la pestaña Roster)
-        local roster = R.FindByEvent(event.id)
-        if not roster or not next(roster.members) then
-            PrintGC(L["Esta banda aún no tiene roster (se monta en la pestaña Roster)."])
-            return
-        end
-        local me, sent = string.match(UnitName("player") or "", "^(%S+)"), 0   -- sin apellido (Forever)
-        for name in pairs(roster.members) do
-            local m = GuildControlDB.members[name]
-            if not event.signups[name] and m and m.isOnline and string.match(name, "^([^-]+)") ~= me then
-                SendWhisper(name, L["¡Hola! Hay banda ("] .. event.title .. L[") el "] .. RaidEventDateText(event, true)
-                    .. L[". Apúntate en GuildControl > Raid, por favor."])
-                sent = sent + 1
-            end
-        end
-        PrintGC(L["Recordatorios enviados a |cFFFFD100"] .. sent .. L["|r miembros del roster sin responder."])
-    end)
+    Tip(btnInvite, L["Invitar a los apuntados"], L["Invita al grupo a los apuntados que están conectados (no a los ausentes)."])
 
     local btnRepublish = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
     btnRepublish:SetSize(120, 22)
-    btnRepublish:SetPoint("LEFT", btnRemind, "RIGHT", 6, 0)
+    btnRepublish:SetPoint("LEFT", btnInvite, "RIGHT", 6, 0)
     btnRepublish:SetText(L["Publicar de nuevo"])
     btnRepublish:SetScript("OnClick", function()
         local ev = SelectedEvent()
         if ev then E.Publish(ev); PrintGC(L["Banda enviada de nuevo a la hermandad."]) end
     end)
+    Tip(btnRepublish, L["Publicar de nuevo"], L["Vuelve a enviar la banda a la hermandad, por si a alguien no le ha llegado."])
 
     local btnRefreshEvents = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
     btnRefreshEvents:SetSize(100, 22)
     btnRefreshEvents:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
     btnRefreshEvents:SetText(L["Actualizar"])
     btnRefreshEvents:SetScript("OnClick", function() E.RequestEvents() end)
+    Tip(btnRefreshEvents, L["Actualizar"], L["Pide a la hermandad las bandas y las inscripciones que te falten."])
 
     local emptyDetail = detail:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     emptyDetail:SetPoint("CENTER", detail, "CENTER", 0, 0)
@@ -7279,6 +7640,22 @@ local function BuildRaidView(parent)
     btnCancel:SetPoint("LEFT", btnSave, "RIGHT", 8, 0)
     btnCancel:SetText(L["Cancelar"])
     btnCancel:SetScript("OnClick", function() editing = nil; Refresh() end)
+    Tip(btnRaid, L["Banda"], L["Elige la banda del diario de encuentros; cuenta para los jefes y el DKP cuando estáis dentro."])
+    -- Los desplegables usan OnEnter para su resaltado: el tooltip se engancha sin sustituirlo
+    for _, info in ipairs({
+        { dropDiff, L["Dificultad"], L["Normal, Heroica o Mítica: los jefes y el DKP solo cuentan si coincide con la de la banda en el juego."] },
+        { dropRosterLink, L["Roster asociado"], L["El roster en el que cuenta la asistencia de esta banda."] },
+    }) do
+        info[1]:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(info[2], 1, 1, 1)
+            GameTooltip:AddLine(info[3], 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end)
+        info[1]:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    Tip(btnSave, L["Guardar y publicar"], L["Guarda la banda y la envía a la hermandad para que se apunten."])
+    Tip(btnCancel, L["Cancelar"], L["Cierra el formulario sin guardar."])
 
     local function LoadForm()
         formError:SetText("")
@@ -7438,6 +7815,10 @@ local function BuildRaidView(parent)
         PrintGC(L["Moviendo a |cFFFFD100"] .. moved .. L["|r jugadores. Si algún grupo estaba lleno, pulsa de nuevo cuando se libere."])
     end)
     local officerGroupButtons = { btnAuto, btnClearGroups, btnPublishGroups, btnApply }
+    Tip(btnAuto, L["Repartir automáticamente"], L["Coloca a los apuntados en los grupos, con tanques y sanadores repartidos."])
+    Tip(btnClearGroups, L["Vaciar grupos"], L["Deja a todos sin grupo."])
+    Tip(btnPublishGroups, L["Publicar grupos"], L["Envía los grupos a la hermandad para que todos los vean."])
+    Tip(btnApply, L["Aplicar en la banda"], L["Mueve a los jugadores de tu banda a su grupo (tienes que ser líder o ayudante)."])
 
     local function RefreshGroups(event)
         selectedPlayer = (event and selectedPlayer and event.signups[selectedPlayer]) and selectedPlayer or nil
@@ -7521,7 +7902,10 @@ local function BuildRaidView(parent)
         PrintGC(L["Asistencia tomada del grupo: |cFFFFD100"] .. present .. L["|r integrantes presentes."])
     end)
     local btnSignedPresent = AttButton(L["Apuntados presentes"], 150, btnFromGroup, function() E.MarkSignedPresent(SelectedEvent()) end)
-    AttButton(L["Limpiar marcas"], 120, btnSignedPresent, function() E.ClearAttendance(SelectedEvent()) end)
+    Tip(AttButton(L["Limpiar marcas"], 120, btnSignedPresent, function() E.ClearAttendance(SelectedEvent()) end),
+        L["Limpiar marcas"], L["Quita todas las marcas de asistencia de esta banda."])
+    Tip(btnFromGroup, L["Tomar del grupo actual"], L["Marca como presentes a los que están ahora en tu grupo o banda."])
+    Tip(btnSignedPresent, L["Apuntados presentes"], L["Marca como presentes a todos los apuntados."])
 
     local ATT_COLS = { name = 6, answer = 150, status = 246, statusWidth = 62, history = 500 }
     local attHeader = CreateFrame("Frame", nil, attPanel)
@@ -7580,6 +7964,8 @@ local function BuildRaidView(parent)
             btn:SetSize(ATT_COLS.statusWidth - 2, 18)
             btn:SetPoint("LEFT", row, "LEFT", ATT_COLS.status + (i - 1) * ATT_COLS.statusWidth, 0)
             btn.status = status
+            Tip(btn, L[E.ATTENDANCE_LABELS[status]], ({ present = L["Estuvo en la banda."], late = L["Llegó tarde."],
+                absent = L["No vino y no avisó."], excused = L["No vino, pero avisó (falta justificada)."] })[status] or "")
             btn:SetScript("OnClick", function(self)
                 local event = SelectedEvent()
                 if event and row.fullName then E.SetAttendance(event, row.fullName, self.status) end
@@ -7750,6 +8136,8 @@ local function BuildRaidView(parent)
     btnNextPage:SetPoint("BOTTOMRIGHT", listBox, "BOTTOMRIGHT", -8, 8)
     btnNextPage:SetText(">")
     btnNextPage:SetScript("OnClick", function() historyPage = historyPage + 1; selectedEventId = nil; Refresh() end)
+    Tip(btnPrevPage, L["Anterior"], L["Página anterior del historial."])
+    Tip(btnNextPage, L["Siguiente"], L["Página siguiente del historial."])
     local pageText = listBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     pageText:SetPoint("BOTTOM", listBox, "BOTTOM", 0, 13)
     for _, w in ipairs({ btnPrevPage, btnNextPage, pageText }) do w:Hide() end
@@ -7977,6 +8365,14 @@ local function BuildRaidView(parent)
 
     E.AddListener(function() Refresh() end)
     view:SetScript("OnShow", Refresh)
+    -- Abre Raid con una banda elegida (p. ej. desde las etiquetas de rosters de Miembros)
+    uiModule.OpenRaidEvent = function(eventId)
+        if eventId and E.Get(eventId) then
+            selectedEventId, mode, editing = eventId, "planning", nil
+        end
+        SwitchTab("Raid")
+        Refresh()
+    end
     containers.views["Raid"] = view
 end
 
@@ -9338,7 +9734,62 @@ local function BuildConfigView(parent)
         discordInput:Show()
         discordInput:SetEnabled(isOfficer)
     end
-    if G then G.AddListener(function() if view:IsShown() then discordInput:SetText(settings().discordLink or ""); RefreshIconFields() end end) end
+    -- ---------------------------------------------------------------------
+    -- 9.1b Normas de la hermandad (las escriben los oficiales y todos las ven en el Resumen)
+    -- ---------------------------------------------------------------------
+    local rulesBox = Section(L["Normas de la hermandad"], 10, -308, 880, 170)
+    local rulesHint = Label(rulesBox, L["Se ven en la vista previa del Resumen y se envían a la hermandad. Sin colores; Intro salta de línea."], 14, -32)
+    local rulesFrame = CreateBackdropBox(rulesBox, 852, 96, "TOPLEFT", rulesHint, "BOTTOMLEFT", 0, -6)
+    local rulesScroll = CreateFrame("ScrollFrame", nil, rulesFrame, "UIPanelScrollFrameTemplate")
+    rulesScroll:SetPoint("TOPLEFT", rulesFrame, "TOPLEFT", 8, -8)
+    rulesScroll:SetPoint("BOTTOMRIGHT", rulesFrame, "BOTTOMRIGHT", -28, 8)
+    local rulesInput = CreateFrame("EditBox", nil, rulesScroll)
+    rulesInput:SetWidth(812)
+    rulesInput:SetMultiLine(true)
+    rulesInput:SetFontObject(GameFontHighlightSmall)
+    rulesInput:SetAutoFocus(false)
+    rulesInput:SetMaxLetters(0)
+    if rulesInput.SetMaxBytes then rulesInput:SetMaxBytes(((G and G.RULES_MAX) or 1500) + 1) end
+    rulesScroll:SetScrollChild(rulesInput)
+    rulesFrame:EnableMouse(true)
+    rulesFrame:SetScript("OnMouseDown", function() rulesInput:SetFocus() end)
+    rulesInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    if ScrollingEdit_OnCursorChanged then rulesInput:SetScript("OnCursorChanged", ScrollingEdit_OnCursorChanged) end
+    if ScrollingEdit_OnUpdate then
+        rulesInput:SetScript("OnUpdate", function(self, elapsed) ScrollingEdit_OnUpdate(self, elapsed, rulesScroll) end)
+    end
+    local rulesCount = rulesBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    rulesCount:SetPoint("TOPLEFT", rulesFrame, "BOTTOMLEFT", 2, -8)
+    rulesInput:SetScript("OnTextChanged", function(self)
+        rulesCount:SetText(string.format(L["%d / %d bytes"], #(self:GetText() or ""), (G and G.RULES_MAX) or 1500))
+        rulesScroll:UpdateScrollChildRect()
+    end)
+    local btnSaveRules = CreateFrame("Button", nil, rulesBox, "UIPanelButtonTemplate")
+    btnSaveRules:SetSize(110, 22)
+    btnSaveRules:SetPoint("TOPRIGHT", rulesFrame, "BOTTOMRIGHT", 0, -4)
+    btnSaveRules:SetText(L["Guardar"])
+    btnSaveRules:SetScript("OnClick", function()
+        rulesInput:ClearFocus()
+        if G and G.SetRules(rulesInput:GetText() or "") then
+            rulesInput:SetText(G.GetRules())
+            PrintGC(L["Normas guardadas y enviadas a la hermandad."])
+        end
+    end)
+    local btnUndoRules = CreateFrame("Button", nil, rulesBox, "UIPanelButtonTemplate")
+    btnUndoRules:SetSize(110, 22)
+    btnUndoRules:SetPoint("RIGHT", btnSaveRules, "LEFT", -6, 0)
+    btnUndoRules:SetText(L["Deshacer"])
+    btnUndoRules:SetScript("OnClick", function()
+        rulesInput:ClearFocus()
+        rulesInput:SetText(G and G.GetRules() or "")
+    end)
+
+    if G then G.AddListener(function()
+        if not view:IsShown() then return end
+        discordInput:SetText(settings().discordLink or "")
+        RefreshIconFields()
+        if not rulesInput:HasFocus() then rulesInput:SetText(G.GetRules()) end
+    end) end
 
     -- ---------------------------------------------------------------------
     -- 9.2 Ventana
@@ -9955,7 +10406,7 @@ local function BuildConfigView(parent)
             row:Show()
         end
         badgeBox:SetHeight(28 + #badges * 28 + 50)
-        if badgeBox:IsShown() then content:SetHeight(1032 + badgeBox:GetHeight() + 10) end
+        if badgeBox:IsShown() then content:SetHeight(1208 + badgeBox:GetHeight() + 10) end
         badgeHint:SetText((D.IsActive() and "" or L["|cFFFF7F00El sistema de botín no es DKP: no se dan premios.|r "])
             .. L["El premio se da una vez por jugador e insignia; las nuevas se dan con «Dar a…» o con clic derecho en Miembros."])
     end
@@ -9978,17 +10429,20 @@ local function BuildConfigView(parent)
             if height then box:SetHeight(height) end
         end
         guildBox:SetShown(officerView)
+        rulesBox:SetShown(officerView)
         badgeBox:SetShown(officerView)
+        if officerView and G and not rulesInput:HasFocus() then rulesInput:SetText(G.GetRules()) end
         channelsBox:Show()
         if officerView then
             Place(windowBox, 578, -36, 312, 266)
-            Place(greetBox, 10, -308)
-            Place(welcomeBox, 10, -542)
-            Place(channelsBox, 10, -660, 430)
-            Place(soundBox, 448, -660, 442, 130)
-            Place(chatChannelsBox, 10, -796)
-            Place(badgeBox, 10, -1062)
-            content:SetHeight(1282)
+            Place(rulesBox, 10, -308)
+            Place(greetBox, 10, -484)
+            Place(welcomeBox, 10, -718)
+            Place(channelsBox, 10, -836, 430)
+            Place(soundBox, 448, -836, 442, 130)
+            Place(chatChannelsBox, 10, -972)
+            Place(badgeBox, 10, -1238)
+            content:SetHeight(1458)
         else
             -- Jugador: dos columnas iguales arriba (Ventana | Aviso de favoritos y, si puede
             -- invitar, Canales de reclutamiento debajo, con las dos columnas a la misma altura) y
@@ -10526,6 +10980,7 @@ function uiModule.ShowWishDropAlert(itemKey, names)
     if not itemKey or not names or #names == 0 then return end
     if not wishDrop.frame then
         local frame = CreateFrame("Frame", "GuildControlWishDropFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:Hide()   -- nace visible: si no, ShowNext lo da por ocupado y se queda en blanco
         frame:SetSize(340, 150)
         frame:SetPoint("TOP", UIParent, "TOP", 0, -220)
         frame:SetFrameStrata("DIALOG")
@@ -11392,7 +11847,7 @@ end
 function uiModule.ToggleUI()
     addonTable.InitDB()
     if not GC_UI then uiModule.CreateUI() end
-    -- En modo minimalista, /gct vuelve al modo normal
+    -- En el Ayudante, /gct vuelve al modo normal
     if uiModule.IsMiniMode and uiModule.IsMiniMode() then
         uiModule.ExitMiniMode()
         return
@@ -11421,7 +11876,7 @@ end
 -- =========================================================================
 -- 11. MODO MINIMALISTA DE BANDA Y VENTANA DE BUFFOS (CONSUME MODULES/RAIDTOOLS.LUA)
 -- =========================================================================
--- El modo minimalista sustituye a la ventana principal por un panel pequeño con lo que se usa
+-- El Ayudante (antes «modo minimalista») sustituye a la ventana principal por un panel pequeño con lo que se usa
 -- durante la banda: listos, pull 10/5, cancelar pull, marcas en el objetivo, buff check, la
 -- ventana de buffos y volver al modo normal. settings.raidMini recuerda si estaba activo y
 -- settings.raidMiniPos dónde estaba.
@@ -11706,25 +12161,8 @@ function uiModule.ShowBuffWindow(anchor)
     buffFrame.Refresh()
 end
 
--- Buff check: pide los datos, abre el addon en modo normal en Raid y la ventana de buffos
-function uiModule.BuffCheck()
-    if not addonTable.RaidTools then return end
-    addonTable.RaidTools.RequestReports()
-    if InCombatLockdown() and raidMiniFrame and raidMiniFrame:IsShown() then
-        uiModule.ShowBuffWindow(nil)
-        return
-    end
-    if raidMiniFrame and raidMiniFrame:IsShown() then
-        uiModule.ExitMiniMode()
-    elseif not (GC_UI and GC_UI:IsShown()) then
-        uiModule.ToggleUI()
-    end
-    SwitchTab("Raid")
-    uiModule.ShowBuffWindow(containers.mainContent)
-end
-
 -- -------------------------------------------------------------------------
--- Panel minimalista
+-- Ayudante (panel pequeño para la banda; antes «modo minimalista»)
 -- -------------------------------------------------------------------------
 -- El panel tiene botones seguros (las marcas): en combate no se puede mostrar ni ocultar, así
 -- que el cambio de modo se aplaza hasta salir del combate
@@ -11778,7 +12216,7 @@ local function CreateRaidMiniFrame()
     -- Título y cierre
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + 2, -8)
-    title:SetText(L["GuildControl · Banda"])
+    title:SetText(L["GuildControl · Ayudante"])
     local btnClose = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     btnClose:SetSize(22, 22)
     btnClose:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 1, 1)
@@ -11838,7 +12276,7 @@ local function CreateRaidMiniFrame()
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    -- Fila 3: descanso, ventana de buffos y modo normal
+    -- Fila 3: descanso, buff check y botín
     local width3 = (inner - MINI.gap * 2) / 3
     -- Al pulsarlo se elige la duración: rápidas, la última usada u "Otro..." para escribirla
     local btnBreak
@@ -11866,27 +12304,32 @@ local function CreateRaidMiniFrame()
     end)
     local row3 = {
         btnBreak,
-        MiniButton(frame, L["Buffos"], width3, L["Ventana de buffos"], L["Muestra los buffos, frascos, comida, runas y pociones de la banda sin salir del modo minimalista."], function()
+        MiniButton(frame, L["Buff check"], width3, L["Buff check"], L["Comprueba los buffos de la banda y abre una ventana con los buffos, frascos, comida, runas y pociones de cada uno; desde ella puedes susurrar lo que le falta a cada jugador."], function()
             if addonTable.RaidTools then addonTable.RaidTools.RequestReports() end
             uiModule.ShowBuffWindow(nil)
         end),
-        MiniButton(frame, L["Botín"], width3, L["Botín"], L["Abre el botín en una ventana flotante sin salir del modo minimalista."], function()
+        MiniButton(frame, L["Botín"], width3, L["Botín"], L["Abre el botín en una ventana flotante sin salir del Ayudante."], function()
             uiModule.ToggleLootFloat()
         end),
     }
     for i, btn in ipairs(row3) do
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (width3 + MINI.gap), -82)
     end
-    -- Fila 4: volver a la ventana completa
-    local btnNormal = MiniButton(frame, L["Modo normal"], inner, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
-    btnNormal:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -108)
+    -- Fila 4: pizarra de jefes (Board.lua; botón normal, no seguro) y volver a la ventana completa
+    local width4 = (inner - MINI.gap) / 2
+    local btnBoard = MiniButton(frame, L["Pizarra"], width4, L["Pizarra"],
+        L["Abre la pizarra para explicar un jefe con marcas, roles, texto y dibujos; el líder, un ayudante o un oficial puede enseñarla al grupo o ponerla en vivo."],
+        function() if addonTable.Board then addonTable.Board.Toggle() end end)
+    btnBoard:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -108)
+    local btnNormal = MiniButton(frame, L["Modo normal"], width4, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
+    btnNormal:SetPoint("LEFT", btnBoard, "RIGHT", MINI.gap, 0)
     return frame
 end
 
 -- -------------------------------------------------------------------------
 -- Botín en ventana flotante
 -- -------------------------------------------------------------------------
--- La vista Botín se pasa a una ventana aparte (sobre todo para el modo minimalista, que oculta
+-- La vista Botín se pasa a una ventana aparte (sobre todo para el Ayudante, que oculta
 -- la principal). Al cerrarla vuelve a su sitio. settings.lootFloatPos guarda la posición.
 local lootFloat = nil
 
@@ -11987,7 +12430,7 @@ function uiModule.IsMiniMode()
     return raidMiniFrame ~= nil and raidMiniFrame:IsShown()
 end
 
--- Al entrar en el juego se recupera el modo minimalista si estaba activo
+-- Al entrar en el juego se recupera el Ayudante si estaba activo
 local miniLoginFrame = CreateFrame("Frame")
 miniLoginFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 miniLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadingUi)
@@ -12185,7 +12628,7 @@ function uiModule.ShowJoinRequest(id, name, role)
     PlaySound(SOUNDKIT and SOUNDKIT.READY_CHECK or 8960)
 end
 
--- Duración del descanso a mano (botón Descanso > Otro… del modo minimalista)
+-- Duración del descanso a mano (botón Descanso > Otro… del Ayudante)
 StaticPopupDialogs["GUILDCONTROL_BREAK_MINUTES"] = {
     text = "%s",
     button1 = ACCEPT,

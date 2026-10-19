@@ -4,17 +4,21 @@ local L = addonTable.L
 addonTable.GuildConfig = {}
 local cfgModule = addonTable.GuildConfig
 
--- Ajustes de la hermandad que definen los oficiales y ven todos: el enlace de Discord y el
--- icono del encabezado. Se guardan en GuildControlDB.settings (discordLink, guildIcon y
+-- Ajustes de la hermandad que definen los oficiales y ven todos: el enlace de Discord, el
+-- icono del encabezado y las normas. Se guardan en GuildControlDB.settings (discordLink, guildIcon y
 -- guildConfigAt, la hora del servidor del último cambio) y se comparten con el prefijo
 -- GuildControlCfg en el canal de hermandad:
 --   "C;hora;icono;discord"  configuración (solo se acepta de oficiales y si es más reciente)
 --   "P;hora;1|0"            los jugadores pueden usar Invitar (settings.playerInvite, playerInviteAt)
+--   "R;hora;i;n;trozo"      normas (settings.guildRules, guildRulesAt), en n trozos de 200 bytes
 --   "Q"                     petición al entrar (responde un oficial con la suya)
 
 local PREFIX = "GuildControlCfg"
 local listeners = {}
 local replyTimer = nil
+local RULES_MAX = 1500        -- bytes de las normas
+local RULES_CHUNK = 200       -- bytes por mensaje (máximo 255 con la cabecera)
+local rulesParts = {}         -- trozos recibidos: [remitente .. hora] = { n, parts }
 
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
@@ -66,6 +70,52 @@ local function Send(msg)
     end
 end
 
+-- Normas: sin códigos de color y con un tope de bytes (sin cortar un carácter UTF-8)
+local function CleanRules(text)
+    text = string.gsub(tostring(text or ""), "|", "")
+    text = string.gsub(text, "\r", "")
+    text = strtrim(text)
+    if #text > RULES_MAX then
+        local cut = RULES_MAX
+        while cut > 0 and string.byte(text, cut + 1) and string.byte(text, cut + 1) >= 128 and string.byte(text, cut + 1) < 192 do
+            cut = cut - 1
+        end
+        text = string.sub(text, 1, cut)
+    end
+    return text
+end
+cfgModule.RULES_MAX = RULES_MAX
+
+-- Los saltos de línea viajan como "~n" (y "~" como "~t")
+local function EncodeRules(text)
+    return (string.gsub(string.gsub(text, "~", "~t"), "\n", "~n"))
+end
+local function DecodeRules(text)
+    return (string.gsub(text, "~(.)", function(c) return c == "n" and "\n" or (c == "t" and "~" or c) end))
+end
+
+-- Trozos de 200 bytes cada 0,3 s (sin partir un carácter UTF-8)
+local function SendRules()
+    local s = Settings()
+    if not (s.guildRulesAt and s.guildRulesAt > 0) then return end
+    local data = EncodeRules(s.guildRules or "")
+    local chunks, pos = {}, 1
+    repeat
+        local last = math.min(#data, pos + RULES_CHUNK - 1)
+        while last < #data and last > pos and string.byte(data, last + 1) >= 128 and string.byte(data, last + 1) < 192 do
+            last = last - 1
+        end
+        table.insert(chunks, string.sub(data, pos, last))
+        pos = last + 1
+    until pos > #data
+    local at = s.guildRulesAt
+    for i, chunk in ipairs(chunks) do
+        C_Timer.After((i - 1) * 0.3, function()
+            Send(table.concat({ "R", at, i, #chunks, chunk }, ";"))
+        end)
+    end
+end
+
 function cfgModule.Broadcast()
     local s = Settings()
     if s.guildConfigAt and s.guildConfigAt > 0 then
@@ -74,6 +124,22 @@ function cfgModule.Broadcast()
     if s.playerInviteAt and s.playerInviteAt > 0 then
         Send("P;" .. s.playerInviteAt .. ";" .. (s.playerInvite and "1" or "0"))
     end
+    SendRules()
+end
+
+function cfgModule.GetRules()
+    return Settings().guildRules or ""
+end
+
+-- Solo oficiales: cambia las normas y las envía a la hermandad
+function cfgModule.SetRules(text)
+    if not IsOfficer() then return false end
+    local s = Settings()
+    s.guildRules = CleanRules(text)
+    s.guildRulesAt = GetServerTime()
+    SendRules()
+    Notify()
+    return true
 end
 
 -- Solo oficiales: los jugadores pueden (o no) usar la pestaña Invitar
@@ -118,6 +184,35 @@ local function OnConfig(sender, msg)
     Notify()
 end
 
+local function OnRules(sender, msg)
+    if addonTable.Profiles and addonTable.Profiles.IsOfficerName and not addonTable.Profiles.IsOfficerName(sender) then return end
+    local _, at, index, count, chunk = strsplit(";", msg, 5)
+    at, index, count = tonumber(at), tonumber(index), tonumber(count)
+    local s = Settings()
+    if not (at and index and count) or count < 1 or count > 20 or index < 1 or index > count then return end
+    if at <= (s.guildRulesAt or 0) then return end
+    local key = sender .. ":" .. at
+    local entry = rulesParts[key]
+    if not entry then
+        entry = { n = count, parts = {} }
+        rulesParts[key] = entry
+        C_Timer.After(30, function() rulesParts[key] = nil end)
+    end
+    entry.parts[index] = chunk or ""
+    for i = 1, entry.n do
+        if not entry.parts[i] then return end
+    end
+    rulesParts[key] = nil
+    local text = CleanRules(DecodeRules(table.concat(entry.parts)))
+    local changed = text ~= (s.guildRules or "")
+    s.guildRulesAt = at
+    s.guildRules = text
+    Notify()
+    if changed and text ~= "" and addonTable.UI and addonTable.UI.ShowToast then
+        addonTable.UI.ShowToast(L["Las normas de la hermandad han cambiado. Míralas en el Resumen."], "Interface\\Icons\\INV_Misc_Note_01")
+    end
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CHAT_MSG_ADDON")
@@ -137,7 +232,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
     if msg == "Q" then
         -- Responde un solo oficial: el que espere menos; los demás se callan al ver su respuesta
-        if not IsOfficer() or replyTimer or not (Settings().guildConfigAt or Settings().playerInviteAt) then return end
+        if not IsOfficer() or replyTimer or not (Settings().guildConfigAt or Settings().playerInviteAt or Settings().guildRulesAt) then return end
         replyTimer = C_Timer.NewTimer(2 + math.random() * 4, function()
             replyTimer = nil
             cfgModule.Broadcast()
@@ -145,6 +240,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
     elseif string.sub(msg, 1, 2) == "C;" then
         if replyTimer then replyTimer:Cancel(); replyTimer = nil end
         OnConfig(fullSender, msg)
+    elseif string.sub(msg, 1, 2) == "R;" then
+        if replyTimer then replyTimer:Cancel(); replyTimer = nil end
+        OnRules(fullSender, msg)
     elseif string.sub(msg, 1, 2) == "P;" then
         if replyTimer then replyTimer:Cancel(); replyTimer = nil end
         if addonTable.Profiles and addonTable.Profiles.IsOfficerName and not addonTable.Profiles.IsOfficerName(fullSender) then return end

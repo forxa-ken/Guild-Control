@@ -6,13 +6,13 @@ local toolsModule = addonTable.RaidTools
 
 -- Herramientas de banda (sin frames): comprobación de listos, cuenta atrás de pull y buff
 -- check. Las marcas no están aquí: SetRaidTarget está protegida y se ponen con botones
--- seguros en UI.lua. La UI (modo minimalista y ventana de buffos) está en UI.lua.
+-- seguros en UI.lua. La UI (Ayudante y ventana de buffos) está en UI.lua.
 --
 -- Buff check: los buffos se leen de las auras de cada integrante (fuera de combate; en
 -- combate el juego puede ocultarlas). Lo que llevan en las bolsas (pociones, frascos, comida,
 -- runas o pergaminos) solo se sabe de quien usa GuildControl: al pedirlo, cada cliente cuenta
 -- sus bolsas y lo envía al grupo con el prefijo GuildControlBuff:
---   "Q"                                   petición (la manda quien pulsa Buff check)
+--   "Q"                                   petición (la manda quien pulsa Buff check en el Ayudante)
 --   "C;pociones;frascos;comida;runas"     respuesta de cada cliente
 -- Las respuestas se guardan en memoria (no en SavedVariables) en reports[Nombre-Reino].
 
@@ -95,7 +95,7 @@ function toolsModule.CancelPull()
 end
 
 -- Descanso: aviso de banda al empezar, a falta de 1 minuto y al terminar. La duración se elige
--- al pulsarlo en el modo minimalista; se recuerda la última (settings.breakMinutes, 5 por
+-- al pulsarlo en el Ayudante; se recuerda la última (settings.breakMinutes, 5 por
 -- defecto). CancelBreak lo corta.
 toolsModule.BREAK_DEFAULT, toolsModule.BREAK_MIN, toolsModule.BREAK_MAX = 5, 1, 60
 local breakTimers = {}

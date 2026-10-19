@@ -253,8 +253,12 @@ function newsModule.GetLatestJoins(count)
         if log.action == "ALTA" then
             local day = log.date and string.sub(log.date, 1, 10) or ""
             local y, mo, d = string.match(day, "^(%d+)-(%d+)-(%d+)$")
+            local m = GuildControlDB.members and GuildControlDB.members[log.name]
             table.insert(items, {
                 kind = "join",
+                fullName = log.name,
+                shortName = ShortName(log.name),
+                class = m and m.class,   -- sin clase si ya no está en la hermandad
                 icon = ICONS.join,
                 title = ShortName(log.name) .. L[" se ha unido a la hermandad"],
                 detail = L["|cFF00FF00Nuevo miembro|r"],
@@ -266,6 +270,16 @@ function newsModule.GetLatestJoins(count)
     table.sort(items, function(a, b) return (a.sortKey or "") > (b.sortKey or "") end)
     while #items > (count or LATEST_JOINS) do table.remove(items) end
     return items
+end
+
+-- Altas de los últimos días (para el banner de bienvenida)
+function newsModule.CountJoinsSince(days)
+    local limit = date("%Y-%m-%d %H:%M:%S", time() - days * 86400)
+    local n = 0
+    for _, log in ipairs(GuildControlDB.history or {}) do
+        if log.action == "ALTA" and (log.date or "") >= limit then n = n + 1 end
+    end
+    return n
 end
 
 -- =========================================================================
