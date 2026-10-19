@@ -1,5 +1,9 @@
 # GuildControl
 
+## 5.0.0-beta7
+
+- Corregido: la ventana no se abría (ni con `/gct` ni con el icono del minimapa) porque UI.lua pasaba del límite de 200 variables locales de Lua y el juego no lo cargaba.
+
 ## 5.0.0-beta6
 
 Mejoras traídas de GuildControl Forever:
