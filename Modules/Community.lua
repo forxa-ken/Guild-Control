@@ -120,20 +120,40 @@ local function SendPost(post)
     Send(LFG_PREFIX, table.concat({ "N", post.id, post.at, post.activity, post.slots, post.text, RolesToString(post.roles) }, ";"))
 end
 
--- Roles de mi grupo actual (yo incluido): el asignado en el grupo o, si no hay, el de Mi perfil
--- o el que fijó un oficial. Los de fuera de la hermandad sin rol cuentan como desconocidos.
+-- Miembro de la hermandad de una unidad del grupo. Primero por GUID (no depende del nombre,
+-- el apellido ni el reino), después mi propia clave y por último el nombre.
+local function MemberForUnit(unit)
+    local members = GuildControlDB.members or {}
+    local guid = UnitGUID(unit)
+    if guid and not (issecretvalue and issecretvalue(guid)) then
+        for _, m in pairs(members) do
+            if m.guid == guid then return m end
+        end
+    end
+    if UnitIsUnit(unit, "player") then return members[MyName()] end
+    local name, realm = UnitName(unit)
+    if not name or (issecretvalue and issecretvalue(name)) then return nil end
+    if realm and (issecretvalue and issecretvalue(realm)) then realm = nil end
+    return members[NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name)]
+end
+
+local ROLE_BY_NAME = { Tanque = "tank", Sanador = "healer", DPS = "dps" }
+
+-- Roles de mi grupo actual (yo incluido): el de Mi perfil o el que fijó un oficial; si no hay,
+-- el asignado en el grupo. Los de fuera de la hermandad sin rol cuentan como desconocidos.
 local function UnitRole(unit)
+    local m = MemberForUnit(unit)
+    if m and (m.roleSource == "declared" or m.roleSource == "officer") then
+        return ROLE_BY_NAME[m.role] or "dps"
+    end
+    -- Mi propio perfil (por si mi ficha de miembro todavía no lo tiene)
+    if UnitIsUnit(unit, "player") and type(GuildControlDB.myProfiles) == "table" then
+        local profile = GuildControlDB.myProfiles[MyName()]
+        if profile and ROLE_BY_NAME[profile.main] then return ROLE_BY_NAME[profile.main] end
+    end
     if UnitGroupRolesAssigned then
         local assigned = UnitGroupRolesAssigned(unit)
         if assigned == "TANK" then return "tank" elseif assigned == "HEALER" then return "healer" elseif assigned == "DAMAGER" then return "dps" end
-    end
-    local name, realm = UnitName(unit)
-    if not name or (issecretvalue and (issecretvalue(name) or issecretvalue(realm))) then return nil end
-    local m = GuildControlDB.members[NormalizeName(realm and realm ~= "" and (name .. "-" .. realm) or name)]
-    if m and (m.roleSource == "declared" or m.roleSource == "officer") then
-        if m.role == "Tanque" then return "tank" end
-        if m.role == "Sanador" then return "healer" end
-        return "dps"
     end
     return nil
 end
