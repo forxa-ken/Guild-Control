@@ -1,7 +1,8 @@
 # GuildControl
 
-## Sin publicar
+## 5.0.0
 
+- **Primera versión estable** (release) de GuildControl 5 para Retail: reúne todo lo de las betas 1 a 9.
 - Se quita **Buscar grupo**: el buscador de grupos del juego ya lo hace mejor (roles, puntuación, llaves y entre reinos). El grupo Comunidad del menú queda con Profesiones y Míticas+; los artesanos, los pedidos y los récords siguen igual. Los anuncios de grupo guardados se borran al entrar.
 
 ## 5.0.0-beta9
