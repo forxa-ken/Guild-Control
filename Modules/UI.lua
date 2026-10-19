@@ -57,6 +57,7 @@ local TAB_HELP_DKP = {
         .. "\n|cFF4080FFPrecios|r\n"
         .. "|cFFFFD100•|r Dependen del tipo de pieza y de la dificultad: Normal, Heroica o Mítica.\n"
         .. "|cFFFFD100•|r Para pedir una pieza de dificultad Mítica tienes que tener ahorrado un mínimo de DKP (20 por defecto). Así nadie se queda en negativo con su primera pieza.\n"
+        .. "|cFFFFD100•|r Solo puedes pedir un objeto si tienes los DKP de su precio (o de lo que cuesta como Off-spec).\n"
         .. "\n|cFFFF7F00Ten en cuenta|r\n"
         .. "|cFFFFD100•|r Cada semana los DKP bajan un poco (decay) para que nadie acumule demasiados.\n"
         .. "|cFFFFD100•|r Si hay empate de DKP, gana quien lleve más tiempo.\n"
@@ -8453,7 +8454,7 @@ function uiModule.ShowLootRollPopup(key)
     local dkp = LT.IsDkp()
     local fixed = dkp and LT.IsFixed()
     local auction = dkp and not fixed
-    for _, btn in pairs(frame.buttons) do btn:SetShown(not auction) end
+    for _, btn in pairs(frame.buttons) do btn:SetShown(not auction); btn:SetEnabled(true) end
     frame.bidInput:SetShown(auction)
     frame.bidButton:SetShown(auction)
     frame.bidPass:SetShown(auction)
@@ -8470,6 +8471,15 @@ function uiModule.ShowLootRollPopup(key)
         local ok, reason = D.CheckEligible(me, LT.GetItemTier(item))
         local warning = ok and "" or (reason == "gate" and L["\n|cFFFF3333Necesitas al menos "] .. D.GetSettings().gate .. L[" DKP para piezas de Mítica.|r"]
             or L["\n|cFFFF3333No llegas a la asistencia mínima.|r"])
+        -- Sin DKP para pagar, ese botón no se puede pulsar
+        local canNeed, canOff = LT.CanAfford(me, item, "need"), LT.CanAfford(me, item, "offspec")
+        frame.buttons.need:SetEnabled(canNeed)
+        frame.buttons.offspec:SetEnabled(canOff)
+        if ok and not canOff then
+            warning = L["\n|cFFFF3333No tienes DKP suficientes para pedirlo.|r"]
+        elseif ok and not canNeed then
+            warning = L["\n|cFFFF3333Solo te llega para Off-spec.|r"]
+        end
         frame.info:SetText(L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. L["|r   Precio: |cFFFFD100"] .. price .. "|r" .. winsText .. warning)
     elseif auction then
         local D = addonTable.Dkp
@@ -8968,7 +8978,8 @@ local function BuildLootView(parent)
                     row.cells.points:SetText(tostring(entry.points))
                 end
                 if entry.valid == false and entry.reason then
-                    row.cells.wins:SetText(entry.reason == "gate" and L["|cFFFF3333Mín. DKP|r"] or L["|cFFFF3333Asistencia|r"])
+                    row.cells.wins:SetText(entry.reason == "dkp" and L["|cFFFF3333Sin DKP|r"]
+                        or entry.reason == "gate" and L["|cFFFF3333Mín. DKP|r"] or L["|cFFFF3333Asistencia|r"])
                 else
                     row.cells.wins:SetText(entry.wins > 0 and ("|cFFFF7F00" .. L["Ya ganó "] .. entry.wins .. "|r") or "")
                 end

@@ -234,6 +234,16 @@ function lootModule.GetItemTier(item)
     return addonTable.Dkp and addonTable.Dkp.GetTier(item and item.difficultyID) or "normal"
 end
 
+-- Precio fijo: ¿le llegan los DKP para pagar lo que pide? (Main-spec el precio, Off-spec su %)
+-- Devuelve si puede y lo que pagaría.
+function lootModule.CanAfford(name, item, kind)
+    local D = addonTable.Dkp
+    if not D or not item then return true, 0 end
+    local price = lootModule.GetItemPrice(item)
+    local pay = kind == "offspec" and D.GetOffspecPrice(price) or price
+    return D.GetBalance(name) >= pay, pay
+end
+
 -- Un oficial cambia el precio (nil = volver al predeterminado). Si está en tirada se avisa al grupo.
 function lootModule.SetItemPrice(key, price)
     local item = lootModule.GetItem(key)
@@ -257,6 +267,7 @@ local function GetFixedList(item)
             local valid, reason = D.CheckEligible(name, tier)
             local balance = D.GetBalance(name)
             local pay = r.kind == "offspec" and D.GetOffspecPrice(price) or price
+            if valid and balance < pay then valid, reason = false, "dkp" end
             table.insert(list, { name = name, kind = r.kind, price = pay, roll = pay, balance = balance, points = balance,
                                  days = D.GetSeniorityDays(name), valid = valid, reason = reason,
                                  wins = lootModule.GetSessionWins(name) })
@@ -410,6 +421,13 @@ end
 function lootModule.Choose(key, kind)
     local item = lootModule.GetItem(key)
     if not item or item.state ~= "rolling" or not lootModule.KINDS[kind] or myChoice[key] then return end
+    if IsFixed() and (kind == "need" or kind == "offspec") then
+        local ok, pay = lootModule.CanAfford(MyName(), item, kind)
+        if not ok then
+            print("|cFF00FFFF[GuildControl]|r " .. string.format(L["|cFFFF3333No tienes DKP suficientes: cuesta %d y tienes %d.|r"], pay, addonTable.Dkp.GetBalance(MyName())))
+            return
+        end
+    end
     myChoice[key] = kind
     local me = MyName()
     item.rolls[me] = item.rolls[me] or {}
@@ -478,7 +496,8 @@ function lootModule.Award(key, winnerName)
         return nil
     end
     if IsFixed() and not winner.valid then
-        print("|cFF00FFFF[GuildControl]|r " .. (winner.reason == "gate" and L["|cFFFF3333No llega al mínimo de DKP para piezas de Mítica.|r"]
+        print("|cFF00FFFF[GuildControl]|r " .. (winner.reason == "dkp" and L["|cFFFF3333No tiene DKP suficientes para pagarlo.|r"]
+            or winner.reason == "gate" and L["|cFFFF3333No llega al mínimo de DKP para piezas de Mítica.|r"]
             or L["|cFFFF3333No llega a la asistencia mínima.|r"]))
         return nil
     end
@@ -679,6 +698,8 @@ local function OnAddonMessage(msg, channel, sender)
                 bid = math.floor(tonumber(amount) or 0)
                 local D = addonTable.Dkp
                 if bid <= 0 or bid < lootModule.GetMinBid(item) or (D and bid > D.GetBalance(fullSender)) then return end
+            elseif IsFixed() and (choice == "need" or choice == "offspec") and not lootModule.CanAfford(fullSender, item, choice) then
+                return   -- precio fijo: no le llegan los DKP para pagarlo
             end
             item.rolls[fullSender] = item.rolls[fullSender] or {}
             item.rolls[fullSender].kind = choice
