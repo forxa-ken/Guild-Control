@@ -584,7 +584,7 @@ function addonTable.ScanGuildRosterForChanges()
             -- Años, meses y días desde la última conexión (antes solo se miraban los días)
             local years, months, days, hours = GetGuildRosterLastOnline(i)
             days = (years or 0) * 365 + (months or 0) * 30 + (days or 0)
-            -- Horas desconectado (Buscar grupo: los anuncios de quien lleva fuera más de 30 min caducan)
+            -- Horas desconectado
             local offlineHours = days * 24 + (hours or 0)
             local isReallyOnline = (online == true or online == 1 or online == "true")
             local lastOnlineStr = "Online"

@@ -81,12 +81,12 @@ local SIDEBAR_TABS = {
     { tabs = { "Resumen" } },
     { name = "General", tabs = { "Miembros", "Favoritos", "Logros" } },
     { name = "Banda", tabs = { "Raid", "Roster", "Botín" } },
-    { name = "Comunidad", tabs = { "Comunidad", "Profesiones", "Míticas+" } },
+    { name = "Comunidad", tabs = { "Profesiones", "Míticas+" } },
     { name = "Personal", tabs = { "Mi perfil", "Para mí" } },
     { name = "Gestión", tabs = { "Warning", "Invitar", "Black list" } },
 }
 -- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
-local TAB_LABELS = { ["Para mí"] = "Mi diario", ["Comunidad"] = "Buscar grupo" }
+local TAB_LABELS = { ["Para mí"] = "Mi diario" }
 
 -- Shift+clic en un objeto (bolsas, chat, enlaces): el juego llama a la función de insertar
 -- enlaces en el chat. Forever usa la moderna (ChatFrameUtil.InsertLink) y quizá también la
@@ -2266,7 +2266,7 @@ local function BuildRosterView(parent)
         end
     end)
 
-    dropDifficulty:Hide()   -- Classic: una sola dificultad
+    dropDifficulty:Hide()   -- la dificultad la da la banda de Raid
 
     local sizeLabel = criteria:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sizeLabel:SetPoint("LEFT", criteria, "LEFT", 12, 0)
@@ -12164,7 +12164,7 @@ local function BuildForMeView(parent)
 end
 
 -- =========================================================================
--- 10d. VISTA COMUNIDAD: BUSCAR GRUPO, RÉCORDS Y ARTESANOS
+-- 10d. RÉCORDS Y DIARIO DEL RESUMEN
 -- =========================================================================
 -- Texto de las subpestañas Récords y Diario del Resumen (antes en Comunidad).
 -- mode = "records" o "journal" (Journal.lua: recuerdos que no se borran)
@@ -12215,295 +12215,6 @@ function uiModule.RecordsJournalText(mode)
     return table.concat(lines, "\n")
 end
 
-local function BuildCommunityView(parent)
-    local C = addonTable.Community
-    local PM = addonTable.Personal
-    local view = CreateFrame("Frame", nil, parent)
-    view:SetAllPoints()
-    view:Hide()
-    local Refresh
-    local activity = "mplus"
-
-    -- 1. Buscar grupo --------------------------------------------------------
-    local lfgBox = CreateColoredPanel(view, L["Buscar grupo"], PANEL_COLORS.blue, 880, 506)
-    lfgBox:SetPoint("TOPLEFT", view, "TOPLEFT", 10, -10)
-
-    local dropActivity = CreateFrame("DropdownButton", "GC_CommunityActivity", lfgBox, "WowStyle1DropdownTemplate")
-    dropActivity:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 12, -32)
-    dropActivity:SetWidth(130)
-    dropActivity:SetupMenu(function(_, root)
-        for _, a in ipairs(C.ACTIVITIES) do
-            local key = a.key
-            root:CreateRadio(L[a.label], function() return activity == key end, function()
-                activity = key
-                dropActivity:SetText(L[a.label])
-            end)
-        end
-    end)
-    dropActivity:SetText(L["Míticas+"])
-
-    local slotsLabel = lfgBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    slotsLabel:SetPoint("LEFT", dropActivity, "RIGHT", 12, 0)
-    slotsLabel:SetText(L["Plazas:"])
-    local slotsInput = CreateFrame("EditBox", nil, lfgBox, "InputBoxTemplate")
-    slotsInput:SetSize(34, 20)
-    slotsInput:SetPoint("LEFT", slotsLabel, "RIGHT", 8, 0)
-    slotsInput:SetAutoFocus(false)
-    slotsInput:SetNumeric(true)
-    slotsInput:SetMaxLetters(2)
-    slotsInput:SetText("4")
-    slotsInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
-    -- Roles que se buscan (al menos uno; por defecto los tres)
-    local lfgRoles = { tank = true, healer = true, dps = true }
-    local roleChecks = {}
-    local previousCheck = slotsInput
-    for _, role in ipairs({ "tank", "healer", "dps" }) do
-        local chk = CreateFrame("CheckButton", nil, lfgBox, "UICheckButtonTemplate")
-        chk:SetSize(22, 22)
-        chk:SetPoint("LEFT", previousCheck, "RIGHT", previousCheck == slotsInput and 10 or 26, 0)
-        chk:SetChecked(true)
-        chk.icon = chk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        chk.icon:SetPoint("LEFT", chk, "RIGHT", 0, 0)
-        chk.icon:SetText(RoleIcon(role, 16))
-        chk:SetScript("OnClick", function(self)
-            lfgRoles[role] = self:GetChecked() and true or nil
-            if not next(lfgRoles) then lfgRoles[role] = true; self:SetChecked(true) end
-        end)
-        chk:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText(L["Se busca: "] .. L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role]], 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        chk:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        roleChecks[role] = chk
-        previousCheck = chk
-    end
-
-    local textInput = CreateFrame("EditBox", nil, lfgBox, "InputBoxTemplate")
-    textInput:SetSize(300, 20)
-    textInput:SetPoint("TOPLEFT", dropActivity, "BOTTOMLEFT", 6, -10)
-    textInput:SetAutoFocus(false)
-    textInput:SetMaxLetters(120)
-    textInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    local textPlaceholder = textInput:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    textPlaceholder:SetPoint("LEFT", textInput, "LEFT", 2, 0)
-    textPlaceholder:SetText(L["Ej.: Busco tanque y sanador para +12"])
-    textInput:SetScript("OnTextChanged", function(self) textPlaceholder:SetShown((self:GetText() or "") == "") end)
-    local btnPublish = CreateFrame("Button", nil, lfgBox, "UIPanelButtonTemplate")
-    btnPublish:SetSize(90, 22)
-    btnPublish:SetPoint("LEFT", textInput, "RIGHT", 8, 0)
-    btnPublish:SetText(L["Publicar"])
-    -- Anunciarlo también en el chat de hermandad (para quien no usa GuildControl)
-    local chkAnnounce = CreateFrame("CheckButton", nil, lfgBox, "UICheckButtonTemplate")
-    chkAnnounce:SetSize(22, 22)
-    chkAnnounce:SetPoint("TOPLEFT", textInput, "BOTTOMLEFT", -6, -4)
-    chkAnnounce.text = chkAnnounce:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    chkAnnounce.text:SetPoint("LEFT", chkAnnounce, "RIGHT", 2, 0)
-    chkAnnounce.text:SetText(L["Anunciarlo también en el chat de hermandad"])
-    chkAnnounce:SetScript("OnShow", function(self) self:SetChecked(GuildControlDB.settings.lfgAnnounce == true) end)
-    chkAnnounce:SetScript("OnClick", function(self) GuildControlDB.settings.lfgAnnounce = self:GetChecked() and true or false end)
-
-    local function Publish()
-        local post = C.CreatePost(activity, slotsInput:GetText(), textInput:GetText(), lfgRoles)
-        if post then
-            if GuildControlDB.settings.lfgAnnounce and C.AnnouncePost then C.AnnouncePost(post.id) end
-            textInput:SetText("")
-            textInput:ClearFocus()
-        end
-    end
-    btnPublish:SetScript("OnClick", Publish)
-    textInput:SetScript("OnEnterPressed", Publish)
-
-    -- Filtro por actividad (en la franja del título)
-    local lfgFilter = "all"
-    local btnFilter = CreateFrame("Button", nil, lfgBox, "UIPanelButtonTemplate")
-    btnFilter:SetSize(150, 18)
-    btnFilter:SetPoint("TOPRIGHT", lfgBox, "TOPRIGHT", -6, -4)
-    local function FilterLabel()
-        return L["Ver: "] .. (lfgFilter == "all" and L["Todas"] or L[C.ACTIVITY_LABELS[lfgFilter] or "Otro"])
-    end
-    btnFilter:SetText(FilterLabel())
-    btnFilter:SetScript("OnClick", function(self)
-        MenuUtil.CreateContextMenu(self, function(_, root)
-            root:CreateRadio(L["Todas"], function() return lfgFilter == "all" end, function()
-                lfgFilter = "all"; btnFilter:SetText(FilterLabel()); Refresh()
-            end)
-            for _, a in ipairs(C.ACTIVITIES) do
-                local key = a.key
-                root:CreateRadio(L[a.label], function() return lfgFilter == key end, function()
-                    lfgFilter = key; btnFilter:SetText(FilterLabel()); Refresh()
-                end)
-            end
-        end)
-    end)
-
-    local lfgScroll = CreateFrame("ScrollFrame", nil, lfgBox, "UIPanelScrollFrameTemplate")
-    lfgScroll:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 8, -122)
-    lfgScroll:SetPoint("BOTTOMRIGHT", lfgBox, "BOTTOMRIGHT", -28, 8)
-    local lfgChild = CreateFrame("Frame")
-    lfgChild:SetSize(840, 1)
-    lfgScroll:SetScrollChild(lfgChild)
-    local lfgEmpty = lfgBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lfgEmpty:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 14, -128)
-    lfgEmpty:SetWidth(840)
-    lfgEmpty:SetJustifyH("LEFT")
-    lfgEmpty:SetText(L["No hay grupos abiertos. Publica uno arriba: lo verán todos los que usan GuildControl y podrán apuntarse con un clic. Los anuncios duran 2 horas."])
-    local postRows = {}
-    local function AcquirePostRow(index)
-        local row = postRows[index]
-        if row then return row end
-        row = CreateFrame("Frame", nil, lfgChild)
-        row:SetSize(840, 66)
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetAllPoints()
-        row.bg:SetColorTexture(1, 1, 1, 0.04)
-        row.head = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        row.head:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -5)
-        row.head:SetPoint("RIGHT", row, "RIGHT", -96, 0)
-        row.head:SetJustifyH("LEFT")
-        row.head:SetWordWrap(false)
-        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.text:SetPoint("TOPLEFT", row.head, "BOTTOMLEFT", 0, -3)
-        row.text:SetPoint("RIGHT", row, "RIGHT", -96, 0)
-        row.text:SetJustifyH("LEFT")
-        row.text:SetMaxLines(3)
-        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        row.button:SetSize(86, 20)
-        row.button:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -5)
-        row.button2 = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-        row.button2:SetSize(86, 20)
-        row.button2:SetPoint("TOP", row.button, "BOTTOM", 0, -2)
-        postRows[index] = row
-        return row
-    end
-
-
-    Refresh = function()
-        if not view:IsShown() or not C then return end
-        local me = addonTable.Profiles and addonTable.Profiles.GetMyFullName() or UnitName("player")
-
-        -- Grupos
-        for _, row in ipairs(postRows) do row:Hide() end
-        -- Con el filtro: solo la actividad elegida (los míos siempre se ven)
-        local posts = {}
-        for _, post in ipairs(C.GetPosts()) do
-            if lfgFilter == "all" or post.activity == lfgFilter or post.author == me then table.insert(posts, post) end
-        end
-        local now = GetServerTime()
-        for i, post in ipairs(posts) do
-            local row = AcquirePostRow(i)
-            row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 70)
-            local count = C.CountMembers(post)
-            local mineIn = post.members[me]
-            local full = count >= post.slots
-            -- Roles que se buscan, con cuántos se han apuntado a cada uno
-            local wanted, wantedIcons = {}, ""
-            local byRole = {}
-            for _, role in pairs(post.members) do
-                if type(role) == "string" then byRole[role] = (byRole[role] or 0) + 1 end
-            end
-            for _, role in ipairs(C.ROLES or {}) do
-                if not post.roles or post.roles[role] then
-                    table.insert(wanted, role)
-                    wantedIcons = wantedIcons .. RoleIcon(role, 14) .. "|cFFFFFFFF" .. (byRole[role] or 0) .. "|r "
-                end
-            end
-            local minutes = math.max(0, math.floor((now - (post.at or now)) / 60))
-            local status = full and ("|cFF00FF00" .. L["Completo"] .. "|r") or ("|cFF808080" .. count .. "/" .. post.slots .. "|r")
-            if C.IsAuthorOnline and not C.IsAuthorOnline(post) then
-                status = status .. "  |cFFFF7F00" .. L["(autor desconectado)"] .. "|r"
-            end
-            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. ColoredName(post.author)
-                .. "  |cFF808080" .. string.format(L["hace %d min"], minutes) .. "  ·|r  " .. status)
-            row.bg:SetColorTexture(full and 0.3 or 1, 1, full and 0.3 or 1, full and 0.06 or 0.04)
-            -- Solicitudes: aceptadas (con marca) y pendientes (en gris)
-            local joined, pending = {}, {}
-            for name, role in pairs(post.members) do
-                local accepted = C.IsAccepted and C.IsAccepted(post, name)
-                if not accepted then table.insert(pending, name) end
-                table.insert(joined, (type(role) == "string" and RoleIcon(role, 12) or "") .. ColoredName(name)
-                    .. (accepted and " |TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t" or (" |cFF808080" .. L["(pendiente)"] .. "|r")))
-            end
-            table.sort(joined)
-            -- Roles que ya hay en el grupo del autor
-            local haveLine = ""
-            if post.have then
-                haveLine = "\n|cFF808080" .. L["En el grupo: "] .. "|r" .. RoleIcon("tank", 12) .. post.have.tank .. "  "
-                    .. RoleIcon("healer", 12) .. post.have.healer .. "  " .. RoleIcon("dps", 12) .. post.have.dps
-                    .. ((post.have.unknown or 0) > 0 and ("  |cFF808080" .. string.format(L["%d sin rol"], post.have.unknown) .. "|r") or "")
-            end
-            row.text:SetText(post.text .. haveLine .. (#joined > 0 and ("\n|cFF808080" .. L["Solicitudes: "] .. "|r" .. table.concat(joined, ", ")) or ""))
-            row.button2:Hide()
-            row.button:SetEnabled(true)
-            if post.author == me then
-                row.button:SetText(L["Cerrar"])
-                row.button:SetScript("OnClick", function() C.ClosePost(post.id) end)
-                -- Con solicitudes pendientes: invitarlas todas; si no, anunciarlo en la hermandad
-                row.button2:Show()
-                if #pending > 0 then
-                    row.button2:SetText(string.format(L["Invitar (%d)"], #pending))
-                    row.button2:SetScript("OnClick", function()
-                        for _, name in ipairs(pending) do C.AcceptJoin(post.id, name) end
-                    end)
-                else
-                    row.button2:SetText(L["Anunciar"])
-                    row.button2:SetScript("OnClick", function() if C.AnnouncePost then C.AnnouncePost(post.id) end end)
-                end
-            elseif mineIn then
-                -- Pendiente: se puede cancelar la solicitud; aceptado: salir
-                local accepted = C.IsAccepted and C.IsAccepted(post, me)
-                row.button:SetText(accepted and L["Salir"] or L["Cancelar"])
-                row.button:SetScript("OnClick", function() C.Leave(post.id) end)
-                row.button2:SetText(L["Susurrar"])
-                row.button2:Show()
-                row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
-            else
-                local authorOnline = not C.IsAuthorOnline or C.IsAuthorOnline(post)
-                row.button:SetText(not authorOnline and L["Desconectado"] or (full and L["Completo"] or L["Me apunto"]))
-                row.button:SetEnabled(not full and authorOnline)
-                -- Con un solo rol buscado se apunta directamente; con varios se elige
-                row.button:SetScript("OnClick", function(self)
-                    -- Solo los roles buscados que puede llevar mi clase
-                    local mine = {}
-                    for _, role in ipairs(wanted) do
-                        if not addonTable.CanRole or addonTable.CanRole(me, role) then table.insert(mine, role) end
-                    end
-                    if #mine == 0 then
-                        PrintGC(L["|cFFFF3333Este grupo busca roles que tu clase no puede llevar.|r"])
-                        return
-                    end
-                    if #mine == 1 then
-                        C.Join(post.id, mine[1])
-                        return
-                    end
-                    MenuUtil.CreateContextMenu(self, function(_, root)
-                        root:CreateTitle(L["¿Con qué rol vas?"])
-                        for _, role in ipairs(mine) do
-                            root:CreateButton(RoleIcon(role, 14) .. " " .. L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role]],
-                                function() C.Join(post.id, role) end)
-                        end
-                    end)
-                end)
-                row.button2:SetText(L["Susurrar"])
-                row.button2:Show()
-                row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
-            end
-            row:Show()
-        end
-        lfgChild:SetHeight(math.max(1, #posts * 70))
-        lfgEmpty:SetShown(#posts == 0)
-
-    end
-
-
-    if C then C.AddListener(function() Refresh() end) end
-    -- "hace N min" y anuncios caducados: se actualiza cada minuto mientras se ve
-    C_Timer.NewTicker(60, function() if view:IsVisible() then Refresh() end end)
-    view:SetScript("OnShow", Refresh)
-    containers.views["Comunidad"] = view
-end
-
 -- =========================================================================
 -- CONSTRUCCIÓN TOTAL DE LA UI
 -- =========================================================================
@@ -12534,7 +12245,6 @@ function uiModule.CreateUI()
     BuildMembersView(mainContent)
     BuildFavoritesView(mainContent)
     BuildForMeView(mainContent)
-    BuildCommunityView(mainContent)
     BuildAchievementsView(mainContent)
     BuildMyProfileView(mainContent)
     BuildMyRostersView(mainContent)
@@ -13471,33 +13181,6 @@ function uiModule.ShowOrderDialog(crafter, recipeID, recipeName)
     f:Show()
     f:Raise()
     f.note:SetFocus()
-end
-
--- Solicitud para unirse a un grupo de Buscar grupo (le sale al autor): Invitar o Rechazar.
--- Escape no la cierra, para no rechazar sin querer.
-StaticPopupDialogs["GUILDCONTROL_LFG_REQUEST"] = {
-    text = "%s",
-    button1 = L["Invitar"],
-    button2 = L["Rechazar"],
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = false,
-    multiple = 1,
-    OnAccept = function(_, data)
-        if data and addonTable.Community then addonTable.Community.AcceptJoin(data.id, data.name) end
-    end,
-    OnCancel = function(_, data, reason)
-        if reason == "clicked" and data and addonTable.Community then addonTable.Community.DeclineJoin(data.id, data.name) end
-    end,
-}
-
-function uiModule.ShowJoinRequest(id, name, role)
-    local roleName = L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role] or "DPS"]
-    local short = string.match(name, "^([^-]+)") or name
-    local popup = StaticPopup_Show("GUILDCONTROL_LFG_REQUEST",
-        string.format(L["%s quiere unirse a tu grupo como %s."], RoleIcon(role, 14) .. " |cFFFFD100" .. short .. "|r", roleName))
-    if popup then popup.data = { id = id, name = name } end
-    PlaySound(SOUNDKIT and SOUNDKIT.READY_CHECK or 8960)
 end
 
 -- Duración del descanso a mano (botón Descanso > Otro… del Ayudante)

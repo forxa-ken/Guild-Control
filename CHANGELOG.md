@@ -1,5 +1,9 @@
 # GuildControl
 
+## Sin publicar
+
+- Se quita **Buscar grupo**: el buscador de grupos del juego ya lo hace mejor (roles, puntuación, llaves y entre reinos). El grupo Comunidad del menú queda con Profesiones y Míticas+; los artesanos, los pedidos y los récords siguen igual. Los anuncios de grupo guardados se borran al entrar.
+
 ## 5.0.0-beta9
 
 - **Resumen**: **normas de la hermandad**. Los oficiales las escriben en Configuración > Normas de la hermandad y llegan a todos (aviso al cambiar) y se leen con el botón **Normas** del Resumen. «Ahora en la hermandad» dice cuántos conectados no tienen rol y qué roles hay conectados; «Esta semana» lleva la calavera en los jefes y las altas y bajas como insignias de color; sin bandas próximas, «Para ti» resume tu personaje (clase, nivel, especialización, rol, rango y DKP o +1). Las altas llevan el icono y el color de su clase bajo un banner con el icono de la hermandad.
