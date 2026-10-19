@@ -57,6 +57,7 @@ function boardModule.Get(key)
     return board
 end
 
+local PushOp, EncodeItem   -- en vivo (se definen más abajo)
 local listeners = {}
 function boardModule.AddListener(fn) table.insert(listeners, fn) end
 local function Notify(key) for _, fn in ipairs(listeners) do fn(key) end end
@@ -86,6 +87,8 @@ function boardModule.AddItem(key, item)
         return false
     end
     table.insert(board.items, item)
+    local op = EncodeItem(item)
+    if op then PushOp(key, op) end
     Touch(key)
     return true
 end
@@ -94,12 +97,14 @@ function boardModule.RemoveItem(key, index)
     local board = boardModule.Get(key)
     if not board.items[index] then return end
     table.remove(board.items, index)
+    PushOp(key, "R," .. index)
     Touch(key)
 end
 
 function boardModule.Undo(key)
     local board = boardModule.Get(key)
     if #board.items == 0 then return end
+    PushOp(key, "R," .. #board.items)
     table.remove(board.items)
     Touch(key)
 end
@@ -107,6 +112,7 @@ end
 function boardModule.Clear(key)
     local board = boardModule.Get(key)
     wipe(board.items)
+    PushOp(key, "C")
     Touch(key)
 end
 
@@ -148,16 +154,81 @@ function boardModule.CanShow()
     return UnitIsGroupLeader("player") or (IsInRaid() and UnitIsGroupAssistant("player")) or IsOfficer()
 end
 
+-- Cola de envío en orden. Si el juego frena los mensajes (límite por prefijo), el mensaje se
+-- queda y se reintenta en el siguiente turno.
 local sendQueue, sendTicker = {}, nil
 local function ProcessQueue()
-    local item = table.remove(sendQueue, 1)
+    local item = sendQueue[1]
     if not item then
         if sendTicker then sendTicker:Cancel() end
         sendTicker = nil
         return
     end
-    pcall(C_ChatInfo.SendAddonMessage, PREFIX, item.msg, item.channel)
+    local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, item.msg, item.channel)
+    local sent = ok and (result == nil or result == true or result == 0
+        or (Enum and Enum.SendAddonMessageResult and result == Enum.SendAddonMessageResult.Success))
+    item.tries = (item.tries or 0) + 1
+    if sent or item.tries > 40 then table.remove(sendQueue, 1) end
 end
+
+local function Queue(msg, channel)
+    table.insert(sendQueue, { channel = channel, msg = msg })
+    if not sendTicker then sendTicker = C_Timer.NewTicker(SEND_INTERVAL, ProcessQueue) end
+end
+
+-- =========================================================================
+-- EN VIVO
+-- =========================================================================
+-- Quien enseña la pizarra puede ponerla en vivo: primero manda la pizarra entera y después
+-- cada cambio (cada medio segundo se juntan en un mensaje). Los demás la ven moverse y no
+-- pueden tocarla mientras dura. Si a alguien le falta un mensaje, pide la pizarra entera.
+--   "O<n>;op~op~..."   cambios (n = número de envío): "A,m,x,y,v" "A,r,x,y,v" "A,t,x,y,texto"
+--                      "A,s,color,x,y" (añadir), "P,i,x,y,x,y..." (puntos al trazo i),
+--                      "R,i" (quitar), "M,i,x,y" (mover), "C" (limpiar)
+--   "E"                fin del directo        "G"   alguien pide la pizarra entera
+local live = { key = nil, seq = 0, ops = {}, flushTimer = nil, lastResync = 0 }
+local watching = nil   -- { sender, short, key, seq } cuando veo el directo de otro
+
+function boardModule.IsLive() return live.key ~= nil end
+function boardModule.GetWatching() return watching end
+
+local function FlushOps()
+    live.flushTimer = nil
+    if not live.key or #live.ops == 0 then return end
+    local channel = GroupChannel()
+    if not channel then wipe(live.ops); return end
+    -- Mensajes de 240 bytes como mucho: si no caben, se reparten en varios
+    local batch, size = {}, 0
+    local function Send()
+        if #batch == 0 then return end
+        live.seq = live.seq + 1
+        Queue("O" .. live.seq .. ";" .. table.concat(batch, "~"), channel)
+        batch, size = {}, 0
+    end
+    for _, op in ipairs(live.ops) do
+        if size + #op + 1 > 230 then Send() end
+        table.insert(batch, op)
+        size = size + #op + 1
+    end
+    Send()
+    wipe(live.ops)
+end
+
+PushOp = function(key, op)
+    if live.key ~= key then return end
+    table.insert(live.ops, op)
+    if not live.flushTimer then live.flushTimer = C_Timer.NewTimer(0.5, FlushOps) end
+end
+
+EncodeItem = function(item)
+    if item.k == "m" or item.k == "r" then return "A," .. item.k .. "," .. item.x .. "," .. item.y .. "," .. item.v end
+    if item.k == "t" then return "A,t," .. item.x .. "," .. item.y .. "," .. string.gsub(item.v, "[~;|]", "") end
+    if item.k == "s" then return "A,s," .. item.c .. "," .. item.p end
+end
+
+-- Para la ventana: avisar de un cambio en vivo (mover y puntos nuevos de un trazo)
+function boardModule.LiveMove(key, index, x, y) PushOp(key, "M," .. index .. "," .. x .. "," .. y) end
+function boardModule.LivePoints(key, index, points) PushOp(key, "P," .. index .. "," .. points) end
 
 function boardModule.ShowToGroup(key, title)
     local channel = GroupChannel()
@@ -171,17 +242,59 @@ function boardModule.ShowToGroup(key, title)
     end
     local R = addonTable.Roster
     if not (R and R.SerializeTable) then return false end
-    local data = R.SerializeTable({ key = key, title = title, items = boardModule.Get(key).items })
-    wipe(sendQueue)
+    -- Los cambios pendientes van antes: así la pizarra entera llega ya con ellos
+    if live.key then
+        if live.flushTimer then live.flushTimer:Cancel() end
+        FlushOps()
+    end
+    local isLive = live.key == key
+    local data = R.SerializeTable({ key = key, title = title, items = boardModule.Get(key).items,
+        live = isLive or nil, seq = isLive and live.seq or nil })
+    -- Una pizarra entera nueva sustituye a la que estuviera a medio enviar
+    for i = #sendQueue, 1, -1 do
+        if string.sub(sendQueue[i].msg, 1, 1) == "D" then table.remove(sendQueue, i) end
+    end
     local msgId = tostring(math.random(100000, 999999))
     local total = math.ceil(#data / CHUNK_BYTES)
     for i = 1, total do
-        table.insert(sendQueue, { channel = channel,
-            msg = "D" .. msgId .. ":" .. i .. ":" .. total .. ":" .. string.sub(data, (i - 1) * CHUNK_BYTES + 1, i * CHUNK_BYTES) })
+        Queue("D" .. msgId .. ":" .. i .. ":" .. total .. ":" .. string.sub(data, (i - 1) * CHUNK_BYTES + 1, i * CHUNK_BYTES), channel)
     end
-    if not sendTicker then sendTicker = C_Timer.NewTicker(SEND_INTERVAL, ProcessQueue) end
-    PrintGC(string.format(L["Enseñando la pizarra a tu grupo (%d mensajes)."], total))
+    if not isLive then PrintGC(string.format(L["Enseñando la pizarra a tu grupo (%d mensajes)."], total)) end
     return true
+end
+
+-- Empieza o termina el directo de la pizarra que tengo abierta
+function boardModule.StartLive(key, title)
+    if not boardModule.CanShow() then
+        PrintGC(L["|cFFFF3333Solo el líder, un ayudante o un oficial pueden enseñar la pizarra.|r"])
+        return false
+    end
+    live.key, live.seq = key, 0
+    wipe(live.ops)
+    boardModule.ShowToGroup(key, title)
+    PrintGC(L["Pizarra |cFFFF3333en vivo|r: tu grupo ve cada cambio que hagas."])
+    Notify(key)
+    return true
+end
+
+function boardModule.StopLive()
+    if not live.key then return end
+    local key = live.key
+    if live.flushTimer then live.flushTimer:Cancel() end
+    FlushOps()
+    live.key = nil
+    local channel = GroupChannel()
+    if channel then Queue("E", channel) end
+    PrintGC(L["Fin del directo de la pizarra."])
+    Notify(key)
+end
+
+-- Cambiar de jefe en vivo: el grupo pasa a ver la nueva pizarra
+function boardModule.FollowLive(key, title)
+    if not live.key or live.key == key then return end
+    live.key = key
+    wipe(live.ops)
+    boardModule.ShowToGroup(key, title)
 end
 
 -- Limpieza de lo recibido: solo campos conocidos y dentro de los límites
@@ -242,21 +355,109 @@ local function OnChunk(sender, msg)
     board.items = SanitizeItems(payload.items)
     board.at = GetServerTime()
     board.from = string.match(sender, "^([^-]+)") or sender
+    -- En vivo: a partir de aquí llegan solo los cambios
+    local wasWatching = watching and watching.sender == sender and watching.key == payload.key
+    if payload.live then
+        watching = { sender = sender, short = board.from, key = payload.key, seq = tonumber(payload.seq) or 0 }
+    elseif watching and watching.sender == sender then
+        watching = nil
+    end
     Notify(payload.key)
     if boardModule.Open then
         boardModule.Open(payload.key)
-        PrintGC(string.format(L["%s te enseña la pizarra: %s"], board.from, type(payload.title) == "string" and string.sub(payload.title, 1, 60) or payload.key))
+        if not wasWatching then
+            PrintGC(string.format(payload.live and L["%s te enseña la pizarra en vivo: %s"] or L["%s te enseña la pizarra: %s"],
+                board.from, type(payload.title) == "string" and string.sub(payload.title, 1, 60) or payload.key))
+        end
     end
+end
+
+-- Aplica los cambios en vivo de quien enseña la pizarra
+local lastResyncRequest = 0
+local function OnOps(sender, msg)
+    if not watching or watching.sender ~= sender then return end
+    local seq, ops = string.match(msg, "^O(%d+);(.*)$")
+    seq = tonumber(seq)
+    if not seq or seq <= watching.seq then return end
+    if seq ~= watching.seq + 1 then
+        -- Falta algún cambio: se pide la pizarra entera (como mucho cada 5 s)
+        if GetTime() - lastResyncRequest > 5 and GroupChannel() then
+            lastResyncRequest = GetTime()
+            pcall(C_ChatInfo.SendAddonMessage, PREFIX, "G", GroupChannel())
+        end
+        return
+    end
+    watching.seq = seq
+    local items = boardModule.Get(watching.key).items
+    for op in string.gmatch(ops, "[^~]+") do
+        local kind = string.sub(op, 1, 1)
+        if kind == "A" then
+            local itemKind, rest = string.match(op, "^A,(%a),(.*)$")
+            local clean
+            if itemKind == "m" or itemKind == "r" then
+                local x, y, v = string.match(rest or "", "^(%d+),(%d+),(%w+)$")
+                clean = SanitizeItems({ { k = itemKind, x = x, y = y, v = itemKind == "m" and tonumber(v) or v } })[1]
+            elseif itemKind == "t" then
+                local x, y, text = string.match(rest or "", "^(%d+),(%d+),(.*)$")
+                clean = SanitizeItems({ { k = "t", x = x, y = y, v = text } })[1]
+            elseif itemKind == "s" then
+                local c, points = string.match(rest or "", "^(%d+),([%d,]+)$")
+                clean = SanitizeItems({ { k = "s", c = c, p = points } })[1]
+            end
+            if clean and #items < MAX_ITEMS then table.insert(items, clean) end
+        elseif kind == "P" then
+            local index, points = string.match(op, "^P,(%d+),([%d,]+)$")
+            local item = items[tonumber(index) or 0]
+            if item and item.k == "s" and #item.p < 12000 then item.p = item.p .. "," .. points end
+        elseif kind == "R" then
+            local index = tonumber(string.match(op, "^R,(%d+)$"))
+            if index and items[index] then table.remove(items, index) end
+        elseif kind == "M" then
+            local index, x, y = string.match(op, "^M,(%d+),(%d+),(%d+)$")
+            local item = items[tonumber(index) or 0]
+            if item and item.k ~= "s" then item.x, item.y = Clamp(x), Clamp(y) end
+        elseif kind == "C" then
+            wipe(items)
+        end
+    end
+    Notify(watching.key)
 end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
-eventFrame:SetScript("OnEvent", function(_, _, prefix, msg, channel, sender)
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+eventFrame:SetScript("OnEvent", function(_, event, prefix, msg, channel, sender)
+    if event == "GROUP_ROSTER_UPDATE" then
+        -- Sin grupo no hay directo
+        if not GroupChannel() then
+            if live.key then local key = live.key; live.key = nil; Notify(key) end
+            if watching then local key = watching.key; watching = nil; Notify(key) end
+        end
+        return
+    end
     if prefix ~= PREFIX or type(msg) ~= "string" or not sender or not GuildControlDB then return end
     if channel ~= "RAID" and channel ~= "PARTY" and channel ~= "INSTANCE_CHAT" then return end
     if issecretvalue and (issecretvalue(msg) or issecretvalue(sender)) then return end
     if addonTable.IsMe and addonTable.IsMe(sender) then return end
-    if string.sub(msg, 1, 1) == "D" then OnChunk(sender, msg) end
+    local kind = string.sub(msg, 1, 1)
+    if kind == "D" then
+        OnChunk(sender, msg)
+    elseif kind == "O" then
+        OnOps(sender, msg)
+    elseif msg == "E" then
+        if watching and watching.sender == sender then
+            local key = watching.key
+            watching = nil
+            PrintGC(string.format(L["%s ha terminado el directo de la pizarra."], string.match(sender, "^([^-]+)") or sender))
+            Notify(key)
+        end
+    elseif msg == "G" then
+        -- A alguien le falta un cambio: se manda la pizarra entera (como mucho cada 3 s)
+        if live.key and GetTime() - live.lastResync > 3 then
+            live.lastResync = GetTime()
+            boardModule.ShowToGroup(live.key, nil)
+        end
+    end
 end)
 
 -- =========================================================================
@@ -373,8 +574,19 @@ local function Render()
         end
     end
     local title = KeyTitle(currentKey)
-    boardFrame.subtitle:SetText(title .. (board.from and (" |cFF808080· " .. L["enviada por "] .. board.from .. "|r") or ""))
+    local viewing = watching and watching.key == currentKey
+    local suffix = ""
+    if viewing then
+        suffix = " |cFFFF3333● " .. L["en vivo con "] .. watching.short .. "|r"
+    elseif live.key == currentKey then
+        suffix = " |cFFFF3333● " .. L["EN VIVO"] .. "|r"
+    elseif board.from then
+        suffix = " |cFF808080· " .. L["enviada por "] .. board.from .. "|r"
+    end
+    boardFrame.subtitle:SetText(title .. suffix)
     boardFrame.btnShow:SetEnabled(boardModule.CanShow())
+    boardFrame.btnLive:SetEnabled(live.key ~= nil or boardModule.CanShow())
+    boardFrame.btnLive:SetText(live.key and L["|cFFFF3333Parar directo|r"] or L["En vivo"])
     for name, btn in pairs(boardFrame.toolButtons) do
         btn:SetAlpha((name == tool .. ":" .. tostring(toolValue)) and 1 or 0.55)
     end
@@ -444,12 +656,12 @@ local function CreateWindow()
     end)
     frame.subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.subtitle:SetPoint("LEFT", btnBoss, "RIGHT", 12, 0)
-    frame.subtitle:SetWidth(300)
+    frame.subtitle:SetWidth(280)
     frame.subtitle:SetJustifyH("LEFT")
     frame.subtitle:SetWordWrap(false)
 
     frame.btnShow = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    frame.btnShow:SetSize(170, 22)
+    frame.btnShow:SetSize(130, 22)
     frame.btnShow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -30)
     frame.btnShow:SetText(L["Enseñar al grupo"])
     frame.btnShow:SetMotionScriptsWhileDisabled(true)
@@ -461,6 +673,23 @@ local function CreateWindow()
         GameTooltip:Show()
     end)
     frame.btnShow:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- En vivo: el grupo ve cada cambio mientras dure
+    frame.btnLive = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.btnLive:SetSize(110, 22)
+    frame.btnLive:SetPoint("RIGHT", frame.btnShow, "LEFT", -6, 0)
+    frame.btnLive:SetMotionScriptsWhileDisabled(true)
+    frame.btnLive:SetScript("OnClick", function()
+        if live.key then boardModule.StopLive() else boardModule.StartLive(currentKey, KeyTitle(currentKey)) end
+        Render()
+    end)
+    frame.btnLive:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["En vivo"], 1, 1, 1)
+        GameTooltip:AddLine(L["Tu grupo ve la pizarra mientras dibujas, mueves o borras, y la sigue si cambias de jefe. Mientras dura, ellos no pueden tocarla."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    frame.btnLive:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- Lienzo: fondo oscuro con cuadrícula
     local canvas = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -492,6 +721,11 @@ local function CreateWindow()
     canvas:SetScript("OnMouseDown", function(self, button)
         local nx, ny = CursorOnCanvas(self)
         if not nx then return end
+        -- Viendo el directo de otro no se puede tocar (se perdería con su siguiente cambio)
+        if watching and watching.key == currentKey then
+            PrintGC(string.format(L["Estás viendo la pizarra en vivo de %s: no se puede cambiar mientras dura."], watching.short))
+            return
+        end
         local board = boardModule.Get(currentKey)
         if button == "RightButton" or tool == "erase" then
             local index = FindItemAt(board.items, nx, ny)
@@ -510,33 +744,48 @@ local function CreateWindow()
                 return
             end
             local item = { k = "s", c = penColor, p = nx .. "," .. ny }
-            if boardModule.AddItem(currentKey, item) then drag = { item = item, count = 1, lastX = nx, lastY = ny } end
+            if boardModule.AddItem(currentKey, item) then
+                drag = { item = item, itemIndex = #board.items, count = 1, lastX = nx, lastY = ny }
+            end
         end
     end)
-    canvas:SetScript("OnMouseUp", function()
-        if drag then
-            boardModule.Changed(currentKey)
-            drag = nil
+    -- Al soltar: se guarda y, en vivo, se manda la posición final de lo que se movía
+    local function EndDrag()
+        if not drag then return end
+        if drag.index then
+            local item = boardModule.Get(currentKey).items[drag.index]
+            if item then boardModule.LiveMove(currentKey, drag.index, item.x, item.y) end
         end
-    end)
+        boardModule.Changed(currentKey)
+        drag = nil
+    end
+    canvas:SetScript("OnMouseUp", EndDrag)
     canvas:SetScript("OnUpdate", function(self)
         if not drag then return end
         if not IsMouseButtonDown("LeftButton") then
-            boardModule.Changed(currentKey)
-            drag = nil
+            EndDrag()
             return
         end
         local nx, ny = CursorOnCanvas(self)
         if not nx then return end
         if drag.index then
             local item = boardModule.Get(currentKey).items[drag.index]
-            if item then item.x, item.y = nx, ny; Render() end
+            if item and (item.x ~= nx or item.y ~= ny) then
+                item.x, item.y = nx, ny
+                Render()
+                -- En vivo, la posición se manda como mucho cada 0,2 s
+                if GetTime() - (drag.lastSent or 0) > 0.2 then
+                    drag.lastSent = GetTime()
+                    boardModule.LiveMove(currentKey, drag.index, nx, ny)
+                end
+            end
         elseif drag.item then
             -- Un punto nuevo cada pocos píxeles: trazos suaves sin miles de puntos
             local dx, dy = nx - drag.lastX, ny - drag.lastY
             if dx * dx + dy * dy >= 144 and boardModule.CanAddPoints(currentKey, 1) then
                 drag.item.p = drag.item.p .. "," .. nx .. "," .. ny
                 drag.lastX, drag.lastY = nx, ny
+                boardModule.LivePoints(currentKey, drag.itemIndex, nx .. "," .. ny)
                 Render()
             end
         end
@@ -624,6 +873,8 @@ function boardModule.Open(key)
     if not GuildControlDB then return end
     if not boardFrame then boardFrame = CreateWindow() end
     currentKey = key or currentKey
+    -- En vivo, si cambio de jefe el grupo pasa a ver ese
+    if live.key and live.key ~= currentKey then boardModule.FollowLive(currentKey, KeyTitle(currentKey)) end
     boardFrame:Show()
     boardFrame:Raise()
     Render()

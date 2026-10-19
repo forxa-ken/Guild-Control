@@ -66,8 +66,79 @@ local function BaseName(profText)
     return (string.gsub(profText, "%s+%d+$", ""))
 end
 
+-- Nombre de una profesión en el idioma de este cliente a partir de su ID de línea de
+-- habilidad (los demás pueden jugar en otro idioma: "Leatherworking" -> "Peletería")
+local function LocalizedProfessionName(id)
+    id = tonumber(id)
+    if not id or not C_TradeSkillUI then return nil end
+    if C_TradeSkillUI.GetTradeSkillDisplayName then
+        local ok, name = pcall(C_TradeSkillUI.GetTradeSkillDisplayName, id)
+        if ok and type(name) == "string" and name ~= "" then return name end
+    end
+    if C_TradeSkillUI.GetProfessionInfoBySkillLineID then
+        local ok, info = pcall(C_TradeSkillUI.GetProfessionInfoBySkillLineID, id)
+        if ok and info and info.professionName and info.professionName ~= "" then return info.professionName end
+    end
+    return nil
+end
+profModule.LocalizedProfessionName = LocalizedProfessionName
+
+-- Profesiones principales por ID con sus nombres conocidos (inglés y variantes en español).
+-- Las fuentes no siempre dan el nombre en el idioma del cliente (C_Club o la lista de
+-- profesiones de la hermandad pueden dar "Herbalism" en un cliente en español): por el ID se
+-- sabe que "Herbalism" y "Botánica" son la misma y se guarda con el nombre de este cliente.
+profModule.PRIMARY = {
+    { id = 171, en = "Alchemy", es = { "Alquimia" } },
+    { id = 164, en = "Blacksmithing", es = { "Herrería" } },
+    { id = 333, en = "Enchanting", es = { "Encantamiento" } },
+    { id = 202, en = "Engineering", es = { "Ingeniería" } },
+    { id = 182, en = "Herbalism", es = { "Herboristería", "Botánica", "Herbalismo" } },
+    { id = 773, en = "Inscription", es = { "Inscripción" } },
+    { id = 755, en = "Jewelcrafting", es = { "Joyería" } },
+    { id = 165, en = "Leatherworking", es = { "Peletería" } },
+    { id = 186, en = "Mining", es = { "Minería" } },
+    { id = 393, en = "Skinning", es = { "Desuello", "Desollar" } },
+    { id = 197, en = "Tailoring", es = { "Sastrería" } },
+}
+
+local idByName = nil
+local function ProfessionIdByName(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    if not idByName then
+        idByName = {}
+        for _, prof in ipairs(profModule.PRIMARY) do
+            idByName[string.lower(prof.en)] = prof.id
+            for _, esName in ipairs(prof.es) do idByName[string.lower(esName)] = prof.id end
+            local localized = LocalizedProfessionName(prof.id)
+            if localized then idByName[string.lower(localized)] = prof.id end
+        end
+    end
+    return idByName[string.lower(name)]
+end
+profModule.ProfessionIdByName = ProfessionIdByName
+
+-- Nombre con el que se guarda una profesión en este cliente
+function profModule.DisplayName(id)
+    local localized = LocalizedProfessionName(id)
+    if localized then return localized end
+    local isSpanish = GetLocale and string.sub(GetLocale(), 1, 2) == "es"
+    for _, prof in ipairs(profModule.PRIMARY) do
+        if prof.id == id then return isSpanish and prof.es[1] or prof.en end
+    end
+    return nil
+end
+
+-- Clave para comparar dos profesiones: su ID si se conoce; si no, el nombre
+local function ProfKey(profText)
+    local base = BaseName(profText)
+    return ProfessionIdByName(base) or base
+end
+
 local function FormatProfession(name, rank)
     if not name or name == "" then return nil end
+    -- Siempre con el nombre de este cliente (así no salen dos veces en dos idiomas)
+    local id = ProfessionIdByName(name)
+    if id then name = profModule.DisplayName(id) or name end
     rank = tonumber(rank)
     if rank and rank > 0 then
         return name .. " " .. rank
@@ -87,18 +158,48 @@ local function SetMemberProfessions(fullName, p1, p2)
     local m = fullName and GuildControlDB.members[fullName]
     if not m then return false end
     local new1, new2 = p1 or NONE, p2 or NONE
+    -- La misma profesión dos veces: se queda una
+    if new2 ~= NONE and ProfKey(new1) == ProfKey(new2) then new2 = NONE end
     if m.prof1 == new1 and m.prof2 == new2 then return false end
     m.prof1, m.prof2 = new1, new2
     return true
 end
 
+-- Nivel de "Herrería 100" (0 si no lo tiene)
+local function ProfLevel(profText)
+    return tonumber(string.match(profText or "", "(%d+)$")) or 0
+end
+
+-- Arregla las profesiones guardadas de un miembro: nombre en el idioma de este cliente y sin
+-- repetir la misma en las dos columnas (se queda la de más nivel)
+function profModule.CleanMember(m)
+    local changed = false
+    for _, field in ipairs({ "prof1", "prof2" }) do
+        local text = m[field]
+        if text and text ~= NONE then
+            local fixed = FormatProfession(BaseName(text), ProfLevel(text))
+            if fixed and fixed ~= text then
+                m[field] = fixed
+                changed = true
+            end
+        end
+    end
+    if m.prof1 and m.prof2 and m.prof1 ~= NONE and m.prof2 ~= NONE and ProfKey(m.prof1) == ProfKey(m.prof2) then
+        if ProfLevel(m.prof2) > ProfLevel(m.prof1) then m.prof1 = m.prof2 end
+        m.prof2 = NONE
+        changed = true
+    end
+    return changed
+end
+
 -- Añade o actualiza una profesión sin borrar la otra (fuentes parciales)
 local function MergeMemberProfession(m, profText)
-    local base = BaseName(profText)
-    if BaseName(m.prof1) == base then
+    profText = FormatProfession(BaseName(profText), ProfLevel(profText)) or profText
+    local base = ProfKey(profText)
+    if ProfKey(m.prof1) == base then
         if m.prof1 == profText then return false end
         m.prof1 = profText
-    elseif BaseName(m.prof2) == base then
+    elseif ProfKey(m.prof2) == base then
         if m.prof2 == profText then return false end
         m.prof2 = profText
     elseif not m.prof1 or m.prof1 == NONE then
@@ -445,6 +546,12 @@ function profModule.Scan()
         lastClubScan = now
         profModule.ParseGuildTradeSkills()
         ApplyClubProfessions()
+        -- Lo ya guardado: mismo idioma y sin la misma profesión en las dos columnas
+        local cleaned = false
+        for _, m in pairs(GuildControlDB.members or {}) do
+            if profModule.CleanMember(m) then cleaned = true end
+        end
+        if cleaned then RefreshUIIfShown() end
     end
 
     -- Las profesiones propias siempre tienen prioridad

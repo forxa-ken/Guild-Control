@@ -1496,4 +1496,15 @@ L["|cFFFF3333No hay ningún miembro con ese nombre.|r"] = "|cFFFF3333There is no
 L["|cFFFF3333Solo el líder, un ayudante o un oficial pueden enseñar la pizarra.|r"] = "|cFFFF3333Only the leader, an assistant or an officer can show the whiteboard.|r"
 L["|cFFFF3333No estás en un grupo.|r"] = "|cFFFF3333You are not in a group.|r"
 L["¿A quién das la insignia %s?"] = "Who do you give the %s badge to?"
+-- Pizarra en vivo
+L["Pizarra |cFFFF3333en vivo|r: tu grupo ve cada cambio que hagas."] = "Whiteboard |cFFFF3333live|r: your group sees every change you make."
+L["Fin del directo de la pizarra."] = "Whiteboard live session ended."
+L["%s te enseña la pizarra en vivo: %s"] = "%s is showing you the whiteboard live: %s"
+L["%s ha terminado el directo de la pizarra."] = "%s has ended the live whiteboard."
+L["en vivo con "] = "live with "
+L["EN VIVO"] = "LIVE"
+L["|cFFFF3333Parar directo|r"] = "|cFFFF3333Stop live|r"
+L["En vivo"] = "Live"
+L["Tu grupo ve la pizarra mientras dibujas, mueves o borras, y la sigue si cambias de jefe. Mientras dura, ellos no pueden tocarla."] = "Your group sees the whiteboard while you draw, move or erase, and follows it if you change boss. Meanwhile they cannot edit it."
+L["Estás viendo la pizarra en vivo de %s: no se puede cambiar mientras dura."] = "You are watching %s's live whiteboard: it cannot be changed while it lasts."
 addonTable.RegisterLocale("enUS", "English", L)
