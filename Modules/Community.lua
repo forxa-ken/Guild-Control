@@ -77,10 +77,26 @@ end
 local posts = {}   -- [id] = { id, author, at, activity, slots, text, members = { [nombre] = rol } } (GuildControlDB.lfgPosts al entrar)
 local relayTimer = nil   -- reenvío de anuncios de otros a quien entra (se cancela si otro lo hace antes)
 
+local AUTHOR_AWAY_MAX = 30 * 60   -- con el autor fuera más de 30 minutos, el anuncio caduca
+
+-- Caducan a las 2 horas y también si su autor lleva más de 30 minutos desconectado: desde que
+-- este cliente lo ve fuera (post.awaySince) o, si yo tampoco estaba, por las horas que da la
+-- lista de la hermandad (member.offlineHours, que Core guarda)
 local function Expire()
     local now = GetServerTime()
+    local me = MyName()
     for id, post in pairs(posts) do
-        if now - (post.at or 0) > POST_MAX_AGE then posts[id] = nil end
+        local m = post.author ~= me and GuildControlDB and GuildControlDB.members and GuildControlDB.members[post.author]
+        if m and m.isOnline == false then
+            post.awaySince = post.awaySince or now
+        else
+            post.awaySince = nil
+        end
+        if now - (post.at or 0) > POST_MAX_AGE
+            or (post.awaySince and now - post.awaySince > AUTHOR_AWAY_MAX)
+            or (m and m.isOnline == false and (m.offlineHours or 0) >= 1) then
+            posts[id] = nil
+        end
     end
 end
 
@@ -884,6 +900,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local isInitialLogin, isReloadingUi = ...
         if isInitialLogin or isReloadingUi then
             communityModule.LoadPosts()
+            -- Cada minuto se revisan los anuncios (autores que llevan fuera más de 30 min)
+            if not communityModule.expireTicker then
+                communityModule.expireTicker = C_Timer.NewTicker(60, function() Expire(); Notify() end)
+            end
             C_Timer.After(24, function() Send(LFG_PREFIX, "Q") end)
             -- Mis anuncios guardados vuelven a la hermandad (por si relogueé)
             C_Timer.After(26, function()

@@ -472,8 +472,10 @@ function addonTable.ScanGuildRosterForChanges()
             currentGuildOnlineMap[fullName] = true
 
             -- Años, meses y días desde la última conexión (antes solo se miraban los días)
-            local years, months, days = GetGuildRosterLastOnline(i)
+            local years, months, days, hours = GetGuildRosterLastOnline(i)
             days = (years or 0) * 365 + (months or 0) * 30 + (days or 0)
+            -- Horas desconectado (Buscar grupo: los anuncios de quien lleva fuera más de 30 min caducan)
+            local offlineHours = days * 24 + (hours or 0)
             local isReallyOnline = (online == true or online == 1 or online == "true")
             local lastOnlineStr = "Online"
             
@@ -501,6 +503,7 @@ function addonTable.ScanGuildRosterForChanges()
                     zone = zoneName or "Desconocida",
                     lastOnline = lastOnlineStr,
                     offlineDays = isReallyOnline and 0 or days,
+                    offlineHours = isReallyOnline and 0 or offlineHours,
                     isOnline = isReallyOnline,
                     guid = guid,
                     rankIndex = rankIndex
@@ -518,6 +521,7 @@ function addonTable.ScanGuildRosterForChanges()
                 m.zone = zoneName or m.zone or "Desconocida"
                 m.lastOnline = lastOnlineStr
                 m.offlineDays = isReallyOnline and 0 or days
+                m.offlineHours = isReallyOnline and 0 or offlineHours
                 if rosterBaselineDone and addonTable.GuildChat then
                     if isReallyOnline and not m.isOnline and addonTable.GuildChat.MarkOnline then
                         addonTable.GuildChat.MarkOnline(fullName)
