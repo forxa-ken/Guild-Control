@@ -1507,4 +1507,7 @@ L["|cFFFF3333Parar directo|r"] = "|cFFFF3333Stop live|r"
 L["En vivo"] = "Live"
 L["Tu grupo ve la pizarra mientras dibujas, mueves o borras, y la sigue si cambias de jefe. Mientras dura, ellos no pueden tocarla."] = "Your group sees the whiteboard while you draw, move or erase, and follows it if you change boss. Meanwhile they cannot edit it."
 L["Estás viendo la pizarra en vivo de %s: no se puede cambiar mientras dura."] = "You are watching %s's live whiteboard: it cannot be changed while it lasts."
+-- Profesiones: contenedores
+L["Segunda profesión"] = "Second profession"
+L["Profesión"] = "Profession"
 addonTable.RegisterLocale("enUS", "English", L)

@@ -98,7 +98,7 @@ profModule.PRIMARY = {
     { id = 165, en = "Leatherworking", es = { "Peletería" } },
     { id = 186, en = "Mining", es = { "Minería" } },
     { id = 393, en = "Skinning", es = { "Desuello", "Desollar" } },
-    { id = 197, en = "Tailoring", es = { "Sastrería" } },
+    { id = 197, en = "Tailoring", es = { "Sastrería", "Costura" } },
 }
 
 local idByName = nil

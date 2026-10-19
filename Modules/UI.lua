@@ -5983,26 +5983,35 @@ local function BuildProfessionsView(parent)
     local countText = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     countText:SetPoint("TOPRIGHT", right, "TOPRIGHT", -16, -16)
 
+    -- Dos contenedores: la profesión que se mira (nombre y habilidad) y la segunda profesión
+    -- de cada miembro. Las columnas van dentro de cada uno; la fila de cada miembro cruza los dos.
+    local profPanel = CreateColoredPanel(right, "", PANEL_COLORS.blue, 392, 434)
+    profPanel:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -40)
+    local otherPanel = CreateColoredPanel(right, L["Segunda profesión"], PANEL_COLORS.purple, 236, 434)
+    otherPanel:SetPoint("TOPLEFT", profPanel, "TOPRIGHT", 4, 0)
+
     local COLS = {
-        { title = L["Nombre"],          x = 8,   w = 220, key = "name" },
-        { title = L["Habilidad"],       x = 232, w = 80,  key = "skill" },
-        { title = L["Otra profesión"],  x = 316, w = 170, key = "other" },
-        { title = L["Conexión"],        x = 490, w = 140, key = "online" },
+        { title = L["Nombre"],     x = 8,   w = 230, key = "name" },
+        { title = L["Habilidad"],  x = 300, w = 76,  key = "skill",      right = true },
+        { title = L["Profesión"],  x = 404, w = 150, key = "other" },
+        { title = L["Nivel"],      x = 556, w = 64,  key = "otherSkill", right = true },
     }
 
     local headerRow = CreateFrame("Frame", nil, right)
     headerRow:SetSize(640, 20)
-    headerRow:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -44)
+    headerRow:SetPoint("TOPLEFT", right, "TOPLEFT", 8, -66)
+    headerRow:SetFrameLevel(profPanel:GetFrameLevel() + 2)
     local headerButtons = {}
     for _, col in ipairs(COLS) do
         local hb = CreateFrame("Button", nil, headerRow)
         hb:SetPoint("LEFT", headerRow, "LEFT", col.x, 0)
         hb:SetSize(col.w, 20)
         hb.text = hb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        hb.text:SetPoint("LEFT", hb, "LEFT", 0, 0)
+        if col.right then hb.text:SetPoint("RIGHT", hb, "RIGHT", 0, 0) else hb.text:SetPoint("LEFT", hb, "LEFT", 0, 0) end
         hb.key, hb.title = col.key, col.title
         hb:SetScript("OnClick", function(self)
-            if sortKey == self.key then sortAsc = not sortAsc else sortKey, sortAsc = self.key, self.key ~= "skill" end
+            if sortKey == self.key then sortAsc = not sortAsc
+            else sortKey, sortAsc = self.key, self.key ~= "skill" and self.key ~= "otherSkill" end
             Refresh()
         end)
         table.insert(headerButtons, hb)
@@ -6010,7 +6019,8 @@ local function BuildProfessionsView(parent)
 
     local scroll = CreateFrame("ScrollFrame", "GC_ProfsScroll", right, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -4)
-    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 22)
+    scroll:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -28, 30)
+    scroll:SetFrameLevel(profPanel:GetFrameLevel() + 2)
     local child = CreateFrame("Frame")
     child:SetSize(636, 1)
     scroll:SetScrollChild(child)
@@ -6046,7 +6056,7 @@ local function BuildProfessionsView(parent)
             local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
             fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
             fs:SetWidth(col.w - 4)
-            fs:SetJustifyH(col.key == "skill" and "RIGHT" or "LEFT")
+            fs:SetJustifyH(col.right and "RIGHT" or "LEFT")
             fs:SetWordWrap(false)
             row.cells[i] = fs
         end
@@ -6054,10 +6064,18 @@ local function BuildProfessionsView(parent)
         return row
     end
 
+    -- Segunda profesión de un miembro: "Desollar 203" -> "Desollar", 203
+    local function SplitOther(other)
+        if not other or other == "Ninguna" then return nil, nil end
+        local name, level = string.match(other, "^(.-)%s+(%d+)$")
+        if name then return name, tonumber(level) end
+        return other, nil
+    end
+
     local function SortValue(entry, key)
         if key == "skill" then return entry.skill or -1 end
-        if key == "online" then return entry.data.isOnline and -1 or (entry.data.offlineDays or 0) end
-        if key == "other" then return string.lower(entry.other or "~") end
+        if key == "other" then return string.lower(SplitOther(entry.other) or "~") end
+        if key == "otherSkill" then return select(2, SplitOther(entry.other)) or -1 end
         return string.lower(entry.name)
     end
 
@@ -6112,14 +6130,18 @@ local function BuildProfessionsView(parent)
             local shown = m.displayName or string.match(entry.name, "^([^-]+)") or entry.name
             row.cells[1]:SetText("|cFF" .. addonTable.GetClassColorHex(m.class) .. shown .. "|r" .. dot)
             row.cells[2]:SetText(entry.skill and tostring(entry.skill) or "|cFF808080-|r")
-            local other = entry.other
-            row.cells[3]:SetText((other and other ~= "Ninguna") and other or "")
-            row.cells[4]:SetText(m.isOnline and L["|cFF00FF00En línea|r"] or ("|cFF808080" .. (addonTable.FormatLastOnline(m.lastOnline) or "") .. "|r"))
+            local otherName, otherLevel = SplitOther(entry.other)
+            row.cells[3]:SetText(otherName or "|cFF808080-|r")
+            row.cells[4]:SetText(otherLevel and tostring(otherLevel) or "")
             row:Show()
         end
         child:SetHeight(math.max(1, #list * PROF_ROW_HEIGHT))
         emptyText:SetShown(#profNames == 0)
         countText:SetText(selectedProf and ("|cFFFFD100" .. #list .. L["|r miembros con "] .. selectedProf) or "")
+        profPanel.title:SetText(selectedProf or L["Profesión"])
+        profPanel:SetShown(#profNames > 0)
+        otherPanel:SetShown(#profNames > 0)
+        headerRow:SetShown(#profNames > 0)
     end
 
     -- ---------------------------------------------------------------------
