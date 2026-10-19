@@ -1510,4 +1510,15 @@ L["Estás viendo la pizarra en vivo de %s: no se puede cambiar mientras dura."] 
 -- Profesiones: contenedores
 L["Segunda profesión"] = "Second profession"
 L["Profesión"] = "Profession"
+-- Buscar grupo: solicitudes y roles del grupo
+L["%s quiere unirse a tu grupo como %s."] = "%s wants to join your group as %s."
+L["(pendiente)"] = "(pending)"
+L["En el grupo: "] = "In the group: "
+L["%d sin rol"] = "%d without role"
+L["Solicitudes: "] = "Requests: "
+L["Invitar (%d)"] = "Invite (%d)"
+L["%s ha aceptado tu solicitud y te invita al grupo."] = "%s accepted your request and is inviting you to the group."
+L["%s ha rechazado tu solicitud para su grupo."] = "%s declined your request to join the group."
+L["cualquier rol"] = "any role"
+L["[GuildControl] Busco %s (%s, %d/%d): %s · Apúntate en GuildControl > Comunidad o susúrrame."] = "[GuildControl] LF %s (%s, %d/%d): %s · Sign up in GuildControl > Community or whisper me."
 addonTable.RegisterLocale("enUS", "English", L)

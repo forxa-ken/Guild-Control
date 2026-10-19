@@ -5992,7 +5992,7 @@ local function BuildProfessionsView(parent)
 
     local COLS = {
         { title = L["Nombre"],     x = 8,   w = 230, key = "name" },
-        { title = L["Habilidad"],  x = 300, w = 76,  key = "skill",      right = true },
+        { title = L["Nivel"],      x = 300, w = 76,  key = "skill",      right = true },
         { title = L["Profesión"],  x = 404, w = 150, key = "other" },
         { title = L["Nivel"],      x = 556, w = 64,  key = "otherSkill", right = true },
     }
@@ -10824,7 +10824,7 @@ local function BuildCommunityView(parent)
         local row = postRows[index]
         if row then return row end
         row = CreateFrame("Frame", nil, lfgChild)
-        row:SetSize(397, 54)
+        row:SetSize(397, 66)
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
         row.bg:SetColorTexture(1, 1, 1, 0.04)
@@ -10837,7 +10837,7 @@ local function BuildCommunityView(parent)
         row.text:SetPoint("TOPLEFT", row.head, "BOTTOMLEFT", 0, -3)
         row.text:SetPoint("RIGHT", row, "RIGHT", -96, 0)
         row.text:SetJustifyH("LEFT")
-        row.text:SetMaxLines(2)
+        row.text:SetMaxLines(3)
         row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         row.button:SetSize(86, 20)
         row.button:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -5)
@@ -10877,7 +10877,7 @@ local function BuildCommunityView(parent)
         local now = GetServerTime()
         for i, post in ipairs(posts) do
             local row = AcquirePostRow(i)
-            row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 58)
+            row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 70)
             local count = C.CountMembers(post)
             local mineIn = post.members[me]
             local full = count >= post.slots
@@ -10898,31 +10898,47 @@ local function BuildCommunityView(parent)
             row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. ColoredName(post.author)
                 .. "  |cFF808080" .. string.format(L["hace %d min"], minutes) .. "  ·|r  " .. status)
             row.bg:SetColorTexture(full and 0.3 or 1, 1, full and 0.3 or 1, full and 0.06 or 0.04)
-            local joined = {}
+            -- Solicitudes: aceptadas (con marca) y pendientes (en gris)
+            local joined, pending = {}, {}
             for name, role in pairs(post.members) do
-                table.insert(joined, (type(role) == "string" and RoleIcon(role, 12) or "") .. ColoredName(name))
+                local accepted = C.IsAccepted and C.IsAccepted(post, name)
+                if not accepted then table.insert(pending, name) end
+                table.insert(joined, (type(role) == "string" and RoleIcon(role, 12) or "") .. ColoredName(name)
+                    .. (accepted and " |TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t" or (" |cFF808080" .. L["(pendiente)"] .. "|r")))
             end
             table.sort(joined)
-            row.text:SetText(post.text .. (#joined > 0 and ("\n|cFF808080" .. L["Apuntados: "] .. "|r" .. table.concat(joined, ", ")) or ""))
+            -- Roles que ya hay en el grupo del autor
+            local haveLine = ""
+            if post.have then
+                haveLine = "\n|cFF808080" .. L["En el grupo: "] .. "|r" .. RoleIcon("tank", 12) .. post.have.tank .. "  "
+                    .. RoleIcon("healer", 12) .. post.have.healer .. "  " .. RoleIcon("dps", 12) .. post.have.dps
+                    .. ((post.have.unknown or 0) > 0 and ("  |cFF808080" .. string.format(L["%d sin rol"], post.have.unknown) .. "|r") or "")
+            end
+            row.text:SetText(post.text .. haveLine .. (#joined > 0 and ("\n|cFF808080" .. L["Solicitudes: "] .. "|r" .. table.concat(joined, ", ")) or ""))
             row.button2:Hide()
             row.button:SetEnabled(true)
             if post.author == me then
                 row.button:SetText(L["Cerrar"])
                 row.button:SetScript("OnClick", function() C.ClosePost(post.id) end)
-                -- Sin apuntados: anunciarlo en la hermandad; con apuntados: invitarlos
+                -- Con solicitudes pendientes: invitarlas todas; si no, anunciarlo en la hermandad
                 row.button2:Show()
-                if count > 0 then
-                    row.button2:SetText(L["Invitar"])
+                if #pending > 0 then
+                    row.button2:SetText(string.format(L["Invitar (%d)"], #pending))
                     row.button2:SetScript("OnClick", function()
-                        for name in pairs(post.members) do InviteToGroup(name) end
+                        for _, name in ipairs(pending) do C.AcceptJoin(post.id, name) end
                     end)
                 else
                     row.button2:SetText(L["Anunciar"])
                     row.button2:SetScript("OnClick", function() if C.AnnouncePost then C.AnnouncePost(post.id) end end)
                 end
             elseif mineIn then
-                row.button:SetText(L["Salir"])
+                -- Pendiente: se puede cancelar la solicitud; aceptado: salir
+                local accepted = C.IsAccepted and C.IsAccepted(post, me)
+                row.button:SetText(accepted and L["Salir"] or L["Cancelar"])
                 row.button:SetScript("OnClick", function() C.Leave(post.id) end)
+                row.button2:SetText(L["Susurrar"])
+                row.button2:Show()
+                row.button2:SetScript("OnClick", function() WhisperTo(post.author) end)
             else
                 row.button:SetText(full and L["Completo"] or L["Me apunto"])
                 row.button:SetEnabled(not full)
@@ -10946,7 +10962,7 @@ local function BuildCommunityView(parent)
             end
             row:Show()
         end
-        lfgChild:SetHeight(math.max(1, #posts * 58))
+        lfgChild:SetHeight(math.max(1, #posts * 70))
         lfgEmpty:SetShown(#posts == 0)
 
         -- Récords
@@ -11940,6 +11956,33 @@ function uiModule.ShowOrderDialog(crafter, recipeID, recipeName)
     f:Show()
     f:Raise()
     f.note:SetFocus()
+end
+
+-- Solicitud para unirse a un grupo de Buscar grupo (le sale al autor): Invitar o Rechazar.
+-- Escape no la cierra, para no rechazar sin querer.
+StaticPopupDialogs["GUILDCONTROL_LFG_REQUEST"] = {
+    text = "%s",
+    button1 = L["Invitar"],
+    button2 = L["Rechazar"],
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = false,
+    multiple = 1,
+    OnAccept = function(_, data)
+        if data and addonTable.Community then addonTable.Community.AcceptJoin(data.id, data.name) end
+    end,
+    OnCancel = function(_, data, reason)
+        if reason == "clicked" and data and addonTable.Community then addonTable.Community.DeclineJoin(data.id, data.name) end
+    end,
+}
+
+function uiModule.ShowJoinRequest(id, name, role)
+    local roleName = L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role] or "DPS"]
+    local short = string.match(name, "^([^-]+)") or name
+    local popup = StaticPopup_Show("GUILDCONTROL_LFG_REQUEST",
+        string.format(L["%s quiere unirse a tu grupo como %s."], RoleIcon(role, 14) .. " |cFFFFD100" .. short .. "|r", roleName))
+    if popup then popup.data = { id = id, name = name } end
+    PlaySound(SOUNDKIT and SOUNDKIT.READY_CHECK or 8960)
 end
 
 -- Duración del descanso a mano (botón Descanso > Otro… del modo minimalista)

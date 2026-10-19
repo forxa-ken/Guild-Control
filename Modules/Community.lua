@@ -120,19 +120,96 @@ local function SendPost(post)
     Send(LFG_PREFIX, table.concat({ "N", post.id, post.at, post.activity, post.slots, post.text, RolesToString(post.roles) }, ";"))
 end
 
+-- Roles de mi grupo actual (yo incluido): el asignado en el grupo o, si no hay, el de Mi perfil
+-- o el que fijó un oficial. Los de fuera de la hermandad sin rol cuentan como desconocidos.
+local function UnitRole(unit)
+    if UnitGroupRolesAssigned then
+        local assigned = UnitGroupRolesAssigned(unit)
+        if assigned == "TANK" then return "tank" elseif assigned == "HEALER" then return "healer" elseif assigned == "DAMAGER" then return "dps" end
+    end
+    local name, realm = UnitName(unit)
+    if not name or (issecretvalue and (issecretvalue(name) or issecretvalue(realm))) then return nil end
+    local m = GuildControlDB.members[NormalizeName(realm and realm ~= "" and (name .. "-" .. realm) or name)]
+    if m and (m.roleSource == "declared" or m.roleSource == "officer") then
+        if m.role == "Tanque" then return "tank" end
+        if m.role == "Sanador" then return "healer" end
+        return "dps"
+    end
+    return nil
+end
+
+function communityModule.GetGroupRoles()
+    local have = { tank = 0, healer = 0, dps = 0, unknown = 0 }
+    local function Count(unit)
+        local role = UnitRole(unit)
+        have[role or "unknown"] = have[role or "unknown"] + 1
+    end
+    Count("player")
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local unit = "raid" .. i
+            if UnitExists(unit) and not UnitIsUnit(unit, "player") then Count(unit) end
+        end
+    else
+        for i = 1, GetNumSubgroupMembers() do Count("party" .. i) end
+    end
+    return have
+end
+
+-- "H;id;t1h0d2u1": cuántos tanques, sanadores, DPS y sin rol hay ya en el grupo del autor
+local function SendHave(post)
+    post.have = communityModule.GetGroupRoles()
+    local h = post.have
+    Send(LFG_PREFIX, "H;" .. post.id .. ";t" .. h.tank .. "h" .. h.healer .. "d" .. h.dps .. "u" .. h.unknown)
+end
+
+-- Invita a un jugador; con el grupo lleno (5) se convierte antes en banda
+local function InviteName(name)
+    local gameName = addonTable.GetGameName and addonTable.GetGameName(name) or name
+    if IsInGroup() and not IsInRaid() and GetNumGroupMembers() >= 5 then
+        if C_PartyInfo and C_PartyInfo.ConvertToRaid then C_PartyInfo.ConvertToRaid() elseif ConvertToRaid then ConvertToRaid() end
+    end
+    if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(gameName) elseif InviteUnit then InviteUnit(gameName) end
+end
+
 function communityModule.CreatePost(activity, slots, text, roles)
     text = Clean(text, 120)
     if text == "" then return nil end
     local post = {
         id = (string.match(UnitName("player") or "?", "^(%S+)") or "?") .. "-" .. GetServerTime(), author = MyName(), at = GetServerTime(),
         activity = VALID_ACTIVITY[activity] and activity or "other",
-        slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4))), text = text, members = {},
+        slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4))), text = text, members = {}, accepted = {},
         roles = RolesFromString(RolesToString(roles)),
     }
     posts[post.id] = post
     SendPost(post)
+    SendHave(post)
     Notify()
     return post
+end
+
+-- El autor acepta una solicitud: le invita al grupo y avisa a todos de que está aceptado
+function communityModule.AcceptJoin(id, name)
+    local post = posts[id]
+    if not post or post.author ~= MyName() or not post.members[name] then return end
+    post.accepted = post.accepted or {}
+    post.accepted[name] = true
+    InviteName(name)
+    Send(LFG_PREFIX, "A;" .. id .. ";" .. name)
+    Notify()
+end
+
+function communityModule.DeclineJoin(id, name)
+    local post = posts[id]
+    if not post or post.author ~= MyName() then return end
+    post.members[name] = nil
+    if post.accepted then post.accepted[name] = nil end
+    Send(LFG_PREFIX, "K;" .. id .. ";" .. name)
+    Notify()
+end
+
+function communityModule.IsAccepted(post, name)
+    return post.accepted ~= nil and post.accepted[name] == true
 end
 
 function communityModule.ClosePost(id)
@@ -169,7 +246,7 @@ local function OnLfgMessage(sender, msg)
         if not id or not at or not text or GetServerTime() - at > POST_MAX_AGE then return end
         local post = posts[id]
         local isNew = post == nil
-        post = post or { id = id, members = {} }
+        post = post or { id = id, members = {}, accepted = {} }
         post.author, post.at = sender, at
         post.activity = VALID_ACTIVITY[activity] and activity or "other"
         post.slots = math.max(1, math.min(39, math.floor(tonumber(slots) or 4)))
@@ -188,25 +265,63 @@ local function OnLfgMessage(sender, msg)
         if kind == "X;" then
             if post.author == sender then posts[id] = nil end
         elseif kind == "J;" then
+            -- Solicitud de unión: el autor la acepta (invita) o la rechaza
             local already = post.members[sender] ~= nil
             post.members[sender] = role
-            if post.author == MyName() and addonTable.Personal and not already then
-                addonTable.Personal.Alert(string.format(L["%s se apunta a tu grupo."], Ambiguate(sender, "none")))
-                if communityModule.CountMembers(post) == post.slots then
+            if post.author == MyName() and not already then
+                if addonTable.UI and addonTable.UI.ShowJoinRequest then
+                    addonTable.UI.ShowJoinRequest(id, sender, role)
+                elseif addonTable.Personal then
+                    addonTable.Personal.Alert(string.format(L["%s se apunta a tu grupo."], Ambiguate(sender, "none")))
+                end
+                if communityModule.CountMembers(post) == post.slots and addonTable.Personal then
                     addonTable.Personal.Alert(L["Tu grupo está completo: invita a los apuntados desde Comunidad."])
                 end
             end
         else
             post.members[sender] = nil
+            if post.accepted then post.accepted[sender] = nil end
         end
+        Notify()
+    elseif kind == "A;" or kind == "K;" then
+        -- El autor acepta (A) o rechaza (K) una solicitud
+        local id, name = strsplit(";", string.sub(msg, 3), 2)
+        local post = posts[id]
+        if not post or post.author ~= sender or not name then return end
+        post.accepted = post.accepted or {}
+        local author = Ambiguate(sender, "none")
+        if kind == "A;" then
+            post.accepted[name] = true
+            if name == MyName() and addonTable.Personal then
+                addonTable.Personal.Alert(string.format(L["%s ha aceptado tu solicitud y te invita al grupo."], author))
+            end
+        else
+            post.members[name] = nil
+            post.accepted[name] = nil
+            if name == MyName() and addonTable.Personal then
+                addonTable.Personal.Alert(string.format(L["%s ha rechazado tu solicitud para su grupo."], author))
+            end
+        end
+        Notify()
+    elseif kind == "H;" then
+        local id, have = strsplit(";", string.sub(msg, 3), 2)
+        local post = posts[id]
+        local t, h, d, u = string.match(have or "", "^t(%d+)h(%d+)d(%d+)u(%d+)$")
+        if not post or post.author ~= sender or not t then return end
+        post.have = { tank = tonumber(t), healer = tonumber(h), dps = tonumber(d), unknown = tonumber(u) }
         Notify()
     elseif kind == "M;" then
         -- Apuntados de un anuncio (los manda su autor al responder a Q)
         local id, list = strsplit(";", string.sub(msg, 3), 2)
         local post = posts[id]
         if not post or post.author ~= sender or not list then return end
-        for name, role in string.gmatch(list, "([^,=]+)=(%a+)") do
-            if ROLE_LETTER[role] then post.members[name] = role end
+        post.accepted = post.accepted or {}
+        -- "Nombre=rol" (pendiente) o "Nombre=rol!" (aceptado)
+        for name, role, accepted in string.gmatch(list, "([^,=]+)=(%a+)(!?)") do
+            if ROLE_LETTER[role] then
+                post.members[name] = role
+                if accepted == "!" then post.accepted[name] = true end
+            end
         end
         Notify()
     elseif msg == "Q" then
@@ -215,6 +330,7 @@ local function OnLfgMessage(sender, msg)
             for _, post in pairs(posts) do
                 if post.author == MyName() then
                     SendPost(post)
+                    SendHave(post)
                     -- Sin pasar de 255 bytes: con muchos apuntados se manda en varios mensajes
                     local chunk, size = {}, 0
                     local function Flush()
@@ -223,7 +339,7 @@ local function OnLfgMessage(sender, msg)
                     end
                     for name, role in pairs(post.members) do
                         if type(role) == "string" then
-                            local part = name .. "=" .. role
+                            local part = name .. "=" .. role .. (communityModule.IsAccepted(post, name) and "!" or "")
                             if size + #part + 1 > 200 then Flush() end
                             table.insert(chunk, part)
                             size = size + #part + 1
@@ -241,8 +357,22 @@ function communityModule.AnnouncePost(id)
     local post = posts[id]
     if not post or post.author ~= MyName() or not IsInGuild() then return end
     local activity = L[VALID_ACTIVITY[post.activity] or "Otro"]
-    local text = string.format(L["[GuildControl] Busco gente (%s, %d/%d): %s · Apúntate en GuildControl > Comunidad o susúrrame."],
-        activity, communityModule.CountMembers(post), post.slots, post.text)
+    -- Roles que se buscan: "Tanque y Sanador"; con los tres, "cualquier rol"
+    local ROLE_NAMES = { tank = "Tanque", healer = "Sanador", dps = "DPS" }
+    local wanted = {}
+    for _, role in ipairs(communityModule.ROLES) do
+        if post.roles and post.roles[role] then table.insert(wanted, L[ROLE_NAMES[role]]) end
+    end
+    local rolesText
+    if #wanted == 0 or #wanted == 3 then
+        rolesText = L["cualquier rol"]
+    elseif #wanted == 1 then
+        rolesText = wanted[1]
+    else
+        rolesText = wanted[1] .. L[" y "] .. wanted[2]
+    end
+    local text = string.format(L["[GuildControl] Busco %s (%s, %d/%d): %s · Apúntate en GuildControl > Comunidad o susúrrame."],
+        rolesText, activity, communityModule.CountMembers(post), post.slots, post.text)
     if #text > 255 then
         -- Sin partir una letra de varios bytes (ñ, á...) al recortar
         text = string.gsub(string.sub(text, 1, 252), "[\192-\255][\128-\191]*$", "") .. "..."
@@ -643,6 +773,23 @@ end
 -- =========================================================================
 -- EVENTOS
 -- =========================================================================
+-- Al cambiar mi grupo, mis anuncios abiertos mandan de nuevo qué roles tengo ya (una sola
+-- vez aunque lleguen muchos cambios seguidos)
+local haveFrame = CreateFrame("Frame")
+haveFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+haveFrame:SetScript("OnEvent", function(self)
+    if self.pending or type(GuildControlDB) ~= "table" then return end
+    self.pending = true
+    C_Timer.After(2, function()
+        self.pending = false
+        local me = MyName()
+        for _, post in pairs(posts) do
+            if post.author == me then SendHave(post) end
+        end
+        Notify()
+    end)
+end)
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CHAT_MSG_ADDON")
