@@ -11055,6 +11055,7 @@ local function BuildCommunityView(parent)
         lfgEmpty:SetShown(#posts == 0)
 
         -- Récords
+        local lines = {}
         for _, record in ipairs(PM and PM.GetRecords() or {}) do
             table.insert(lines, "|cFFFFD100" .. L[record.label] .. "|r" .. (record.suffix and ("  |cFF808080" .. record.suffix .. "|r") or ""))
             if #record.entries == 0 then
