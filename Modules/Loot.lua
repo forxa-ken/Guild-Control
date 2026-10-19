@@ -367,7 +367,8 @@ local function OpenRoll(key)
     end
     activeKey = key
     item.state = "rolling"
-    item.rolls = item.rolls or {}
+    -- Cada vez que se abre empieza de cero (una tirada cancelada no deja pujas ni peticiones)
+    item.rolls = {}
     myChoice[key] = nil
 end
 
@@ -398,6 +399,8 @@ function lootModule.CancelRoll(key)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return end
     if item.state == "rolling" then item.state = "pending" end
+    item.rolls = {}
+    myChoice[key] = nil
     if activeKey == key then activeKey = nil end
     SendGroup("E;" .. key)
     Notify()
@@ -670,20 +673,27 @@ local function OnAddonMessage(msg, channel, sender)
         local _, key, choice, amount = strsplit(";", msg)
         local item = lootModule.GetItem(key)
         if item and item.state == "rolling" and lootModule.KINDS[choice] then
+            local bid
+            if choice == "bid" then
+                -- No se acepta una puja por debajo de la mínima ni por encima de los DKP del jugador
+                bid = math.floor(tonumber(amount) or 0)
+                local D = addonTable.Dkp
+                if bid <= 0 or bid < lootModule.GetMinBid(item) or (D and bid > D.GetBalance(fullSender)) then return end
+            end
             item.rolls[fullSender] = item.rolls[fullSender] or {}
             item.rolls[fullSender].kind = choice
-            if choice == "bid" then
-                local bid = math.floor(tonumber(amount) or 0)
-                if bid <= 0 then return end
-                item.rolls[fullSender].bid = math.max(bid, item.rolls[fullSender].bid or 0)
-            end
+            if bid then item.rolls[fullSender].bid = math.max(bid, item.rolls[fullSender].bid or 0) end
             Notify()
         end
     elseif kind == "E;" then
         if not CanManageName(fullSender) then return end
         local key = string.sub(msg, 3)
         local item = lootModule.GetItem(key)
-        if item and item.state == "rolling" then item.state = "pending" end
+        if item and item.state == "rolling" then
+            item.state = "pending"
+            item.rolls = {}
+            myChoice[key] = nil
+        end
         if activeKey == key then activeKey = nil end
         Notify()
     end
