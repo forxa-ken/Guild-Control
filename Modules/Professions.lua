@@ -102,6 +102,23 @@ profModule.PRIMARY = {
 }
 
 local idByName = nil
+-- Nombre que da el juego para un ID, solo si no es el nombre conocido de OTRA profesión (por si
+-- la API devolviera el de la profesión abierta o uno equivocado: mezclaría dos profesiones)
+local function TrustedLocalized(id)
+    local localized = LocalizedProfessionName(id)
+    if not localized then return nil end
+    local lower = string.lower(localized)
+    for _, prof in ipairs(profModule.PRIMARY) do
+        if prof.id ~= id then
+            if string.lower(prof.en) == lower then return nil end
+            for _, esName in ipairs(prof.es) do
+                if string.lower(esName) == lower then return nil end
+            end
+        end
+    end
+    return localized
+end
+
 local function ProfessionIdByName(name)
     if type(name) ~= "string" or name == "" then return nil end
     if not idByName then
@@ -109,8 +126,10 @@ local function ProfessionIdByName(name)
         for _, prof in ipairs(profModule.PRIMARY) do
             idByName[string.lower(prof.en)] = prof.id
             for _, esName in ipairs(prof.es) do idByName[string.lower(esName)] = prof.id end
-            local localized = LocalizedProfessionName(prof.id)
-            if localized then idByName[string.lower(localized)] = prof.id end
+        end
+        for _, prof in ipairs(profModule.PRIMARY) do
+            local localized = TrustedLocalized(prof.id)
+            if localized and not idByName[string.lower(localized)] then idByName[string.lower(localized)] = prof.id end
         end
     end
     return idByName[string.lower(name)]
@@ -119,7 +138,7 @@ profModule.ProfessionIdByName = ProfessionIdByName
 
 -- Nombre con el que se guarda una profesión en este cliente
 function profModule.DisplayName(id)
-    local localized = LocalizedProfessionName(id)
+    local localized = TrustedLocalized(id)
     if localized then return localized end
     local isSpanish = GetLocale and string.sub(GetLocale(), 1, 2) == "es"
     for _, prof in ipairs(profModule.PRIMARY) do

@@ -5885,20 +5885,33 @@ local function ParseProfession(text)
 end
 
 -- { [profesión] = { {name, data, skill, other}, ... } } a partir de prof1/prof2 de cada miembro
+-- Miembros por profesión: { [nombre de la profesión] = { {name, data, skill, other}, ... } }.
+-- Se agrupan por ID de profesión (así "Herbalism" y "Botánica" son la misma) y salen todas las
+-- principales, también las que nadie tiene todavía (lista vacía).
 local function CollectProfessions()
-    local byProf = {}
+    local P = addonTable.Professions
+    local function Key(base) return (P and P.ProfessionIdByName and P.ProfessionIdByName(base)) or base end
+    local byKey, names = {}, {}
+    local function Add(base, entry)
+        local key = Key(base)
+        names[key] = names[key] or base
+        byKey[key] = byKey[key] or {}
+        table.insert(byKey[key], entry)
+    end
     for fullName, m in pairs(GuildControlDB.members or {}) do
         local p1, s1 = ParseProfession(m.prof1)
         local p2, s2 = ParseProfession(m.prof2)
-        if p1 then
-            byProf[p1] = byProf[p1] or {}
-            table.insert(byProf[p1], { name = fullName, data = m, skill = s1, other = m.prof2 })
-        end
-        if p2 and p2 ~= p1 then
-            byProf[p2] = byProf[p2] or {}
-            table.insert(byProf[p2], { name = fullName, data = m, skill = s2, other = m.prof1 })
+        if p1 then Add(p1, { name = fullName, data = m, skill = s1, other = m.prof2 }) end
+        if p2 and (not p1 or Key(p2) ~= Key(p1)) then Add(p2, { name = fullName, data = m, skill = s2, other = m.prof1 }) end
+    end
+    for _, prof in ipairs(P and P.PRIMARY or {}) do
+        if not names[prof.id] then
+            names[prof.id] = (P.DisplayName and P.DisplayName(prof.id)) or prof.en
+            byKey[prof.id] = {}
         end
     end
+    local byProf = {}
+    for key, list in pairs(byKey) do byProf[names[key]] = list end
     return byProf
 end
 
@@ -6104,14 +6117,21 @@ local function BuildProfessionsView(parent)
         local profNames = {}
         for prof in pairs(byProf) do table.insert(profNames, prof) end
         table.sort(profNames)
-        if not selectedProf or not byProf[selectedProf] then selectedProf = profNames[1] end
+        -- Al entrar se elige la primera que alguien tenga
+        if not selectedProf or not byProf[selectedProf] then
+            selectedProf = profNames[1]
+            for _, prof in ipairs(profNames) do
+                if #byProf[prof] > 0 then selectedProf = prof; break end
+            end
+        end
 
         for _, btn in ipairs(profButtons) do btn:Hide() end
         for i, prof in ipairs(profNames) do
             local btn = AcquireProfButton(i)
             btn:SetPoint("TOPLEFT", listBox, "TOPLEFT", 8, -32 - (i - 1) * 24)
             btn.prof = prof
-            btn.text:SetText(prof)
+            -- Las que nadie tiene todavía, en gris
+            btn.text:SetText(#byProf[prof] > 0 and prof or ("|cFF808080" .. prof .. "|r"))
             btn.count:SetText(#byProf[prof])
             btn.bg:SetShown(prof == selectedProf)
             btn:Show()
@@ -6155,12 +6175,16 @@ local function BuildProfessionsView(parent)
             row:Show()
         end
         child:SetHeight(math.max(1, #list * PROF_ROW_HEIGHT))
-        emptyText:SetShown(#profNames == 0)
+        -- Profesión que nadie tiene: mensaje en lugar de los contenedores vacíos
+        local noOne = selectedProf and #(byProf[selectedProf] or {}) == 0
+        emptyText:SetText(noOne and string.format(L["Nadie de la hermandad tiene %s todavía."], selectedProf)
+            or L["Todavía no hay profesiones registradas. Se rellenan al escanear la hermandad."])
+        emptyText:SetShown(#profNames == 0 or noOne)
         countText:SetText(selectedProf and ("|cFFFFD100" .. #list .. L["|r miembros con "] .. selectedProf) or "")
         profPanel.title:SetText(selectedProf or L["Profesión"])
-        profPanel:SetShown(#profNames > 0)
-        otherPanel:SetShown(#profNames > 0)
-        headerRow:SetShown(#profNames > 0)
+        profPanel:SetShown(#profNames > 0 and not noOne)
+        otherPanel:SetShown(#profNames > 0 and not noOne)
+        headerRow:SetShown(#profNames > 0 and not noOne)
     end
 
     -- ---------------------------------------------------------------------
