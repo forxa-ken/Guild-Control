@@ -188,21 +188,69 @@ local function OnLfgMessage(sender, msg)
         if kind == "X;" then
             if post.author == sender then posts[id] = nil end
         elseif kind == "J;" then
+            local already = post.members[sender] ~= nil
             post.members[sender] = role
-            if post.author == MyName() and addonTable.Personal then
+            if post.author == MyName() and addonTable.Personal and not already then
                 addonTable.Personal.Alert(string.format(L["%s se apunta a tu grupo."], Ambiguate(sender, "none")))
+                if communityModule.CountMembers(post) == post.slots then
+                    addonTable.Personal.Alert(L["Tu grupo está completo: invita a los apuntados desde Comunidad."])
+                end
             end
         else
             post.members[sender] = nil
         end
         Notify()
+    elseif kind == "M;" then
+        -- Apuntados de un anuncio (los manda su autor al responder a Q)
+        local id, list = strsplit(";", string.sub(msg, 3), 2)
+        local post = posts[id]
+        if not post or post.author ~= sender or not list then return end
+        for name, role in string.gmatch(list, "([^,=]+)=(%a+)") do
+            if ROLE_LETTER[role] then post.members[name] = role end
+        end
+        Notify()
     elseif msg == "Q" then
-        -- Reenvía mis anuncios abiertos a quien acaba de entrar
+        -- Reenvía mis anuncios abiertos (y quién se ha apuntado) a quien acaba de entrar
         C_Timer.After(1 + math.random() * 4, function()
             for _, post in pairs(posts) do
-                if post.author == MyName() then SendPost(post) end
+                if post.author == MyName() then
+                    SendPost(post)
+                    -- Sin pasar de 255 bytes: con muchos apuntados se manda en varios mensajes
+                    local chunk, size = {}, 0
+                    local function Flush()
+                        if #chunk > 0 then Send(LFG_PREFIX, "M;" .. post.id .. ";" .. table.concat(chunk, ",")) end
+                        chunk, size = {}, 0
+                    end
+                    for name, role in pairs(post.members) do
+                        if type(role) == "string" then
+                            local part = name .. "=" .. role
+                            if size + #part + 1 > 200 then Flush() end
+                            table.insert(chunk, part)
+                            size = size + #part + 1
+                        end
+                    end
+                    Flush()
+                end
             end
         end)
+    end
+end
+
+-- Anuncia un grupo mío en el chat de hermandad (para quien no usa GuildControl)
+function communityModule.AnnouncePost(id)
+    local post = posts[id]
+    if not post or post.author ~= MyName() or not IsInGuild() then return end
+    local activity = L[VALID_ACTIVITY[post.activity] or "Otro"]
+    local text = string.format(L["[GuildControl] Busco gente (%s, %d/%d): %s · Apúntate en GuildControl > Comunidad o susúrrame."],
+        activity, communityModule.CountMembers(post), post.slots, post.text)
+    if #text > 255 then
+        -- Sin partir una letra de varios bytes (ñ, á...) al recortar
+        text = string.gsub(string.sub(text, 1, 252), "[\192-\255][\128-\191]*$", "") .. "..."
+    end
+    if C_ChatInfo and C_ChatInfo.SendChatMessage then
+        C_ChatInfo.SendChatMessage(text, "GUILD")
+    else
+        SendChatMessage(text, "GUILD")
     end
 end
 

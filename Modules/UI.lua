@@ -75,7 +75,7 @@ local function TabHelp(tabName)
 end
 
 -- Pestañas del menú lateral y las que solo ve el perfil de oficial
-local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Botín", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
+local SIDEBAR_TABS = { "Resumen", "Miembros", "Raid", "Botín", "Roster", "Comunidad", "Profesiones", "Para mí", "Mi perfil", "Favoritos", "Logros", "Míticas+", "Warning", "Invitar", "Black list" }
 -- Nombre que se ve en el menú cuando no coincide con la clave de la pestaña
 local TAB_LABELS = { ["Para mí"] = "Tus novedades" }
 
@@ -897,6 +897,18 @@ local function ShowPlayerMenu(owner, name)
                 if uiModule.RefreshFavorites then uiModule.RefreshFavorites() end
             end)
         end
+        -- Oficiales: dar o quitar las insignias nuevas (las de serie se ganan solas)
+        local D = addonTable.Dkp
+        local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
+        local custom = D and D.GetCustomBadges and D.GetCustomBadges() or {}
+        if isOfficer and #custom > 0 and GuildControlDB.members[name] then
+            local submenu = rootDescription:CreateButton(L["Insignias"])
+            for _, badge in ipairs(custom) do
+                submenu:CreateCheckbox("|T" .. tostring(badge.icon) .. ":14:14|t " .. badge.label,
+                    function() return D.HasCustomBadge(name, badge.key) end,
+                    function() D.SetBadgeHolder(badge.key, name, not D.HasCustomBadge(name, badge.key)) end)
+            end
+        end
     end)
 end
 
@@ -1284,19 +1296,34 @@ local function BuildMembersView(parent)
         UpdateSortIndicators()
     end
 
+    -- Rendimiento: con la pestaña oculta no se redibuja (cada escaneo del roster la pediría);
+    -- se marca pendiente y se hace al volver a verse
+    local listDirty = false
+    view:HookScript("OnShow", function()
+        if listDirty then uiModule.RefreshList() end
+    end)
+
     uiModule.RefreshList = function()
+        if not view:IsVisible() then
+            listDirty = true
+            return
+        end
+        listDirty = false
         local list, total = {}, 0
         for fullName, data in pairs(GuildControlDB.members or {}) do
             total = total + 1
             local passFilter = (memberFilter == "all") or (memberFilter == "online" and data.isOnline)
                 or (memberFilter == "favorites" and addonTable.Favorites and addonTable.Favorites.IsFavorite(fullName))
             if passFilter and MatchesSearch(fullName, data) then
-                table.insert(list, { name = fullName, data = data })
+                local entry = { name = fullName, data = data }
+                -- El valor de orden se calcula una vez por miembro, no en cada comparación
+                entry.sortValue = MemberSortValue(entry, sortKey)
+                table.insert(list, entry)
             end
         end
 
         table.sort(list, function(a, b)
-            local va, vb = MemberSortValue(a, sortKey), MemberSortValue(b, sortKey)
+            local va, vb = a.sortValue, b.sortValue
             if va ~= vb then
                 if sortAsc then return va < vb end
                 return va > vb
@@ -6695,6 +6722,12 @@ local function BuildRaidView(parent)
     btnBuffCheck:SetPoint("LEFT", btnMini, "RIGHT", 6, 0)
     btnBuffCheck:SetText(L["Buff check"])
     btnBuffCheck:SetScript("OnClick", function() if uiModule.BuffCheck then uiModule.BuffCheck() end end)
+    -- Pizarra para explicar los jefes (Board.lua)
+    local btnBoard = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    btnBoard:SetSize(80, 22)
+    btnBoard:SetPoint("LEFT", btnBuffCheck, "RIGHT", 6, 0)
+    btnBoard:SetText(L["Pizarra"])
+    btnBoard:SetScript("OnClick", function() if addonTable.Board then addonTable.Board.Toggle() end end)
 
     local btnAttendance = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
     btnAttendance:SetSize(110, 22)
@@ -6923,19 +6956,24 @@ local function BuildRaidView(parent)
     local countsText = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     countsText:SetPoint("TOPLEFT", signBar, "BOTTOMLEFT", 2, -10)
 
-    -- Columnas de apuntados por rol y fila de otros estados
-    local function Column(x, width)
-        local fs = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", detail, "TOPLEFT", x, -170)
-        fs:SetWidth(width)
+    -- Apuntados por rol, cada rol en un contenedor de su color (como en Roster); debajo, la
+    -- fila de otros estados. col:SetHeader(texto) pone la cabecera y col:SetText(texto) la lista.
+    local function Column(x, width, color)
+        local panel = CreateColoredPanel(detail, "", color, width, 232)
+        panel:SetPoint("TOPLEFT", detail, "TOPLEFT", x, -164)
+        local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -30)
+        fs:SetWidth(width - 16)
         fs:SetJustifyH("LEFT")
         fs:SetJustifyV("TOP")
         fs:SetSpacing(3)
-        return fs
+        panel.SetHeader = function(self, text) self.title:SetText(text) end
+        panel.SetText = function(_, text) fs:SetText(text) end
+        return panel
     end
-    local tankCol = Column(16, 190)
-    local healerCol = Column(216, 200)
-    local dpsCol = Column(424, 210)
+    local tankCol = Column(12, 196, PANEL_COLORS.blue)
+    local healerCol = Column(212, 204, PANEL_COLORS.green)
+    local dpsCol = Column(420, 212, PANEL_COLORS.red)
     local otherText = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     otherText:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 44)
     otherText:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
@@ -7554,21 +7592,20 @@ local function BuildRaidView(parent)
             .. L["   ·   Tarde "] .. counts.late .. L["   ·   Ausentes "] .. counts.absent)
 
         local byRole = E.GetSignupsByRole(event)
-        local function ColumnText(label, role, list)
-            local lines = { RoleIcon(role, 16) .. " |cFFFFD100" .. label .. " (" .. #list .. ")|r" }
-            -- Caben unas 13 líneas por columna; el resto se resume
-            for i, entry in ipairs(list) do
-                if i > 13 then
-                    table.insert(lines, L["|cFF808080y "] .. (#list - 13) .. L[" más (ver Vista de grupos)|r"])
-                    break
-                end
-                table.insert(lines, SignupName(entry.name, entry.signup))
+        local function FillColumn(col, label, role, list)
+            col:SetHeader(RoleIcon(role, 16) .. " " .. label .. " |cFFFFFFFF(" .. #list .. ")|r")
+            -- Caben 12 líneas por contenedor; el resto se resume
+            local lines = {}
+            local shown = #list > 12 and 11 or #list
+            for i = 1, shown do table.insert(lines, SignupName(list[i].name, list[i].signup)) end
+            if #list > shown then
+                table.insert(lines, L["|cFF808080y "] .. (#list - shown) .. L[" más (ver Vista de grupos)|r"])
             end
-            return table.concat(lines, "\n")
+            col:SetText(#lines > 0 and table.concat(lines, "\n") or L["|cFF808080Nadie todavía|r"])
         end
-        tankCol:SetText(ColumnText(L["Tanques"], "tank", byRole.tank))
-        healerCol:SetText(ColumnText(L["Sanadores"], "healer", byRole.healer))
-        dpsCol:SetText(ColumnText("DPS", "dps", byRole.dps))
+        FillColumn(tankCol, L["Tanques"], "tank", byRole.tank)
+        FillColumn(healerCol, L["Sanadores"], "healer", byRole.healer)
+        FillColumn(dpsCol, "DPS", "dps", byRole.dps)
 
         local otherLines = {}
         for _, status in ipairs({ "tentative", "bench", "absent" }) do
@@ -8254,6 +8291,35 @@ function uiModule.ShowLootRollPopup(key)
             LT.Choose(frame.key, "pass")
             frame:Hide()
         end)
+        -- Barra para elegir la puja (de la puja mínima a tus DKP); va unida a la casilla
+        local slider = CreateFrame("Slider", nil, frame, "BackdropTemplate")
+        slider:SetOrientation("HORIZONTAL")
+        slider:SetSize(250, 16)
+        slider:SetPoint("BOTTOM", frame, "BOTTOM", 0, 46)
+        slider:SetHitRectInsets(0, 0, -6, -6)
+        slider:SetBackdrop({
+            bgFile = "Interface\\Buttons\\UI-SliderBar-Background", edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8, insets = { left = 3, right = 3, top = 6, bottom = 6 },
+        })
+        slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+        slider:SetValueStep(1)
+        if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+        slider.low = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        slider.low:SetPoint("RIGHT", slider, "LEFT", -6, 0)
+        slider.high = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        slider.high:SetPoint("LEFT", slider, "RIGHT", 6, 0)
+        slider:SetScript("OnValueChanged", function(self, value)
+            if self.updating then return end
+            frame.bidInput:SetText(tostring(math.floor(value + 0.5)))
+        end)
+        frame.bidInput:SetScript("OnTextChanged", function(self, userInput)
+            local value = tonumber(self:GetText())
+            if not userInput or not value then return end
+            slider.updating = true
+            slider:SetValue(value)
+            slider.updating = false
+        end)
+        frame.bidSlider = slider
         GC_LootRollFrame = frame
         -- Se cierra sola cuando la tirada termina
         LT.AddListener(function()
@@ -8276,6 +8342,8 @@ function uiModule.ShowLootRollPopup(key)
     frame.bidInput:SetShown(auction)
     frame.bidButton:SetShown(auction)
     frame.bidPass:SetShown(auction)
+    frame.bidSlider:SetShown(auction)
+    frame:SetHeight(auction and 180 or 150)
     frame.title:SetText(fixed and L["Botín DKP"] or (auction and L["Subasta DKP"] or L["Tirada de botín"]))
     local winsText = wins > 0 and (L["   |cFFFF7F00Ya ganaste "] .. wins .. L[" objeto(s) en esta banda|r"]) or ""
     if fixed then
@@ -8291,6 +8359,15 @@ function uiModule.ShowLootRollPopup(key)
     elseif auction then
         local D = addonTable.Dkp
         local minBid = LT.GetMinBid(item)
+        local maxBid = math.max(minBid, D.GetBalance(me))
+        local slider = frame.bidSlider
+        slider.updating = true
+        slider:SetMinMaxValues(minBid, maxBid)
+        slider:SetValue(minBid)
+        slider.updating = false
+        slider:SetEnabled(maxBid > minBid)
+        slider.low:SetText(minBid)
+        slider.high:SetText(maxBid)
         frame.bidInput:SetText(tostring(minBid))
         frame.info:SetText(L["Tus DKP: |cFFFFD100"] .. D.GetBalance(me) .. L["|r   Puja mínima: |cFFFFD100"] .. minBid .. "|r" .. winsText)
     else
@@ -9486,34 +9563,164 @@ local function BuildConfigView(parent)
     channelsHint:SetText(L["Los canales se unen por su nombre, que es el mismo en cualquier idioma del juego. El número (/5, /6...) lo pone cada cliente y puede ser distinto: compruébalo con /chatlist. Desde el chat de GuildControl se escribe por nombre. Por defecto entras en el canal del idioma de tu juego."])
 
     -- ---------------------------------------------------------------------
-    -- 9.7 Premios DKP por insignia (solo oficiales)
+    -- 9.7 Insignias y premios DKP (solo oficiales)
     -- ---------------------------------------------------------------------
-    local badgeBox = Section(L["Premios DKP por insignia"], 10, -1062, 880, 214)
-    local PMod = addonTable.Personal
+    -- Las de serie (se pueden quitar del premio y restablecer) y las nuevas que crean los
+    -- oficiales (se dan a mano a cada jugador y se pueden borrar). Las filas se crean según
+    -- haga falta y la sección crece con ellas.
+    local badgeBox = Section(L["Insignias y premios DKP"], 10, -1062, 880, 214)
     local badgeRewardRows = {}
     local RefreshBadgeRewards
-    for i, badge in ipairs(PMod and PMod.BADGES or {}) do
-        local y = -32 - (i - 1) * 28
-        local row = CreateFrame("Frame", nil, badgeBox)
+
+    -- Busca un miembro por nombre (con o sin reino, sin distinguir mayúsculas)
+    local function FindMemberName(text)
+        text = strtrim(text or "")
+        if text == "" then return nil end
+        local key = addonTable.NormalizeName and addonTable.NormalizeName(text) or text
+        if GuildControlDB.members[key] then return key end
+        local wanted = string.lower(string.match(text, "^([^%-%s]+)") or text)
+        for name in pairs(GuildControlDB.members) do
+            if string.lower(string.match(name, "^([^-]+)") or name) == wanted then return name end
+        end
+        return nil
+    end
+
+    StaticPopupDialogs["GUILDCONTROL_GIVE_BADGE"] = {
+        text = "%s",
+        button1 = ACCEPT,
+        button2 = CANCEL,
+        hasEditBox = true,
+        maxLetters = 60,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        OnShow = function(self)
+            local box = self.EditBox or self.editBox
+            if box then box:SetText(""); box:SetFocus() end
+        end,
+        OnAccept = function(self, data)
+            local box = self.EditBox or self.editBox
+            local D = addonTable.Dkp
+            local name = FindMemberName(box and box:GetText())
+            if not name then
+                PrintGC(L["|cFFFF3333No hay ningún miembro con ese nombre.|r"])
+            elseif D and data and D.SetBadgeHolder(data, name, true) then
+                PrintGC(L["Insignia dada a "] .. name .. ".")
+            end
+        end,
+        EditBoxOnEnterPressed = function(self)
+            local parent = self:GetParent()
+            StaticPopupDialogs["GUILDCONTROL_GIVE_BADGE"].OnAccept(parent, parent.data)
+            parent:Hide()
+        end,
+        EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    }
+
+    -- Ventana para crear una insignia: nombre, descripción, icono y premio
+    local newBadgeFrame = nil
+    local function ShowNewBadgeDialog()
+        if not newBadgeFrame then
+            local frame = CreateFrame("Frame", "GuildControlNewBadgeFrame", UIParent, "BasicFrameTemplateWithInset")
+            frame:SetSize(420, 230)
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+            frame:SetFrameStrata("HIGH")   -- por debajo del selector de iconos
+            frame:SetToplevel(true)
+            frame:SetMovable(true)
+            frame:EnableMouse(true)
+            frame:RegisterForDrag("LeftButton")
+            frame:SetScript("OnDragStart", frame.StartMoving)
+            frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+            tinsert(UISpecialFrames, "GuildControlNewBadgeFrame")
+            local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+            title:SetText(L["Nueva insignia"])
+
+            local function Field(label, y, width, maxLetters)
+                local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                fs:SetPoint("TOPLEFT", frame, "TOPLEFT", 84, y)
+                fs:SetText(label)
+                local input = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+                input:SetSize(width, 20)
+                input:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 6, -2)
+                input:SetAutoFocus(false)
+                input:SetMaxLetters(maxLetters)
+                input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+                return input
+            end
+            frame.nameInput = Field(L["Nombre"], -34, 300, 30)
+            frame.descInput = Field(L["Descripción (por qué se da)"], -78, 300, 100)
+            frame.rewardInput = Field(L["Premio (DKP)"], -122, 70, 4)
+            frame.rewardInput:SetNumeric(true)
+
+            -- Icono: botón con la textura elegida, abre el selector de iconos
+            frame.iconButton = CreateFrame("Button", nil, frame)
+            frame.iconButton:SetSize(56, 56)
+            frame.iconButton:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -40)
+            frame.iconButton.tex = frame.iconButton:CreateTexture(nil, "ARTWORK")
+            frame.iconButton.tex:SetAllPoints()
+            frame.iconButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+            local iconHint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            iconHint:SetPoint("TOP", frame.iconButton, "BOTTOM", 0, -4)
+            iconHint:SetText(L["Icono"])
+            frame.iconButton:SetScript("OnClick", function()
+                if uiModule.ShowIconPicker then
+                    uiModule.ShowIconPicker(function(value)
+                        frame.icon = value
+                        frame.iconButton.tex:SetTexture(value)
+                    end)
+                end
+            end)
+
+            local btnCreate = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+            btnCreate:SetSize(120, 24)
+            btnCreate:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -16, 14)
+            btnCreate:SetText(L["Crear"])
+            btnCreate:SetScript("OnClick", function()
+                local D = addonTable.Dkp
+                local label = strtrim(frame.nameInput:GetText() or "")
+                if label == "" then
+                    PrintGC(L["|cFFFF3333Escribe el nombre de la insignia.|r"])
+                    return
+                end
+                if D and D.CreateCustomBadge(label, frame.descInput:GetText(), frame.icon, frame.rewardInput:GetText()) then
+                    frame:Hide()
+                    RefreshBadgeRewards()
+                end
+            end)
+            newBadgeFrame = frame
+        end
+        local frame = newBadgeFrame
+        frame.icon = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend"
+        frame.iconButton.tex:SetTexture(frame.icon)
+        frame.nameInput:SetText("")
+        frame.descInput:SetText("")
+        frame.rewardInput:SetText("10")
+        frame:Show()
+        frame.nameInput:SetFocus()
+    end
+
+    local function BadgeRewardRow(i)
+        local row = badgeRewardRows[i]
+        if row then return row end
+        row = CreateFrame("Frame", nil, badgeBox)
         row:SetSize(850, 26)
-        row:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 14, y)
+        row:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 14, -32 - (i - 1) * 28)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(22, 22)
         row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-        row.icon:SetTexture(badge.icon)
         row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         row.label:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
         row.label:SetWidth(130)
         row.label:SetJustifyH("LEFT")
+        row.label:SetWordWrap(false)
         row.desc = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         row.desc:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
-        row.desc:SetWidth(380)
+        row.desc:SetWidth(320)
         row.desc:SetJustifyH("LEFT")
         row.desc:SetWordWrap(false)
-        row.desc:SetText(L[badge.desc])
         row.input = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-        row.input:SetSize(60, 20)
-        row.input:SetPoint("LEFT", row.desc, "RIGHT", 14, 0)
+        row.input:SetSize(50, 20)
+        row.input:SetPoint("LEFT", row.desc, "RIGHT", 12, 0)
         row.input:SetAutoFocus(false)
         row.input:SetNumeric(true)
         row.input:SetMaxLetters(4)
@@ -9522,34 +9729,51 @@ local function BuildConfigView(parent)
         row.unit:SetText("DKP")
         local function SaveAmount(self)
             local D = addonTable.Dkp
-            if D and D.GetBadgeReward and D.GetBadgeRewards()[badge.key] then D.SetBadgeReward(badge.key, self:GetText()) end
-            self:ClearFocus()
-            RefreshBadgeRewards()
+            local key = row.badge and row.badge.key
+            if D and key and D.GetBadgeRewards()[key] and tonumber(self:GetText()) ~= D.GetBadgeRewards()[key] then
+                D.SetBadgeReward(key, self:GetText())
+            end
         end
-        row.input:SetScript("OnEnterPressed", SaveAmount)
-        row.input:SetScript("OnEditFocusLost", function(self)
-            local D = addonTable.Dkp
-            local current = D and D.GetBadgeRewards()[badge.key]
-            if current and tonumber(self:GetText()) ~= current then D.SetBadgeReward(badge.key, self:GetText()) end
-            RefreshBadgeRewards()
-        end)
+        row.input:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        row.input:SetScript("OnEditFocusLost", function(self) SaveAmount(self); RefreshBadgeRewards() end)
         row.input:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        -- Quitar la insignia del premio o volver a añadirla con su valor predeterminado
+        -- De serie: quitar del premio o volver a añadir. Nueva: borrar (con segundo clic).
         row.toggle = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         row.toggle:SetSize(80, 22)
-        row.toggle:SetPoint("LEFT", row.unit, "RIGHT", 14, 0)
-        row.toggle:SetScript("OnClick", function()
+        row.toggle:SetPoint("LEFT", row.unit, "RIGHT", 12, 0)
+        row.toggle:SetScript("OnClick", function(self)
             local D = addonTable.Dkp
-            if not D then return end
-            if D.GetBadgeRewards()[badge.key] then
+            local badge = row.badge
+            if not D or not badge then return end
+            if badge.custom then
+                if GetTime() < (self.armedUntil or 0) then
+                    self.armedUntil = 0
+                    D.DeleteCustomBadge(badge.key)
+                else
+                    self.armedUntil = GetTime() + 4
+                    self:SetText(L["|cFFFF3333¿Seguro?|r"])
+                    C_Timer.After(4, function() if GetTime() >= (self.armedUntil or 0) then RefreshBadgeRewards() end end)
+                    return
+                end
+            elseif D.GetBadgeRewards()[badge.key] then
                 D.RemoveBadgeReward(badge.key)
             else
                 D.SetBadgeReward(badge.key, D.DEFAULT_BADGE_REWARDS[badge.key] or 0)
             end
             RefreshBadgeRewards()
         end)
-        row.badge = badge
+        -- Solo las nuevas: darla a un jugador (también desde el clic derecho en Miembros)
+        row.give = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.give:SetSize(80, 22)
+        row.give:SetPoint("LEFT", row.toggle, "RIGHT", 6, 0)
+        row.give:SetText(L["Dar a…"])
+        row.give:SetScript("OnClick", function()
+            if not row.badge then return end
+            local popup = StaticPopup_Show("GUILDCONTROL_GIVE_BADGE", string.format(L["¿A quién das la insignia %s?"], row.badge.label))
+            if popup then popup.data = row.badge.key end
+        end)
         badgeRewardRows[i] = row
+        return row
     end
 
     local btnBadgeDefaults = CreateFrame("Button", nil, badgeBox, "UIPanelButtonTemplate")
@@ -9560,27 +9784,54 @@ local function BuildConfigView(parent)
         if addonTable.Dkp and addonTable.Dkp.ResetBadgeRewards then addonTable.Dkp.ResetBadgeRewards() end
         RefreshBadgeRewards()
     end)
+    local btnNewBadge = CreateFrame("Button", nil, badgeBox, "UIPanelButtonTemplate")
+    btnNewBadge:SetSize(140, 22)
+    btnNewBadge:SetPoint("RIGHT", btnBadgeDefaults, "LEFT", -6, 0)
+    btnNewBadge:SetText(L["Nueva insignia"])
+    btnNewBadge:SetScript("OnClick", ShowNewBadgeDialog)
 
     local badgeHint = badgeBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    badgeHint:SetPoint("BOTTOMLEFT", badgeBox, "BOTTOMLEFT", 16, 16)
-    badgeHint:SetPoint("RIGHT", btnBadgeDefaults, "LEFT", -12, 0)
+    badgeHint:SetPoint("BOTTOMLEFT", badgeBox, "BOTTOMLEFT", 16, 12)
+    badgeHint:SetPoint("RIGHT", btnNewBadge, "LEFT", -12, 0)
     badgeHint:SetJustifyH("LEFT")
 
     RefreshBadgeRewards = function()
-        local D = addonTable.Dkp
-        if not D or not D.GetBadgeRewards then return end
+        local D, PMod = addonTable.Dkp, addonTable.Personal
+        if not D or not D.GetBadgeRewards or not PMod or not PMod.GetAllBadges then return end
         local rewards = D.GetBadgeRewards()
-        for _, row in ipairs(badgeRewardRows) do
-            local amount = rewards[row.badge.key]
-            row.label:SetText((amount and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r")
+        local badges = PMod.GetAllBadges()
+        -- Cuántos jugadores tienen cada insignia nueva
+        local holders = {}
+        for _, badge in ipairs(badges) do
+            if badge.custom then
+                local count = 0
+                for name in pairs(GuildControlDB.members or {}) do
+                    if D.HasCustomBadge(name, badge.key) then count = count + 1 end
+                end
+                holders[badge.key] = count
+            end
+        end
+        for _, row in ipairs(badgeRewardRows) do row:Hide() end
+        for i, badge in ipairs(badges) do
+            local row = BadgeRewardRow(i)
+            row.badge = badge
+            local amount = rewards[badge.key]
+            row.icon:SetTexture(badge.icon)
             row.icon:SetDesaturated(not amount)
+            row.label:SetText((amount and "|cFFFFD100" or "|cFF808080") .. L[badge.label] .. "|r")
+            row.desc:SetText((badge.custom and ("|cFF66B3FF" .. string.format(L["Nueva · %d jugador(es)"], holders[badge.key] or 0) .. "|r  ") or "")
+                .. L[badge.desc or ""])
             row.input:SetShown(amount ~= nil)
             row.unit:SetShown(amount ~= nil)
             if amount and not row.input:HasFocus() then row.input:SetText(tostring(amount)) end
-            row.toggle:SetText(amount and L["Quitar"] or L["Añadir"])
+            row.toggle:SetText(badge.custom and L["Borrar"] or (amount and L["Quitar"] or L["Añadir"]))
+            row.give:SetShown(badge.custom == true)
+            row:Show()
         end
+        badgeBox:SetHeight(28 + #badges * 28 + 50)
+        if badgeBox:IsShown() then content:SetHeight(1032 + badgeBox:GetHeight() + 10) end
         badgeHint:SetText((D.IsActive() and "" or L["|cFFFF7F00El sistema de botín no es DKP: no se dan premios.|r "])
-            .. L["Se dan una vez por jugador e insignia. Los da un oficial conectado cada 10 minutos y se comparten con la hermandad."])
+            .. L["El premio se da una vez por jugador e insignia; las nuevas se dan con «Dar a…» o con clic derecho en Miembros."])
     end
     if addonTable.Dkp and addonTable.Dkp.AddListener then
         addonTable.Dkp.AddListener(function() if badgeBox:IsVisible() then RefreshBadgeRewards() end end)
@@ -9669,7 +9920,7 @@ local CHAT_CHANNEL_STYLE = {
     guild = { color = "40FF40", tag = "H" }, whisper = { color = "FF80FF", tag = "S" },
     raid = { color = "FF7F00", tag = "B" }, party = { color = "AAAAFF", tag = "G" },
     instance = { color = "FF7F00", tag = "M" }, officer = { color = "40C040", tag = "O" },
-    english = { color = "FFC0A0", tag = "EN" }, spanish = { color = "FFD27F", tag = "ES" },
+    english = { color = "40FF40", tag = "EN" }, spanish = { color = "40FF40", tag = "ES" },   -- verde, como hermandad
 }
 
 -- Canales que se pueden ocultar (Configuración > Canales del chat): todos menos Todo; los de
@@ -10243,22 +10494,30 @@ local function BuildForMeView(parent)
     -- 4. Insignias ------------------------------------------------------------
     local badgeBox = CreateColoredPanel(view, L["Mis insignias"], PANEL_COLORS.blue, 437, 250)
     badgeBox:SetPoint("TOPLEFT", view, "TOPLEFT", 453, -266)
+    -- Las de serie y las nuevas de los oficiales: con muchas, la lista se desplaza
+    local badgeScroll = CreateFrame("ScrollFrame", nil, badgeBox, "UIPanelScrollFrameTemplate")
+    badgeScroll:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 8, -26)
+    badgeScroll:SetPoint("BOTTOMRIGHT", badgeBox, "BOTTOMRIGHT", -28, 6)
+    local badgeChild = CreateFrame("Frame", nil, badgeScroll)
+    badgeChild:SetSize(400, 1)
+    badgeScroll:SetScrollChild(badgeChild)
     local badgeRows = {}
-    for i, badge in ipairs(PM and PM.BADGES or {}) do
-        local row = CreateFrame("Frame", nil, badgeBox)
-        row:SetSize(415, 26)
-        row:SetPoint("TOPLEFT", badgeBox, "TOPLEFT", 12, -28 - (i - 1) * 27)
+    local function BadgeRow(i)
+        local row = badgeRows[i]
+        if row then return row end
+        row = CreateFrame("Frame", nil, badgeChild)
+        row:SetSize(400, 26)
+        row:SetPoint("TOPLEFT", badgeChild, "TOPLEFT", 4, -2 - (i - 1) * 27)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(22, 22)
         row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-        row.icon:SetTexture(badge.icon)
         row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.text:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
         row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.text:SetJustifyH("LEFT")
         row.text:SetWordWrap(false)
-        row.badge = badge
         badgeRows[i] = row
+        return row
     end
 
     Refresh = function()
@@ -10347,7 +10606,13 @@ local function BuildForMeView(parent)
         -- Insignias: las ganadas en color y las que faltan en gris (como objetivo)
         local earned = {}
         for _, badge in ipairs(PM.GetBadges(me)) do earned[badge.key] = true end
-        for _, row in ipairs(badgeRows) do
+        for _, row in ipairs(badgeRows) do row:Hide() end
+        local allBadges = PM.GetAllBadges()
+        for i, badge in ipairs(allBadges) do
+            local row = BadgeRow(i)
+            row.badge = badge
+            row.icon:SetTexture(badge.icon)
+            row:Show()
             local has = earned[row.badge.key]
             row.icon:SetDesaturated(not has)
             row.icon:SetAlpha(has and 1 or 0.4)
@@ -10356,11 +10621,13 @@ local function BuildForMeView(parent)
             local reward = D and D.IsActive() and D.GetBadgeReward and D.GetBadgeReward(row.badge.key)
             row.text:SetText((has and "|cFFFFD100" or "|cFF808080") .. L[row.badge.label] .. "|r  "
                 .. (reward and ((has and "|cFF00FF00" or "|cFF607060") .. "+" .. reward .. " DKP|r  ") or "")
-                .. (has and "|cFFFFFFFF" or "|cFF606060") .. L[row.badge.desc] .. "|r")
+                .. (has and "|cFFFFFFFF" or "|cFF606060") .. L[row.badge.desc or ""] .. "|r")
         end
+        badgeChild:SetHeight(math.max(1, #allBadges * 27 + 4))
     end
 
     PM.AddListener(function() Refresh() end)
+    if addonTable.Dkp and addonTable.Dkp.AddListener then addonTable.Dkp.AddListener(function() Refresh() end) end
     if addonTable.RaidEvents then addonTable.RaidEvents.AddListener(function() Refresh() end) end
     local itemFrame = CreateFrame("Frame")
     itemFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
@@ -10456,8 +10723,20 @@ local function BuildCommunityView(parent)
     btnPublish:SetSize(90, 22)
     btnPublish:SetPoint("LEFT", textInput, "RIGHT", 8, 0)
     btnPublish:SetText(L["Publicar"])
+    -- Anunciarlo también en el chat de hermandad (para quien no usa GuildControl)
+    local chkAnnounce = CreateFrame("CheckButton", nil, lfgBox, "UICheckButtonTemplate")
+    chkAnnounce:SetSize(22, 22)
+    chkAnnounce:SetPoint("TOPLEFT", textInput, "BOTTOMLEFT", -6, -4)
+    chkAnnounce.text = chkAnnounce:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    chkAnnounce.text:SetPoint("LEFT", chkAnnounce, "RIGHT", 2, 0)
+    chkAnnounce.text:SetText(L["Anunciarlo también en el chat de hermandad"])
+    chkAnnounce:SetScript("OnShow", function(self) self:SetChecked(GuildControlDB.settings.lfgAnnounce == true) end)
+    chkAnnounce:SetScript("OnClick", function(self) GuildControlDB.settings.lfgAnnounce = self:GetChecked() and true or false end)
+
     local function Publish()
-        if C.CreatePost(activity, slotsInput:GetText(), textInput:GetText(), lfgRoles) then
+        local post = C.CreatePost(activity, slotsInput:GetText(), textInput:GetText(), lfgRoles)
+        if post then
+            if GuildControlDB.settings.lfgAnnounce and C.AnnouncePost then C.AnnouncePost(post.id) end
             textInput:SetText("")
             textInput:ClearFocus()
         end
@@ -10465,14 +10744,37 @@ local function BuildCommunityView(parent)
     btnPublish:SetScript("OnClick", Publish)
     textInput:SetScript("OnEnterPressed", Publish)
 
+    -- Filtro por actividad (en la franja del título)
+    local lfgFilter = "all"
+    local btnFilter = CreateFrame("Button", nil, lfgBox, "UIPanelButtonTemplate")
+    btnFilter:SetSize(150, 18)
+    btnFilter:SetPoint("TOPRIGHT", lfgBox, "TOPRIGHT", -6, -4)
+    local function FilterLabel()
+        return L["Ver: "] .. (lfgFilter == "all" and L["Todas"] or L[C.ACTIVITY_LABELS[lfgFilter] or "Otro"])
+    end
+    btnFilter:SetText(FilterLabel())
+    btnFilter:SetScript("OnClick", function(self)
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateRadio(L["Todas"], function() return lfgFilter == "all" end, function()
+                lfgFilter = "all"; btnFilter:SetText(FilterLabel()); Refresh()
+            end)
+            for _, a in ipairs(C.ACTIVITIES) do
+                local key = a.key
+                root:CreateRadio(L[a.label], function() return lfgFilter == key end, function()
+                    lfgFilter = key; btnFilter:SetText(FilterLabel()); Refresh()
+                end)
+            end
+        end)
+    end)
+
     local lfgScroll = CreateFrame("ScrollFrame", nil, lfgBox, "UIPanelScrollFrameTemplate")
-    lfgScroll:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 8, -98)
+    lfgScroll:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 8, -122)
     lfgScroll:SetPoint("BOTTOMRIGHT", lfgBox, "BOTTOMRIGHT", -28, 8)
     local lfgChild = CreateFrame("Frame")
     lfgChild:SetSize(397, 1)
     lfgScroll:SetScrollChild(lfgChild)
     local lfgEmpty = lfgBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lfgEmpty:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 14, -104)
+    lfgEmpty:SetPoint("TOPLEFT", lfgBox, "TOPLEFT", 14, -128)
     lfgEmpty:SetWidth(400)
     lfgEmpty:SetJustifyH("LEFT")
     lfgEmpty:SetText(L["No hay grupos abiertos. Publica uno arriba: lo verán todos los que usan GuildControl y podrán apuntarse con un clic. Los anuncios duran 2 horas."])
@@ -10526,22 +10828,35 @@ local function BuildCommunityView(parent)
 
         -- Grupos
         for _, row in ipairs(postRows) do row:Hide() end
-        local posts = C.GetPosts()
+        -- Con el filtro: solo la actividad elegida (los míos siempre se ven)
+        local posts = {}
+        for _, post in ipairs(C.GetPosts()) do
+            if lfgFilter == "all" or post.activity == lfgFilter or post.author == me then table.insert(posts, post) end
+        end
+        local now = GetServerTime()
         for i, post in ipairs(posts) do
             local row = AcquirePostRow(i)
             row:SetPoint("TOPLEFT", lfgChild, "TOPLEFT", 0, -(i - 1) * 58)
             local count = C.CountMembers(post)
             local mineIn = post.members[me]
-            -- Roles que se buscan e integrantes apuntados con el rol que eligieron
+            local full = count >= post.slots
+            -- Roles que se buscan, con cuántos se han apuntado a cada uno
             local wanted, wantedIcons = {}, ""
+            local byRole = {}
+            for _, role in pairs(post.members) do
+                if type(role) == "string" then byRole[role] = (byRole[role] or 0) + 1 end
+            end
             for _, role in ipairs(C.ROLES or {}) do
                 if not post.roles or post.roles[role] then
                     table.insert(wanted, role)
-                    wantedIcons = wantedIcons .. RoleIcon(role, 14)
+                    wantedIcons = wantedIcons .. RoleIcon(role, 14) .. "|cFFFFFFFF" .. (byRole[role] or 0) .. "|r "
                 end
             end
-            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. " " .. ColoredName(post.author)
-                .. "  |cFF808080" .. date("%H:%M", post.at) .. "  ·  " .. count .. "/" .. post.slots .. "|r")
+            local minutes = math.max(0, math.floor((now - (post.at or now)) / 60))
+            local status = full and ("|cFF00FF00" .. L["Completo"] .. "|r") or ("|cFF808080" .. count .. "/" .. post.slots .. "|r")
+            row.head:SetText("|cFF66B3FF[" .. L[C.ACTIVITY_LABELS[post.activity] or "Otro"] .. "]|r " .. wantedIcons .. ColoredName(post.author)
+                .. "  |cFF808080" .. string.format(L["hace %d min"], minutes) .. "  ·|r  " .. status)
+            row.bg:SetColorTexture(full and 0.3 or 1, 1, full and 0.3 or 1, full and 0.06 or 0.04)
             local joined = {}
             for name, role in pairs(post.members) do
                 table.insert(joined, (type(role) == "string" and RoleIcon(role, 12) or "") .. ColoredName(name))
@@ -10549,19 +10864,27 @@ local function BuildCommunityView(parent)
             table.sort(joined)
             row.text:SetText(post.text .. (#joined > 0 and ("\n|cFF808080" .. L["Apuntados: "] .. "|r" .. table.concat(joined, ", ")) or ""))
             row.button2:Hide()
+            row.button:SetEnabled(true)
             if post.author == me then
                 row.button:SetText(L["Cerrar"])
                 row.button:SetScript("OnClick", function() C.ClosePost(post.id) end)
-                row.button2:SetText(L["Invitar"])
-                row.button2:SetShown(count > 0)
-                row.button2:SetScript("OnClick", function()
-                    for name in pairs(post.members) do InviteToGroup(name) end
-                end)
+                -- Sin apuntados: anunciarlo en la hermandad; con apuntados: invitarlos
+                row.button2:Show()
+                if count > 0 then
+                    row.button2:SetText(L["Invitar"])
+                    row.button2:SetScript("OnClick", function()
+                        for name in pairs(post.members) do InviteToGroup(name) end
+                    end)
+                else
+                    row.button2:SetText(L["Anunciar"])
+                    row.button2:SetScript("OnClick", function() if C.AnnouncePost then C.AnnouncePost(post.id) end end)
+                end
             elseif mineIn then
                 row.button:SetText(L["Salir"])
                 row.button:SetScript("OnClick", function() C.Leave(post.id) end)
             else
-                row.button:SetText(L["Me apunto"])
+                row.button:SetText(full and L["Completo"] or L["Me apunto"])
+                row.button:SetEnabled(not full)
                 -- Con un solo rol buscado se apunta directamente; con varios se elige
                 row.button:SetScript("OnClick", function(self)
                     if #wanted == 1 then
@@ -10602,6 +10925,8 @@ local function BuildCommunityView(parent)
     end
 
     if C then C.AddListener(function() Refresh() end) end
+    -- "hace N min" y anuncios caducados: se actualiza cada minuto mientras se ve
+    C_Timer.NewTicker(60, function() if view:IsVisible() then Refresh() end end)
     view:SetScript("OnShow", Refresh)
     containers.views["Comunidad"] = view
 end

@@ -96,6 +96,9 @@ end
 -- Clave del canal por su nombre (nil si no es uno de los nuestros)
 function chatModule.GetLangChannelKey(name)
     if type(name) ~= "string" then return nil end
+    -- Atajo para los demás canales (General, Comercio...): los nuestros empiezan por "lobos"
+    local first = string.byte(name, 1)
+    if first ~= 108 and first ~= 76 then return nil end   -- "l" o "L"
     name = string.lower(name)
     for _, channel in ipairs(chatModule.LANG_CHANNELS) do
         if channel.name == name then return channel.key end
@@ -155,6 +158,15 @@ local function SetInGameWindow(name, show)
     end
 end
 
+-- En el chat del juego el canal sale en verde, como el de hermandad. El color va por número
+-- de canal (CHANNELn), que cambia en cada cliente, así que se pone después de unirse.
+local function ColorLikeGuild(key)
+    local id = chatModule.GetChannelId(key)
+    local guild = ChatTypeInfo and ChatTypeInfo["GUILD"]
+    if id <= 0 or not guild or not ChangeChatColor then return end
+    pcall(ChangeChatColor, "CHANNEL" .. id, guild.r or 0.25, guild.g or 1, guild.b or 0.25)
+end
+
 -- Entra o sale del canal según la preferencia y aplica si se ve en el chat del juego
 function chatModule.ApplyChannel(key)
     local channel = chatModule.GetLangChannel(key)
@@ -163,7 +175,10 @@ function chatModule.ApplyChannel(key)
     if chatModule.UsesChannel(key) then
         if not inChannel and JoinChannelByName then JoinChannelByName(channel.name) end
         -- El canal tarda un momento en existir después de unirse
-        C_Timer.After(inChannel and 0 or 2, function() SetInGameWindow(channel.name, chatModule.ShowsInGame(key)) end)
+        C_Timer.After(inChannel and 0 or 2, function()
+            SetInGameWindow(channel.name, chatModule.ShowsInGame(key))
+            ColorLikeGuild(key)
+        end)
     elseif inChannel and LeaveChannelByName then
         LeaveChannelByName(channel.name)
     end
@@ -535,13 +550,15 @@ chatFrame:SetScript("OnEvent", function(self, event, ...)
             AddMessage(otherName, text, guid, CHANNEL_EVENTS[event], event == "CHAT_MSG_WHISPER" and "in" or nil)
         end
     elseif event == "CHAT_MSG_CHANNEL" then
-        -- Solo los canales de idioma de la hermandad (channelBaseName es el 9.º argumento)
-        local text, sender = ...
-        local guid = select(12, ...)
+        -- Solo los canales de idioma de la hermandad (channelBaseName es el 9.º argumento).
+        -- General y Comercio llegan sin parar: lo primero es descartar los demás canales.
         local baseName = select(9, ...)
-        if IsSecret(text) or IsSecret(sender) or IsSecret(baseName) or not text or not sender then return end
+        if IsSecret(baseName) then return end
         local key = chatModule.GetLangChannelKey(baseName)
         if not key then return end
+        local text, sender = ...
+        local guid = select(12, ...)
+        if IsSecret(text) or IsSecret(sender) or not text or not sender then return end
         AddMessage(sender, text, not IsSecret(guid) and guid or nil, key)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...

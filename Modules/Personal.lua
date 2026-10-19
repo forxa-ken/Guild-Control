@@ -305,18 +305,49 @@ personalModule.BADGES = {
     { key = "upToDate", label = "Al día", icon = "Interface\\Icons\\Inv_Misc_Note_01", desc = "Usa GuildControl y tiene Mi perfil rellenado." },
 }
 
-local function JoinTime(name)
-    local D = addonTable.Dkp
-    local best = D and D.GetSince(name) or nil
+-- Altas del historial y objetos ganados de todos los miembros. Se calcula una vez y vale unos
+-- segundos: así, mirar las insignias de toda la hermandad (premios DKP, Configuración) no
+-- recorre el historial y el botín una vez por miembro.
+local badgeCache, badgeCacheAt = nil, -10
+local function BadgeCache()
+    if badgeCache and GetTime() - badgeCacheAt < 5 then return badgeCache end
+    local joins, wins = {}, {}
     for _, log in ipairs(GuildControlDB.history or {}) do
-        if log.action == "ALTA" and log.name == name and log.date then
+        if log.action == "ALTA" and log.name and log.date then
             local y, m, d = string.match(log.date, "^(%d+)-(%d+)-(%d+)")
             if y then
                 local t = time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })
-                if not best or t < best then best = t end
+                if not joins[log.name] or t < joins[log.name] then joins[log.name] = t end
             end
         end
     end
+    local LT = addonTable.Loot
+    if LT then
+        for _, entry in ipairs(LT.GetHistory()) do
+            if entry.winner then wins[entry.winner] = (wins[entry.winner] or 0) + 1 end
+        end
+    end
+    -- Quien estuvo (presente o tarde) en una banda Mítica con algún jefe derrotado
+    local mythic = {}
+    local E = addonTable.RaidEvents
+    if E and E.GetHistory then
+        for _, entry in ipairs(E.GetHistory()) do
+            if entry.difficulty == "mythic" and next(entry.bosses) then
+                for who, mark in pairs(entry.marks) do
+                    if mark == "present" or mark == "late" then mythic[who] = true end
+                end
+            end
+        end
+    end
+    badgeCache, badgeCacheAt = { joins = joins, wins = wins, mythic = mythic }, GetTime()
+    return badgeCache
+end
+
+local function JoinTime(name)
+    local D = addonTable.Dkp
+    local best = D and D.GetSince(name) or nil
+    local joined = BadgeCache().joins[name]
+    if joined and (not best or joined < best) then best = joined end
     return best
 end
 
@@ -329,26 +360,34 @@ function personalModule.GetBadges(name)
     local E = addonTable.RaidEvents
     local stats = E and E.GetAttendanceStats and E.GetAttendanceStats(nil, name)
     if stats and stats.percent and stats.counted >= 5 and stats.percent >= 90 then has.loyal = true end
-    if E and E.GetHistory then
-        for _, entry in ipairs(E.GetHistory()) do
-            local mark = entry.marks[name]
-            if entry.difficulty == "mythic" and next(entry.bosses) and (mark == "present" or mark == "late") then has.mythicKiller = true break end
-        end
-    end
+    if BadgeCache().mythic[name] then has.mythicKiller = true end
     if (m.mplusScore or 0) >= 2500 then has.keyMaster = true end
     if (m.achievementPoints or 0) >= 20000 then has.collector = true end
-    local LT = addonTable.Loot
-    if LT then
-        local won = 0
-        for _, entry in ipairs(LT.GetHistory()) do if entry.winner == name then won = won + 1 end end
-        if won >= 10 then has.lucky = true end
-    end
+    if (BadgeCache().wins[name] or 0) >= 10 then has.lucky = true end
     if addonTable.Community and addonTable.Community.HasRecipes and addonTable.Community.HasRecipes(name) then has.artisan = true end
     if addonTable.GetAddonUser and addonTable.GetAddonUser(name) and type(m.declared) == "table" and m.declared.main then has.upToDate = true end
     for _, badge in ipairs(personalModule.BADGES) do
         if has[badge.key] then table.insert(result, badge) end
     end
+    -- Insignias nuevas de los oficiales (se dan a mano)
+    local D = addonTable.Dkp
+    if D and D.GetCustomBadges then
+        for _, badge in ipairs(D.GetCustomBadges()) do
+            if D.HasCustomBadge(name, badge.key) then table.insert(result, badge) end
+        end
+    end
     return result
+end
+
+-- Todas las insignias: las de serie y después las nuevas de los oficiales
+function personalModule.GetAllBadges()
+    local list = {}
+    for _, badge in ipairs(personalModule.BADGES) do table.insert(list, badge) end
+    local D = addonTable.Dkp
+    if D and D.GetCustomBadges then
+        for _, badge in ipairs(D.GetCustomBadges()) do table.insert(list, badge) end
+    end
+    return list
 end
 
 -- =========================================================================

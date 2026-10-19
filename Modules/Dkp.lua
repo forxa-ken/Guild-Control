@@ -144,6 +144,8 @@ local function State()
         for key, value in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do db.settings.badgeRewards[key] = value end
     end
     if type(db.badgeAwards) ~= "table" then db.badgeAwards = {} end
+    if type(db.customBadges) ~= "table" then db.customBadges = {} end   -- [clave] = {label, desc, icon, at}
+    if type(db.badgeHolders) ~= "table" then db.badgeHolders = {} end   -- ["Nombre-Reino:clave"] = 1
     if type(db.balances) ~= "table" then db.balances = {} end
     if type(db.since) ~= "table" then db.since = {} end
     if type(db.log) ~= "table" then db.log = {} end
@@ -216,7 +218,7 @@ function dkpModule.Publish()
     local data = R.SerializeTable({
         version = 1, system = db.system, settings = db.settings, balances = db.balances, since = db.since,
         bossKeys = db.bossKeys, lastWeekly = db.lastWeekly, updatedAt = db.updatedAt, log = log,
-        badgeAwards = db.badgeAwards,
+        badgeAwards = db.badgeAwards, customBadges = db.customBadges, badgeHolders = db.badgeHolders,
     })
     -- Un envío nuevo sustituye al que estuviera a medias
     wipe(sendQueue)
@@ -448,8 +450,60 @@ function dkpModule.GetBadgeReward(key)
 end
 
 function dkpModule.SetBadgeReward(key, amount)
-    if not IsOfficer() or not dkpModule.DEFAULT_BADGE_REWARDS[key] then return false end
+    if not IsOfficer() or not (dkpModule.DEFAULT_BADGE_REWARDS[key] or State().customBadges[key]) then return false end
     State().settings.badgeRewards[key] = math.max(0, math.min(1000, math.floor(tonumber(amount) or 0)))
+    Touch()
+    return true
+end
+
+-- Insignias nuevas de los oficiales: no tienen criterio automático, se dan a mano a cada
+-- jugador (badgeHolders). Su premio va en badgeRewards como las demás.
+function dkpModule.GetCustomBadges()
+    local list = {}
+    for key, badge in pairs(State().customBadges) do
+        table.insert(list, { key = key, label = badge.label, desc = badge.desc, icon = badge.icon, at = badge.at or 0, custom = true })
+    end
+    table.sort(list, function(a, b)
+        if a.at ~= b.at then return a.at < b.at end
+        return a.key < b.key
+    end)
+    return list
+end
+
+function dkpModule.CreateCustomBadge(label, desc, icon, reward)
+    label = strtrim(string.gsub(tostring(label or ""), "[;:]", ""))
+    if not IsOfficer() or label == "" then return nil end
+    local key = "c" .. GetServerTime() .. math.random(10, 99)
+    State().customBadges[key] = {
+        label = string.sub(label, 1, 30), desc = string.sub(string.gsub(tostring(desc or ""), "[;]", ""), 1, 100),
+        icon = icon or "Interface\\Icons\\INV_Misc_QuestionMark", at = GetServerTime(),
+    }
+    State().settings.badgeRewards[key] = math.max(0, math.min(1000, math.floor(tonumber(reward) or 0)))
+    Touch()
+    return key
+end
+
+function dkpModule.DeleteCustomBadge(key)
+    local db = State()
+    if not IsOfficer() or not db.customBadges[key] then return false end
+    db.customBadges[key] = nil
+    db.settings.badgeRewards[key] = nil
+    local suffix = ":" .. key
+    for holderKey in pairs(db.badgeHolders) do
+        if string.sub(holderKey, -#suffix) == suffix then db.badgeHolders[holderKey] = nil end
+    end
+    Touch()
+    return true
+end
+
+function dkpModule.HasCustomBadge(name, key)
+    return name ~= nil and State().badgeHolders[name .. ":" .. key] == 1
+end
+
+function dkpModule.SetBadgeHolder(key, name, has)
+    local db = State()
+    if not IsOfficer() or not db.customBadges[key] or not name then return false end
+    db.badgeHolders[name .. ":" .. key] = has and 1 or nil
     Touch()
     return true
 end
@@ -461,11 +515,14 @@ function dkpModule.RemoveBadgeReward(key)
     return true
 end
 
+-- Vuelve a los premios predeterminados de las insignias de serie (las nuevas no cambian)
 function dkpModule.ResetBadgeRewards()
     if not IsOfficer() then return false end
+    local db = State()
     local rewards = {}
     for key, value in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do rewards[key] = value end
-    State().settings.badgeRewards = rewards
+    for key in pairs(db.customBadges) do rewards[key] = db.settings.badgeRewards[key] end
+    db.settings.badgeRewards = rewards
     Touch()
     return true
 end
@@ -628,6 +685,27 @@ local function ApplyIncoming(payload, sender)
     local updatedAt = tonumber(payload.updatedAt) or 0
     if updatedAt <= db.updatedAt then return end
     db.system = dkpModule.SYSTEMS[payload.system] and payload.system or db.system
+    -- Insignias nuevas de los oficiales y a quién se han dado (sustituyen a las propias: así
+    -- llegan también las borradas). Los envíos antiguos no las traen y se conservan.
+    if type(payload.customBadges) == "table" then
+        local custom = {}
+        for key, badge in pairs(payload.customBadges) do
+            if type(key) == "string" and string.match(key, "^c%d+$") and type(badge) == "table" and type(badge.label) == "string" then
+                local icon = badge.icon
+                if type(icon) ~= "number" then icon = type(icon) == "string" and string.sub(icon, 1, 120) or nil end
+                custom[key] = { label = CleanText(badge.label, 30), desc = CleanText(badge.desc, 100), icon = icon, at = Num(badge.at, 0, nil, 0) }
+            end
+        end
+        db.customBadges = custom
+    end
+    if type(payload.badgeHolders) == "table" then
+        local holders = {}
+        for key in pairs(payload.badgeHolders) do
+            if type(key) == "string" then holders[string.sub(key, 1, 80)] = 1 end
+        end
+        db.badgeHolders = holders
+    end
+    local function IsCustomKey(key) return db.customBadges[key] ~= nil end
     if type(payload.settings) == "table" then
         for key, limits in pairs(dkpModule.LIMITS) do
             db.settings[key] = Num(payload.settings[key], limits[1], limits[2], db.settings[key])
@@ -646,8 +724,8 @@ local function ApplyIncoming(payload, sender)
         -- Premios por insignia (solo las claves conocidas; las que faltan se quitaron)
         if type(payload.settings.badgeRewards) == "table" then
             local rewards = {}
-            for key in pairs(dkpModule.DEFAULT_BADGE_REWARDS) do
-                if tonumber(payload.settings.badgeRewards[key]) then rewards[key] = Num(payload.settings.badgeRewards[key], 0, 1000, 0) end
+            for key, value in pairs(payload.settings.badgeRewards) do
+                if (dkpModule.DEFAULT_BADGE_REWARDS[key] or IsCustomKey(key)) and tonumber(value) then rewards[key] = Num(value, 0, 1000, 0) end
             end
             db.settings.badgeRewards = rewards
         end

@@ -222,6 +222,7 @@ end
 -- =========================================================================
 -- EVENTOS
 -- =========================================================================
+local groupCheckPending = false
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -234,7 +235,14 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
 
     if event == "GROUP_ROSTER_UPDATE" then
-        CheckGroup()
+        -- En banda llega muchas veces seguidas: se revisa una sola vez, un segundo después
+        if not groupCheckPending then
+            groupCheckPending = true
+            C_Timer.After(1, function()
+                groupCheckPending = false
+                CheckGroup()
+            end)
+        end
         return
     end
 

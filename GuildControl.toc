@@ -30,6 +30,7 @@ Modules\Loot.lua
 Modules\RaidTools.lua
 Modules\Personal.lua
 Modules\Community.lua
+Modules\Board.lua
 Modules\UI.lua
 
 #@do-not-package@
