@@ -1494,7 +1494,6 @@ L["|cFFFF3333Escribe el nombre de la insignia.|r"] = "|cFFFF3333Type the badge n
 L["|cFFFF3333La pizarra está llena: borra algo antes de añadir más.|r"] = "|cFFFF3333The whiteboard is full: erase something before adding more.|r"
 L["|cFFFF3333No hay ningún miembro con ese nombre.|r"] = "|cFFFF3333There is no member with that name.|r"
 L["|cFFFF3333Solo el líder, un ayudante o un oficial pueden enseñar la pizarra.|r"] = "|cFFFF3333Only the leader, an assistant or an officer can show the whiteboard.|r"
-L["|cFFFF3333No estás en un grupo.|r"] = "|cFFFF3333You are not in a group.|r"
 L["¿A quién das la insignia %s?"] = "Who do you give the %s badge to?"
 -- Pizarra en vivo
 L["Pizarra |cFFFF3333en vivo|r: tu grupo ve cada cambio que hagas."] = "Whiteboard |cFFFF3333live|r: your group sees every change you make."
