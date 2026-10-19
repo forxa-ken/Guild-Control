@@ -255,12 +255,28 @@ local function BuildHeader(parent)
     btnDiscord:SetSize(84, 22)
     btnDiscord:SetPoint("LEFT", titleText, "RIGHT", 14, 0)
     btnDiscord:SetText(L["Discord"])
-    btnDiscord:SetScript("OnClick", function() uiModule.ShowDiscordCopy() end)
+    btnDiscord:SetMotionScriptsWhileDisabled(true)
+    -- Siempre visible: con enlace lo muestra para copiar; sin él, un oficial va a Configuración
+    -- a ponerlo y un jugador ve que aún no hay
+    btnDiscord:SetScript("OnClick", function()
+        if (GuildControlDB.settings.discordLink or "") ~= "" then
+            uiModule.ShowDiscordCopy()
+        elseif not addonTable.Profiles or addonTable.Profiles.IsOfficer() then
+            uiModule.SwitchTab("Configuracion")
+        end
+    end)
     btnDiscord:SetScript("OnEnter", function(self)
+        local link = GuildControlDB.settings.discordLink or ""
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText(L["Discord de la hermandad"], 1, 1, 1)
-        GameTooltip:AddLine(GuildControlDB.settings.discordLink or "", 0.6, 0.8, 1)
-        GameTooltip:AddLine(L["Clic para copiar el enlace"], 0.7, 0.7, 0.7)
+        if link ~= "" then
+            GameTooltip:AddLine(link, 0.6, 0.8, 1)
+            GameTooltip:AddLine(L["Clic para copiar el enlace"], 0.7, 0.7, 0.7)
+        elseif not addonTable.Profiles or addonTable.Profiles.IsOfficer() then
+            GameTooltip:AddLine(L["Todavía no hay enlace. Clic para ponerlo en Configuración > Hermandad."], 0.7, 0.7, 0.7, true)
+        else
+            GameTooltip:AddLine(L["Los oficiales todavía no han puesto el enlace de Discord."], 0.7, 0.7, 0.7, true)
+        end
         GameTooltip:Show()
     end)
     btnDiscord:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -355,7 +371,10 @@ function uiModule.UpdateHeader()
     if localizedFaction then table.insert(parts, L["Facción: |cFFFFFFFF"] .. localizedFaction .. "|r") end
     header.subText:SetText(table.concat(parts, L["   ·   "]))
 
-    header.btnDiscord:SetShown((settings.discordLink or "") ~= "")
+    -- El botón de Discord siempre está; sin enlace, en gris para los jugadores
+    local hasDiscord = (settings.discordLink or "") ~= ""
+    header.btnDiscord:Show()
+    header.btnDiscord:SetEnabled(hasDiscord or not addonTable.Profiles or addonTable.Profiles.IsOfficer())
 end
 
 -- Ventanita con un enlace seleccionado para copiarlo con Ctrl+C (Discord, donación...)
@@ -9886,33 +9905,36 @@ local function BuildConfigView(parent)
         -- Distribución según el perfil. Los jugadores no ven la sección Hermandad (Discord, icono
         -- y permisos los ponen los oficiales) y los canales de reclutamiento solo si pueden invitar.
         local officerView = not addonTable.Profiles or addonTable.Profiles.IsOfficer()
-        local function Place(box, x, y, width)
+        local function Place(box, x, y, width, height)
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y + 30)
             if width then box:SetWidth(width) end
+            if height then box:SetHeight(height) end
         end
         guildBox:SetShown(officerView)
         badgeBox:SetShown(officerView)
         channelsBox:Show()
         if officerView then
-            Place(windowBox, 578, -36)
+            Place(windowBox, 578, -36, 312, 266)
             Place(greetBox, 10, -308)
             Place(welcomeBox, 10, -542)
             Place(channelsBox, 10, -660, 430)
-            Place(soundBox, 448, -660, 442)
+            Place(soundBox, 448, -660, 442, 130)
             Place(chatChannelsBox, 10, -796)
             Place(badgeBox, 10, -1062)
             content:SetHeight(1282)
         else
-            -- Arriba: Ventana a la izquierda; a la derecha, sonido y (si puede invitar) canales
+            -- Jugador: dos columnas iguales arriba (Ventana | Aviso de favoritos y, si puede
+            -- invitar, Canales de reclutamiento debajo, con las dos columnas a la misma altura) y
+            -- después, a todo lo ancho, Canales del chat, Saludo automático y Bienvenida
             local canInvite = s.playerInvite == true
-            Place(windowBox, 10, -36)
-            Place(soundBox, 328, -36, 562)
+            Place(windowBox, 10, -36, 437, 266)
+            Place(soundBox, 453, -36, 437, canInvite and 130 or 266)
             channelsBox:SetShown(canInvite)
-            if canInvite then Place(channelsBox, 328, -172, 562) end
-            Place(greetBox, 10, -308)
-            Place(welcomeBox, 10, -542)
-            Place(chatChannelsBox, 10, -660)
+            if canInvite then Place(channelsBox, 453, -172, 437) end
+            Place(chatChannelsBox, 10, -308)
+            Place(greetBox, 10, -574)
+            Place(welcomeBox, 10, -808)
             content:SetHeight(930)
         end
         chkOnTop:SetChecked(s.windowOnTop)

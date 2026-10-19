@@ -1528,4 +1528,7 @@ L["(tu clase solo puede ser DPS)"] = "(your class can only be DPS)"
 L["|cFFFF3333Este grupo busca roles que tu clase no puede llevar.|r"] = "|cFFFF3333This group is looking for roles your class cannot play.|r"
 L["Nadie de la hermandad tiene %s todavía."] = "Nobody in the guild has %s yet."
 L["(autor desconectado)"] = "(author offline)"
+-- Botón de Discord sin enlace
+L["Todavía no hay enlace. Clic para ponerlo en Configuración > Hermandad."] = "No link yet. Click to set it in Settings > Guild."
+L["Los oficiales todavía no han puesto el enlace de Discord."] = "The officers haven't set the Discord link yet."
 addonTable.RegisterLocale("enUS", "English", L)
