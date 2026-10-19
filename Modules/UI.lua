@@ -8487,7 +8487,6 @@ local function BuildLootView(parent)
     btnBidPass:SetScript("OnClick", function() if selectedKey then LT.Choose(selectedKey, "pass") end end)
     local bidControls = { bidInput, btnBid, btnBidPass }
 
-    local MAX_ROLL_ROWS = 4   -- filas de tirada que caben en el panel
     -- Precio del objeto elegido (oficiales, DKP)
     local btnPrice = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
     btnPrice:SetSize(90, 20)
@@ -8507,12 +8506,19 @@ local function BuildLootView(parent)
         fs:SetText(h[2])
         rollHeader.labels[h[1]] = fs
     end
+    -- Quienes piden o pujan y quienes pasan, en una lista con desplazamiento (antes solo se veían 4)
+    local rollScroll = CreateFrame("ScrollFrame", nil, rollBox, "UIPanelScrollFrameTemplate")
+    rollScroll:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -2)
+    rollScroll:SetPoint("BOTTOMRIGHT", rollBox, "BOTTOMRIGHT", -28, 38)
+    local rollChild = CreateFrame("Frame", nil, rollScroll)
+    rollChild:SetSize(399, 1)
+    rollScroll:SetScrollChild(rollChild)
     local rollRows = {}
     local function AcquireRollRow(index)
         local row = rollRows[index]
         if row then return row end
-        row = CreateFrame("Button", nil, rollBox)
-        row:SetSize(420, 16)
+        row = CreateFrame("Button", nil, rollChild)
+        row:SetSize(399, 16)
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
         row.highlight:SetAllPoints()
@@ -8536,8 +8542,8 @@ local function BuildLootView(parent)
         return row
     end
 
-    local passText = rollBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    passText:SetWidth(420)
+    local passText = rollChild:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    passText:SetWidth(390)
     passText:SetJustifyH("LEFT")
 
     local btnStartRoll = CreateFrame("Button", nil, rollBox, "UIPanelButtonTemplate")
@@ -8705,7 +8711,7 @@ local function BuildLootView(parent)
         local item = selectedKey and LT.GetItem(selectedKey)
         for _, row in ipairs(rollRows) do row:Hide() end
         local hasItem = item ~= nil
-        for _, w in ipairs({ rollItem, rollState, rollHeader, passText }) do w:SetShown(hasItem) end
+        for _, w in ipairs({ rollItem, rollState, rollHeader, rollScroll }) do w:SetShown(hasItem) end
         rollEmpty:SetShown(not hasItem)
         for _, btn in pairs(chooseButtons) do btn:SetShown(false) end
         for _, w in ipairs(bidControls) do w:SetShown(false) end
@@ -8745,9 +8751,8 @@ local function BuildLootView(parent)
             end
             local list = LT.GetRollList(item)
             for i, entry in ipairs(list) do
-                if i > MAX_ROLL_ROWS then break end
                 local row = AcquireRollRow(i)
-                row:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -2 - (i - 1) * 16)
+                row:SetPoint("TOPLEFT", rollChild, "TOPLEFT", 0, -(i - 1) * 16)
                 row.playerName = entry.name
                 local color = LT.KIND_COLORS[entry.kind] or "FFFFFF"
                 local wants = wantSet[entry.name] and "|cFFFFD100*|r " or ""
@@ -8776,10 +8781,11 @@ local function BuildLootView(parent)
             end
             local passes = LT.GetPassList(item)
             passText:ClearAllPoints()
-            passText:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -4 - math.min(#list, MAX_ROLL_ROWS) * 16)
+            passText:SetPoint("TOPLEFT", rollChild, "TOPLEFT", 0, -2 - #list * 16)
             local passNames = {}
             for _, name in ipairs(passes) do table.insert(passNames, ShortName(name)) end
             passText:SetText(#passNames > 0 and (L["Pasan: "] .. table.concat(passNames, ", ")) or "")
+            rollChild:SetHeight(math.max(1, #list * 16 + (#passNames > 0 and (passText:GetStringHeight() + 6) or 0)))
             btnStartRoll:SetShown(canManage and item.state == "pending")
             btnAward:SetShown(canManage and item.state == "rolling")
             btnCancelRoll:SetShown(canManage and item.state == "rolling")

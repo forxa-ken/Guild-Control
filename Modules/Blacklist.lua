@@ -247,6 +247,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
     local kind, name, reason, note, addedBy, dateText = strsplit(";", msg)
     if kind ~= "A" or not name or blacklistModule.IsBlacklisted(name) then return end
+    local short = Ambiguate and Ambiguate(sender, "none") or (string.match(sender, "^([^-]+)") or sender)
     if blacklistModule.Add(name, reason, note, addedBy, short, dateText) then
         if not receivedFrom[short] then
             receivedFrom[short] = true
