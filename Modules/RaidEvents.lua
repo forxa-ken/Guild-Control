@@ -46,6 +46,13 @@ eventsModule.STATUS_COLORS = { signed = "00FF00", late = "FFD100", tentative = "
 local VALID_ROLES = { tank = true, healer = true, dps = true }
 local VALID_DIFFICULTY = { normal = true, heroic = true, mythic = true }
 
+-- Rol de una inscripción según la clase: uno que la clase no puede llevar pasa a DPS
+local function RoleForClass(name, role)
+    if not VALID_ROLES[role] then return nil end
+    if addonTable.CanRole and not addonTable.CanRole(name, role) then return "dps" end
+    return role
+end
+
 local listeners = {}
 
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
@@ -185,6 +192,11 @@ end
 -- Me apunto (o cambio mi respuesta) y lo envío a la hermandad
 function eventsModule.SignUp(event, status, role, spec, note)
     if not event or not STATUS_LABELS[status] then return end
+    -- Un cazador no puede apuntarse de tanque ni un guerrero de sanador
+    if VALID_ROLES[role] and addonTable.CanRole and not addonTable.CanRole(MyName(), role) then
+        if addonTable.WarnClassRole then addonTable.WarnClassRole(MyName(), role) end
+        return
+    end
     local signup = {
         status = status,
         role = VALID_ROLES[role] and role or nil,
@@ -200,6 +212,11 @@ end
 -- Un oficial cambia o quita la inscripción de otro (status = "removed" para quitarla)
 function eventsModule.SetSignup(event, name, status, role)
     if not event or not name then return end
+    -- Tampoco un oficial puede poner un rol que su clase no lleva
+    if VALID_ROLES[role] and addonTable.CanRole and not addonTable.CanRole(name, role) then
+        if addonTable.WarnClassRole then addonTable.WarnClassRole(name, role) end
+        return
+    end
     local at = time()
     if status == "removed" then
         event.signups[name] = nil
@@ -868,7 +885,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             local at = tonumber(fields[7]) or time()
             local current = ev.signups[fullSender]
             if not current or at >= (current.at or 0) then
-                ev.signups[fullSender] = { status = fields[3], role = VALID_ROLES[fields[4]] and fields[4] or nil,
+                ev.signups[fullSender] = { status = fields[3], role = RoleForClass(fullSender, fields[4]),
                                            spec = Clean(fields[5], 30), note = Clean(fields[6], 60), at = at }
                 Notify()
             end
@@ -878,7 +895,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
             if status == "removed" then
                 if current and at >= (current.at or 0) then ev.signups[name] = nil end
             elseif STATUS_LABELS[status] and (not current or at >= (current.at or 0)) then
-                ev.signups[name] = { status = status, role = VALID_ROLES[fields[5]] and fields[5] or nil,
+                ev.signups[name] = { status = status, role = RoleForClass(name, fields[5]),
                                      spec = Clean(fields[6], 30), note = current and current.note or "", at = at }
             end
             Notify()

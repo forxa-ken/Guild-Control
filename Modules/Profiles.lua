@@ -139,7 +139,28 @@ function profilesModule.GetMyProfile()
         profile = { main = nil, secondary = nil, spec = "", note = "" }
         GuildControlDB.myProfiles[key] = profile
     end
+    -- Roles según la clase: las que solo pueden ser DPS lo tienen siempre; un rol que la clase
+    -- no puede llevar se quita (p. ej. al terminar las pruebas del modo desarrollador)
+    if addonTable.CanRole then
+        local before = (profile.main or "") .. ";" .. (profile.secondary or "")
+        if profile.main and not addonTable.CanRole(key, profile.main) then profile.main = "DPS" end
+        if profile.secondary and (not addonTable.CanRole(key, profile.secondary) or profile.secondary == profile.main) then
+            profile.secondary = nil
+        end
+        local ignore = addonTable.Dev and addonTable.Dev.IgnoreClassRoles and addonTable.Dev.IgnoreClassRoles()
+        if not ignore and addonTable.IsDpsOnlyClass(select(2, UnitClass("player"))) then
+            profile.main, profile.secondary = "DPS", nil
+        end
+        -- Si el rol ha cambiado así, lleva fecha nueva (si no, se tomaría por una declaración
+        -- más antigua que la anterior y no se aplicaría)
+        if (profile.main or "") .. ";" .. (profile.secondary or "") ~= before then profile.roleAt = time() end
+    end
     return profile
+end
+
+-- Fecha de la declaración: la de guardar Mi perfil o la del último ajuste automático del rol
+local function ProfileAt(profile)
+    return math.max(tonumber(profile.savedAt) or 0, tonumber(profile.roleAt) or 0)
 end
 
 local function Clean(text, maxLen)
@@ -154,6 +175,10 @@ end
 local function ApplyDeclared(fullName, main, secondary, spec, note, at, extra)
     local m = GuildControlDB.members[fullName]
     if not m or not main then return false end
+    -- Solo roles que su clase puede llevar (un cazador tanque pasa a DPS)
+    if addonTable.CanRole and not addonTable.CanRole(fullName, main) then main = "DPS" end
+    if secondary and addonTable.CanRole and not addonTable.CanRole(fullName, secondary) then secondary = nil end
+    if secondary == main then secondary = nil end
     at = tonumber(at) or time()
     extra = extra or {}
     local charType = (extra.charType == "alt" or extra.charType == "main") and extra.charType or nil
@@ -185,11 +210,12 @@ end
 -- Los personajes de esta misma cuenta comparten SavedVariables: sus perfiles se aplican
 -- directamente, sin depender de que estén conectados a la vez.
 function profilesModule.ApplyAccountProfiles()
+    profilesModule.GetMyProfile()   -- el personaje actual: rol ajustado a su clase (DPS fijo si toca)
     if type(GuildControlDB.myProfiles) ~= "table" then return false end
     local changed = false
     for fullName, profile in pairs(GuildControlDB.myProfiles) do
         if profile.main and ApplyDeclared(fullName, profile.main, profile.secondary, profile.spec, profile.note,
-            profile.savedAt or 0, ProfileExtra(profile)) then
+            ProfileAt(profile), ProfileExtra(profile)) then
             changed = true
         end
     end
@@ -254,7 +280,7 @@ function profilesModule.Broadcast(force)
     if not profile.main then return end
     lastBroadcast = GetTime()
     SendRole(table.concat({ "v2", profile.main, profile.secondary or "", profile.spec or "",
-        profile.note or "", tostring(profile.savedAt or time()), profile.charType or "", profile.mainName or "", profile.focus or "", profile.offSpec or "" }, ";"))
+        profile.note or "", tostring(ProfileAt(profile) > 0 and ProfileAt(profile) or time()), profile.charType or "", profile.mainName or "", profile.focus or "", profile.offSpec or "" }, ";"))
 end
 
 function profilesModule.RequestRoles()

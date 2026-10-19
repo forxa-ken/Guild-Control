@@ -2090,7 +2090,7 @@ local function BuildRosterView(parent)
                 local name = self.fullName
                 MenuUtil.CreateContextMenu(self, function(_, root)
                     root:CreateTitle(name)
-                    for _, slot in ipairs({ "tank", "healer", "dps" }) do
+                    for _, slot in ipairs(R.AllowedSlots(name, { "tank", "healer", "dps" })) do
                         root:CreateButton(L["Rol: "] .. L[R.SLOT_LABELS[slot]], function()
                             R.SetMemberRole(name, slot)
                             Refresh()
@@ -2341,7 +2341,7 @@ local function BuildRosterView(parent)
                 MenuUtil.CreateContextMenu(self, function(_, root)
                     root:CreateTitle(name)
                     if block.slot == "late" then
-                        for _, slot in ipairs(R.SLOTS) do
+                        for _, slot in ipairs(R.AllowedSlots(name, R.SLOTS)) do
                             root:CreateButton(L["Añadir a "] .. L[R.SLOT_LABELS[slot]], function()
                                 R.AddMember(R.GetSelected(), name, slot)
                                 Refresh()
@@ -2354,7 +2354,7 @@ local function BuildRosterView(parent)
             end
             MenuUtil.CreateContextMenu(self, function(_, root)
                 root:CreateTitle(name)
-                for _, slot in ipairs(R.SLOTS) do
+                for _, slot in ipairs(R.AllowedSlots(name, R.SLOTS)) do
                     if slot ~= block.slot then
                         root:CreateButton(L["Mover a "] .. L[R.SLOT_LABELS[slot]], function()
                             R.AddMember(R.GetSelected(), name, slot)
@@ -3754,14 +3754,52 @@ local function BuildMyProfileView(parent)
             end)
             checks[option] = chk
         end
+        -- Deja solo las opciones permitidas, colocadas seguidas
+        function group.Filter(isAllowed)
+            local shown = 0
+            for _, option in ipairs(options) do
+                local chk = checks[option]
+                local ok = isAllowed(option)
+                chk:SetShown(ok)
+                if ok then
+                    chk:ClearAllPoints()
+                    chk:SetPoint("LEFT", label, "RIGHT", 6 + shown * 104, 0)
+                    shown = shown + 1
+                end
+            end
+        end
         group.label = label
         return group
     end
 
-    -- Roles
+    -- Roles (solo los que puede llevar la clase del personaje)
     local mainChoice = CreateRoleChoice(roleBox, L["Rol principal"], -38, P.ROLES)
     local secondaryChoice = CreateRoleChoice(roleBox, L["Rol secundario (opcional)"], -74,
         { "Ninguno", "Tanque", "Sanador", "DPS" })
+    -- Cazador, brujo, pícaro y mago: rol DPS fijo, sin opciones
+    local fixedRoleText = roleBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fixedRoleText:SetPoint("LEFT", mainChoice.label, "RIGHT", 12, 0)
+    fixedRoleText:Hide()
+    local function ApplyClassRoles()
+        local me = P.GetMyFullName()
+        local function Allowed(option)
+            return option == "Ninguno" or not addonTable.CanRole or addonTable.CanRole(me, option)
+        end
+        local ignore = addonTable.Dev and addonTable.Dev.IgnoreClassRoles and addonTable.Dev.IgnoreClassRoles()
+        local dpsOnly = addonTable.IsDpsOnlyClass and addonTable.IsDpsOnlyClass(select(2, UnitClass("player"))) and not ignore
+        if dpsOnly then
+            mainChoice.Filter(function() return false end)
+            fixedRoleText:SetText(RoleIcon("DPS", 14) .. " " .. L["Rol DPS"] .. "  |cFF808080" .. L["(tu clase solo puede ser DPS)"] .. "|r")
+            mainChoice.Set("DPS")
+            secondaryChoice.Set(nil)
+        else
+            mainChoice.Filter(Allowed)
+        end
+        fixedRoleText:SetShown(dpsOnly)
+        secondaryChoice.label:SetShown(not dpsOnly)
+        secondaryChoice.Filter(function(option) return not dpsOnly and Allowed(option) end)
+    end
+    uiModule.RefreshProfileRoles = ApplyClassRoles
 
     -- Personaje: principal o alter (y de quién) y enfoque
     local mainNameInput, charChoice   -- declarados antes para que el callback los vea
@@ -4004,6 +4042,7 @@ local function BuildMyProfileView(parent)
         local profile = P.GetMyProfile()
         mainChoice.Set(profile.main)
         secondaryChoice.Set(profile.secondary)
+        ApplyClassRoles()
         charChoice.Set(profile.charType == "alt" and "Alter" or "Principal")
         focusChoice.Set(profile.focus)
         mainNameInput:SetText(profile.mainName or "")
@@ -7014,6 +7053,8 @@ local function BuildRaidView(parent)
             if not role and addonTable.Roster then role = addonTable.Roster.GetDefinedSlot(addonTable.Profiles.GetMyFullName()) end
             E.SignUp(event, option.status, role, CurrentSpecName(), noteInput:GetText())
         end)
+        btn.role = option.role
+        btn:SetMotionScriptsWhileDisabled(true)
         table.insert(signButtons, btn)
         previousSign = btn
     end
@@ -7654,6 +7695,11 @@ local function BuildRaidView(parent)
             .. L["   ·   |cFF808080por "] .. (event.createdBy or "?") .. "|r")
         evDesc:SetText(event.description ~= "" and event.description or L["|cFF808080Sin descripción.|r"])
 
+        -- Solo los roles que puede llevar mi clase
+        local meKey = addonTable.Profiles and addonTable.Profiles.GetMyFullName()
+        for _, b in ipairs(signButtons) do
+            if b.role then b:SetEnabled(not addonTable.CanRole or addonTable.CanRole(meKey, b.role)) end
+        end
         local mine = E.GetMySignup(event)
         if mine then
             mySignupText:SetText("|cFF" .. E.STATUS_COLORS[mine.status] .. L[E.STATUS_LABELS[mine.status]] .. "|r"
@@ -10994,13 +11040,22 @@ local function BuildCommunityView(parent)
                 row.button:SetEnabled(not full and authorOnline)
                 -- Con un solo rol buscado se apunta directamente; con varios se elige
                 row.button:SetScript("OnClick", function(self)
-                    if #wanted == 1 then
-                        C.Join(post.id, wanted[1])
+                    -- Solo los roles buscados que puede llevar mi clase
+                    local mine = {}
+                    for _, role in ipairs(wanted) do
+                        if not addonTable.CanRole or addonTable.CanRole(me, role) then table.insert(mine, role) end
+                    end
+                    if #mine == 0 then
+                        PrintGC(L["|cFFFF3333Este grupo busca roles que tu clase no puede llevar.|r"])
+                        return
+                    end
+                    if #mine == 1 then
+                        C.Join(post.id, mine[1])
                         return
                     end
                     MenuUtil.CreateContextMenu(self, function(_, root)
                         root:CreateTitle(L["¿Con qué rol vas?"])
-                        for _, role in ipairs(wanted) do
+                        for _, role in ipairs(mine) do
                             root:CreateButton(RoleIcon(role, 14) .. " " .. L[({ tank = "Tanque", healer = "Sanador", dps = "DPS" })[role]],
                                 function() C.Join(post.id, role) end)
                         end
@@ -12250,7 +12305,9 @@ local taskFrame = nil
 local function NeedsProfile()
     if not IsInGuild() or not addonTable.Profiles then return false end
     local profile = addonTable.Profiles.GetMyProfile()
-    return not profile.main
+    -- Las clases que solo pueden ser DPS ya tienen el rol, pero el resto de Mi perfil (principal o
+    -- alter, especialización) también hay que rellenarlo una vez
+    return not profile.main or not profile.savedAt
 end
 
 -- force: mostrarla aunque ya tengas Mi perfil (herramientas de desarrollador)

@@ -262,6 +262,10 @@ function communityModule.Join(id, role)
     local post = posts[id]
     if not post then return end
     role = ROLE_LETTER[role] and role or "dps"
+    if addonTable.CanRole and not addonTable.CanRole(MyName(), role) then
+        if addonTable.WarnClassRole then addonTable.WarnClassRole(MyName(), role) end
+        return
+    end
     post.members[MyName()] = role
     Send(LFG_PREFIX, "J;" .. id .. ";" .. role)
     Notify()
@@ -297,6 +301,8 @@ local function OnLfgMessage(sender, msg)
     elseif kind == "J;" or kind == "L;" or kind == "X;" then
         local id, role = strsplit(";", string.sub(msg, 3), 2)
         role = ROLE_LETTER[role] and role or true
+        -- Un rol que su clase no puede llevar cuenta como DPS
+        if type(role) == "string" and addonTable.CanRole and not addonTable.CanRole(sender, role) then role = "dps" end
         local post = posts[id]
         if not post then return end
         if kind == "X;" then

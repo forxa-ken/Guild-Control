@@ -167,6 +167,48 @@ function addonTable.InitDB()
     end
 
     addonTable.MigrateNameKeys()
+    addonTable.ResetRolesForClasses()
+end
+
+-- Una sola vez al llegar los roles por clase: los roles guardados que la clase no puede llevar
+-- (rol del miembro, lo declarado en Mi perfil y Mi perfil de mis personajes) se quitan o pasan a
+-- DPS; los posibles se conservan. En rosters e inscripciones de banda, un tanque o sanador que su
+-- clase no puede llevar pasa a DPS.
+function addonTable.ResetRolesForClasses()
+    if GuildControlDB.rolesByClassV1 then return end
+    GuildControlDB.rolesByClassV1 = true
+    for name, m in pairs(GuildControlDB.members or {}) do
+        local class = m.class
+        if m.role and m.role ~= "DPS" and not addonTable.ClassCanRole(class, m.role) then m.role = "DPS" end
+        if type(m.declared) == "table" then
+            if m.declared.main and not addonTable.ClassCanRole(class, m.declared.main) then m.declared.main = "DPS" end
+            if m.declared.secondary and not addonTable.ClassCanRole(class, m.declared.secondary) then m.declared.secondary = nil end
+        end
+    end
+    for name, profile in pairs(type(GuildControlDB.myProfiles) == "table" and GuildControlDB.myProfiles or {}) do
+        local class = addonTable.GetMemberClass(name)
+        if profile.main and not addonTable.ClassCanRole(class, profile.main) then profile.main = "DPS" end
+        if profile.secondary and not addonTable.ClassCanRole(class, profile.secondary) then profile.secondary = nil end
+    end
+    local function FixSlots(map)
+        for name, slot in pairs(type(map) == "table" and map or {}) do
+            if (slot == "tank" or slot == "healer") and not addonTable.ClassCanRole(addonTable.GetMemberClass(name), slot) then
+                map[name] = "dps"
+            end
+        end
+    end
+    local data = GuildControlDB.rosterData
+    for _, roster in pairs(type(data) == "table" and type(data.rosters) == "table" and data.rosters or {}) do
+        FixSlots(roster.members)
+        for _, variant in pairs(type(roster.variants) == "table" and roster.variants or {}) do FixSlots(variant.overrides) end
+    end
+    for _, event in pairs(type(GuildControlDB.raidEvents) == "table" and GuildControlDB.raidEvents or {}) do
+        for name, signup in pairs(type(event.signups) == "table" and event.signups or {}) do
+            if (signup.role == "tank" or signup.role == "healer") and not addonTable.ClassCanRole(addonTable.GetMemberClass(name), signup.role) then
+                signup.role = "dps"
+            end
+        end
+    end
 end
 
 -- Una sola vez: pasa a "Nombre-Reino" sin apellido las claves de jugador guardadas con otros
@@ -275,6 +317,67 @@ end
 function addonTable.IsMe(name)
     local me = addonTable.NormalizeName(UnitName("player"))
     return me ~= nil and addonTable.NormalizeName(name) == me
+end
+
+-- =========================================================================
+-- ROLES POSIBLES DE CADA CLASE (RETAIL)
+-- =========================================================================
+-- Tanque: guerrero, paladín, druida, caballero de la muerte, monje y cazador de demonios.
+-- Sanador: paladín, druida, sacerdote, chamán, monje y evocador. DPS: todas.
+-- Cazador, pícaro, mago y brujo solo pueden ser DPS.
+addonTable.CLASS_ROLES = {
+    WARRIOR = { tank = true, dps = true },
+    PALADIN = { tank = true, healer = true, dps = true },
+    DRUID = { tank = true, healer = true, dps = true },
+    DEATHKNIGHT = { tank = true, dps = true },
+    MONK = { tank = true, healer = true, dps = true },
+    DEMONHUNTER = { tank = true, dps = true },
+    PRIEST = { healer = true, dps = true },
+    SHAMAN = { healer = true, dps = true },
+    EVOKER = { healer = true, dps = true },
+    HUNTER = { dps = true }, ROGUE = { dps = true }, MAGE = { dps = true }, WARLOCK = { dps = true },
+}
+-- Acepta el rol guardado ("Tanque", "Sanador", "DPS") o el de hueco ("tank", "healer", "dps")
+local ROLE_KEYS = { Tanque = "tank", Sanador = "healer", DPS = "dps", tank = "tank", healer = "healer", dps = "dps" }
+function addonTable.RoleKey(role) return ROLE_KEYS[role] end
+
+-- Clase de un miembro (la mía con UnitClass, por si mi ficha aún no está)
+function addonTable.GetMemberClass(fullName)
+    if fullName and addonTable.IsMe(fullName) then return select(2, UnitClass("player")) end
+    local m = fullName and GuildControlDB and GuildControlDB.members and GuildControlDB.members[addonTable.NormalizeName(fullName) or fullName]
+    return m and m.class or nil
+end
+
+function addonTable.ClassCanRole(class, role)
+    local key = ROLE_KEYS[role]
+    if not key then return false end
+    if key == "dps" then return true end
+    local allowed = class and addonTable.CLASS_ROLES[class]
+    if not allowed then return true end   -- clase desconocida: no se limita
+    return allowed[key] == true
+end
+
+-- ¿Puede este jugador llevar ese rol? Las herramientas de desarrollador pueden quitar el
+-- límite para el propio personaje (solo en este cliente, para hacer pruebas)
+function addonTable.CanRole(fullName, role)
+    if fullName and addonTable.Dev and addonTable.Dev.IgnoreClassRoles and addonTable.Dev.IgnoreClassRoles()
+        and addonTable.IsMe(fullName) and ROLE_KEYS[role] then
+        return true
+    end
+    return addonTable.ClassCanRole(addonTable.GetMemberClass(fullName), role)
+end
+
+function addonTable.IsDpsOnlyClass(class)
+    local allowed = class and addonTable.CLASS_ROLES[class]
+    return allowed ~= nil and not allowed.tank and not allowed.healer
+end
+
+-- Mensaje al intentar un rol que la clase no puede llevar
+function addonTable.WarnClassRole(fullName, role)
+    local class = addonTable.GetMemberClass(fullName)
+    local className = (class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class]) or class or "?"
+    local roleNames = { tank = L["Tanque"], healer = L["Sanador"], dps = "DPS" }
+    print("|cFF00FFFF[GuildControl]|r " .. string.format(L["|cFFFF3333Un %s no puede ser %s.|r"], className, roleNames[ROLE_KEYS[role]] or tostring(role)))
 end
 
 -- Nombre que entiende el juego para invitar o susurrar. En Classic Forever la clave interna

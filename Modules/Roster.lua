@@ -110,9 +110,31 @@ function rosterModule.GetMemberSlotForRole(fullName)
     return rosterModule.GetDefinedSlot(fullName) or "dps"
 end
 
+-- ¿Puede ir en ese hueco? Banca siempre; tanque y sanador solo las clases que pueden
+function rosterModule.CanSlot(fullName, slot)
+    if slot ~= "tank" and slot ~= "healer" then return true end
+    return not addonTable.CanRole or addonTable.CanRole(fullName, slot)
+end
+
+-- Los huecos de la lista en los que puede ir (para los menús)
+function rosterModule.AllowedSlots(fullName, slots)
+    local list = {}
+    for _, slot in ipairs(slots) do
+        if rosterModule.CanSlot(fullName, slot) then table.insert(list, slot) end
+    end
+    return list
+end
+
 function rosterModule.SetMemberRole(fullName, slot)
     local m = GuildControlDB.members[fullName]
-    if m and SLOT_TO_ROLE[slot] then m.role = SLOT_TO_ROLE[slot]; m.roleSource = "officer" end
+    if not m or not SLOT_TO_ROLE[slot] then return false end
+    if not rosterModule.CanSlot(fullName, slot) then
+        if addonTable.WarnClassRole then addonTable.WarnClassRole(fullName, slot) end
+        return false
+    end
+    m.role = SLOT_TO_ROLE[slot]
+    m.roleSource = "officer"
+    return true
 end
 
 -- Lista ordenada de rosters
@@ -397,6 +419,10 @@ end
 function rosterModule.AddMember(roster, fullName, slot)
     if not roster or not fullName then return end
     slot = slot or rosterModule.GetMemberSlotForRole(fullName)
+    if not rosterModule.CanSlot(fullName, slot) then
+        if addonTable.WarnClassRole then addonTable.WarnClassRole(fullName, slot) end
+        return false
+    end
     local variant = rosterModule.GetSelectedVariant(roster)
     if variant then
         -- Si coincide con la base no hace falta override
