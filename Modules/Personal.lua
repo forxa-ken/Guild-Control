@@ -182,6 +182,7 @@ end
 -- =========================================================================
 local notifiedAwards = {}
 local notifiedWishDrops = {}
+local notifiedOfficerDrops = {}
 local knownEvents = nil
 local mySlots = nil
 local myKey = nil
@@ -201,11 +202,34 @@ local function CheckLoot()
         end
     end
     local wishes = personalModule.GetMyWishlist()
+    local isOfficer = addonTable.Profiles and addonTable.Profiles.IsOfficer()
+    local now = GetServerTime()
     for _, item in ipairs(LT.GetItems()) do
         local id = ItemIdFromLink(item.link)
-        if id and wishes[id] and not notifiedWishDrops[item.key] and item.state ~= "done" then
+        -- Solo lo que acaba de salir (no lo que quedaba de la sesión al entrar)
+        local recent = now - (item.at or 0) < 900
+        if id and recent and wishes[id] and not notifiedWishDrops[item.key] and item.state ~= "done" then
             notifiedWishDrops[item.key] = true
             personalModule.Alert(L["Ha caído un objeto de tu lista de deseos: "] .. LT.DisplayLink(item.link))
+        end
+        -- Oficiales: ventana flotante con quién lo quiere (los de la banda primero)
+        if id and recent and isOfficer and not notifiedOfficerDrops[item.key] and item.state == "pending" then
+            notifiedOfficerDrops[item.key] = true
+            local names, anyInGroup = {}, false
+            for _, name in ipairs(personalModule.WhoWants(id)) do
+                local short = Ambiguate(name, "none")
+                local inGroup = IsInGroup() and (UnitInRaid(short) ~= nil or UnitInParty(short)) or false
+                if inGroup then anyInGroup = true end
+                table.insert(names, { name = name, inGroup = inGroup })
+            end
+            table.sort(names, function(a, b)
+                if a.inGroup ~= b.inGroup then return a.inGroup end
+                return a.name < b.name
+            end)
+            -- En grupo solo avisa si alguien de la banda lo quiere; sin grupo (pruebas), siempre
+            if #names > 0 and (anyInGroup or not IsInGroup()) and addonTable.UI and addonTable.UI.ShowWishDropAlert then
+                addonTable.UI.ShowWishDropAlert(item.key, names)
+            end
         end
     end
 end

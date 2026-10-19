@@ -1538,4 +1538,10 @@ L["|cFFFF3333No tiene DKP suficientes para pagarlo.|r"] = "|cFFFF3333They don't 
 L["\n|cFFFF3333No tienes DKP suficientes para pedirlo.|r"] = "\n|cFFFF3333You don't have enough DKP to ask for it.|r"
 L["\n|cFFFF3333Solo te llega para Off-spec.|r"] = "\n|cFFFF3333You only have enough for Off-spec.|r"
 L["|cFFFF3333Sin DKP|r"] = "|cFFFF3333No DKP|r"
+-- Aviso a los oficiales: objeto de una lista de deseos
+L["Objeto de una lista de deseos"] = "Wishlist item"
+L["Lo tienen en su lista de deseos:"] = "On their wishlist:"
+L[" |cFF808080(no está en la banda)|r"] = " |cFF808080(not in the raid)|r"
+L["Tirada abierta"] = "Roll open"
+L["Ver en Botín"] = "View in Loot"
 addonTable.RegisterLocale("enUS", "English", L)

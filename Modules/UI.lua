@@ -10489,6 +10489,107 @@ local function ItemLinkById(itemID)
     return link or ("item:" .. itemID)
 end
 
+-- =========================================================================
+-- AVISO A LOS OFICIALES: OBJETO DE UNA LISTA DE DESEOS
+-- =========================================================================
+-- Ventana flotante cuando sale en la banda un objeto que alguien tiene en su lista de deseos.
+-- names = { {name, inGroup}, ... }. Si salen varios seguidos se enseñan uno detrás de otro.
+local wishDrop = { frame = nil, queue = {} }
+
+local function ShowNextWishDrop()
+    local frame = wishDrop.frame
+    if not frame or frame:IsShown() then return end
+    local entry = table.remove(wishDrop.queue, 1)
+    if not entry then return end
+    local LT = addonTable.Loot
+    local item = LT and LT.GetItem(entry.key)
+    if not item then return ShowNextWishDrop() end
+    local link = LT.DisplayLink(item.link)
+    frame.key = item.key
+    frame.itemButton.link = link
+    frame.itemButton.icon:SetTexture(ItemIconFromLink(link))
+    frame.itemButton.text:SetText(link)
+    local lines = {}
+    for _, who in ipairs(entry.names) do
+        table.insert(lines, ColoredName(who.name) .. (who.inGroup and "" or L[" |cFF808080(no está en la banda)|r"]))
+    end
+    frame.names:SetText(L["Lo tienen en su lista de deseos:"] .. "\n" .. table.concat(lines, "\n"))
+    frame:SetHeight(118 + math.max(1, #lines) * 14)
+    local canRoll = LT.CanManage() and item.state == "pending"
+    frame.btnRoll:SetEnabled(canRoll)
+    frame.btnRoll:SetText(item.state == "rolling" and L["Tirada abierta"] or L["Abrir tirada"])
+    frame:Show()
+    PlaySound(SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959)
+end
+
+function uiModule.ShowWishDropAlert(itemKey, names)
+    if not itemKey or not names or #names == 0 then return end
+    if not wishDrop.frame then
+        local frame = CreateFrame("Frame", "GuildControlWishDropFrame", UIParent, "BasicFrameTemplateWithInset")
+        frame:SetSize(340, 150)
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -220)
+        frame:SetFrameStrata("DIALOG")
+        frame:SetToplevel(true)
+        frame:SetClampedToScreen(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, 0)
+        frame.title:SetText(L["Objeto de una lista de deseos"])
+
+        frame.itemButton = CreateFrame("Button", nil, frame)
+        frame.itemButton:SetSize(300, 32)
+        frame.itemButton:SetPoint("TOP", frame, "TOP", 0, -30)
+        frame.itemButton.icon = frame.itemButton:CreateTexture(nil, "ARTWORK")
+        frame.itemButton.icon:SetSize(30, 30)
+        frame.itemButton.icon:SetPoint("LEFT", frame.itemButton, "LEFT", 0, 0)
+        frame.itemButton.text = frame.itemButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        frame.itemButton.text:SetPoint("LEFT", frame.itemButton.icon, "RIGHT", 8, 0)
+        frame.itemButton.text:SetPoint("RIGHT", frame.itemButton, "RIGHT", 0, 0)
+        frame.itemButton.text:SetJustifyH("LEFT")
+        frame.itemButton:SetScript("OnEnter", function(self) ShowLinkTooltip(self, self.link) end)
+        frame.itemButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        frame.names = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        frame.names:SetPoint("TOPLEFT", frame.itemButton, "BOTTOMLEFT", 0, -8)
+        frame.names:SetWidth(300)
+        frame.names:SetJustifyH("LEFT")
+        frame.names:SetSpacing(2)
+
+        frame.btnRoll = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.btnRoll:SetSize(100, 22)
+        frame.btnRoll:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 10)
+        frame.btnRoll:SetScript("OnClick", function()
+            if frame.key and addonTable.Loot.StartRoll(frame.key) then frame:Hide() end
+        end)
+        local btnLoot = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnLoot:SetSize(100, 22)
+        btnLoot:SetPoint("LEFT", frame.btnRoll, "RIGHT", 6, 0)
+        btnLoot:SetText(L["Ver en Botín"])
+        btnLoot:SetScript("OnClick", function()
+            frame:Hide()
+            if not (GC_UI and GC_UI:IsShown()) then uiModule.ToggleUI() end
+            SwitchTab("Botín")
+        end)
+        local btnClose = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        btnClose:SetSize(100, 22)
+        btnClose:SetPoint("LEFT", btnLoot, "RIGHT", 6, 0)
+        btnClose:SetText(L["Cerrar"])
+        btnClose:SetScript("OnClick", function() frame:Hide() end)
+        frame:SetScript("OnHide", function() C_Timer.After(0.3, ShowNextWishDrop) end)
+        wishDrop.frame = frame
+    end
+    for _, entry in ipairs(wishDrop.queue) do
+        if entry.key == itemKey then return end
+    end
+    if wishDrop.frame:IsShown() and wishDrop.frame.key == itemKey then return end
+    table.insert(wishDrop.queue, { key = itemKey, names = names })
+    ShowNextWishDrop()
+end
+
 -- Cuenta atrás corta: "en 2 d 3 h", "en 45 min"
 local function CountdownText(seconds)
     if seconds <= 0 then return L["|cFF00FF00ahora|r"] end
