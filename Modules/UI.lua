@@ -1,4 +1,4 @@
-local addonName, addonTable = ...
+local addonTable = select(2, ...)
 local L = addonTable.L
 
 addonTable.UI = {}
@@ -1798,21 +1798,6 @@ local function BuildAchievementsView(parent)
 end
 
 -- =========================================================================
--- 8. VISTAS PLACEHOLDER
--- =========================================================================
-local function BuildPlaceholderView(parent, tabName)
-    local view = CreateFrame("Frame", nil, parent)
-    view:SetAllPoints()
-    view:Hide()
-
-    local text = view:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    text:SetPoint("CENTER", view, "CENTER", 0, 0)
-    text:SetText(L["Sección: |cFFFFD100"] .. tabName .. L["|r\n\n(En desarrollo)"])
-
-    containers.views[tabName] = view
-end
-
--- =========================================================================
 -- 8a. VISTA ROSTER (CONSUME MODULES/ROSTER.LUA)
 -- =========================================================================
 local ROSTER_ROW_HEIGHT = 18
@@ -2593,9 +2578,9 @@ end
 -- 8b. VISTA INVITAR: MODO INDIVIDUAL Y MODO MASIVO
 -- =========================================================================
 local MAX_CHAT_BYTES = 255
-local MASS_BATCH_SIZE = 10          -- jugadores por lote
-local MASS_BATCH_INTERVAL = 3       -- segundos entre invitaciones de un lote
-local REINVITE_DAYS = 7             -- no volver a invitar a la misma persona en 7 días
+-- Invitación masiva: jugadores por lote, segundos entre invitaciones de un lote y días sin
+-- volver a invitar a la misma persona
+local MASS = { batchSize = 10, batchInterval = 3, reinviteDays = 7 }
 
 local RECRUIT_ROLES = {
     { key = "tank",   label = "Tanques" },
@@ -3221,7 +3206,7 @@ local function BuildMassInvitePanel(panel)
     local btnBatch = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnBatch:SetSize(190, 22)
     btnBatch:SetPoint("LEFT", btnNext, "RIGHT", 8, 0)
-    btnBatch:SetText(L["Invitar lote ("] .. MASS_BATCH_SIZE .. ")")
+    btnBatch:SetText(L["Invitar lote ("] .. MASS.batchSize .. ")")
 
     local btnStop = CreateFrame("Button", nil, sendBox, "UIPanelButtonTemplate")
     btnStop:SetSize(100, 22)
@@ -3236,7 +3221,7 @@ local function BuildMassInvitePanel(panel)
     hint:SetPoint("TOPLEFT", btnNext, "BOTTOMLEFT", 0, -10)
     hint:SetWidth(840)
     hint:SetJustifyH("LEFT")
-    hint:SetText(L["Se omiten los miembros de la hermandad y a quien ya se invitó en los últimos "] .. REINVITE_DAYS .. L[" días. El lote envía una invitación cada "] .. MASS_BATCH_INTERVAL .. L[" s. Muchos susurros a desconocidos pueden acabar en denuncias por spam: úsalo con moderación."])
+    hint:SetText(L["Se omiten los miembros de la hermandad y a quien ya se invitó en los últimos "] .. MASS.reinviteDays .. L[" días. El lote envía una invitación cada "] .. MASS.batchInterval .. L[" s. Muchos susurros a desconocidos pueden acabar en denuncias por spam: úsalo con moderación."])
 
     -- Procesa el siguiente pendiente. Devuelve false si ya no quedan.
     local function ProcessNext()
@@ -3248,7 +3233,7 @@ local function BuildMassInvitePanel(panel)
                     item.status = "blacklist"
                 elseif GuildControlDB.members[item.name] then
                     item.status = "member"
-                elseif history[item.name] and now - history[item.name] < REINVITE_DAYS * 86400 then
+                elseif history[item.name] and now - history[item.name] < MASS.reinviteDays * 86400 then
                     item.status = "recent"
                 else
                     local msg = nil
@@ -3292,7 +3277,7 @@ local function BuildMassInvitePanel(panel)
 
     btnBatch:SetScript("OnClick", function()
         if batchTicker then return end
-        local remaining = MASS_BATCH_SIZE
+        local remaining = MASS.batchSize
         if not ProcessNext() then
             PrintGC(L["No quedan jugadores pendientes en la cola."])
             return
@@ -3300,7 +3285,7 @@ local function BuildMassInvitePanel(panel)
         remaining = remaining - 1
         btnBatch:Disable()
         btnStop:Enable()
-        batchTicker = C_Timer.NewTicker(MASS_BATCH_INTERVAL, function()
+        batchTicker = C_Timer.NewTicker(MASS.batchInterval, function()
             if remaining <= 0 or not ProcessNext() then
                 StopBatch()
                 return
@@ -9076,7 +9061,7 @@ local PRESET_ICONS = {
 -- onPick(fileID) se llama al elegir uno.
 local GC_IconPicker = nil
 local gameIcons = nil
-local PICKER_COLS, PICKER_ROWS, PICKER_CELL = 10, 9, 40
+local PICKER = { cols = 10, rows = 9, cell = 40 }
 
 local function LoadGameIcons()
     if gameIcons then return gameIcons end
@@ -9093,7 +9078,7 @@ function uiModule.ShowIconPicker(onPick)
     if not GC_UI then return end
     if not GC_IconPicker then
         local frame = CreateFrame("Frame", "GuildControlIconPicker", GC_UI, "BasicFrameTemplateWithInset")
-        frame:SetSize(PICKER_COLS * PICKER_CELL + 52, PICKER_ROWS * PICKER_CELL + 70)
+        frame:SetSize(PICKER.cols * PICKER.cell + 52, PICKER.rows * PICKER.cell + 70)
         frame:SetPoint("CENTER", GC_UI, "CENTER", 0, 0)
         frame:SetFrameStrata("DIALOG")
         frame:EnableMouse(true)
@@ -9103,11 +9088,11 @@ function uiModule.ShowIconPicker(onPick)
         frame.offset = 0
 
         frame.cells = {}
-        for row = 1, PICKER_ROWS do
-            for col = 1, PICKER_COLS do
+        for row = 1, PICKER.rows do
+            for col = 1, PICKER.cols do
                 local btn = CreateFrame("Button", nil, frame)
-                btn:SetSize(PICKER_CELL - 4, PICKER_CELL - 4)
-                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + (col - 1) * PICKER_CELL, -32 - (row - 1) * PICKER_CELL)
+                btn:SetSize(PICKER.cell - 4, PICKER.cell - 4)
+                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + (col - 1) * PICKER.cell, -32 - (row - 1) * PICKER.cell)
                 btn.icon = btn:CreateTexture(nil, "ARTWORK")
                 btn.icon:SetAllPoints()
                 btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
@@ -9121,7 +9106,7 @@ function uiModule.ShowIconPicker(onPick)
 
         local slider = CreateFrame("Slider", nil, frame, "BackdropTemplate")
         slider:SetOrientation("VERTICAL")
-        slider:SetSize(16, PICKER_ROWS * PICKER_CELL - 4)
+        slider:SetSize(16, PICKER.rows * PICKER.cell - 4)
         slider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -32)
         slider:SetBackdrop({ bgFile = "Interface\\Buttons\\UI-SliderBar-Background", edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
             tile = true, tileSize = 8, edgeSize = 8, insets = { left = 3, right = 3, top = 6, bottom = 6 } })
@@ -9136,7 +9121,7 @@ function uiModule.ShowIconPicker(onPick)
         function frame.Render()
             local icons = LoadGameIcons()
             for i, btn in ipairs(frame.cells) do
-                local value = icons[frame.offset * PICKER_COLS + i]
+                local value = icons[frame.offset * PICKER.cols + i]
                 btn.value = value
                 btn.icon:SetTexture(value)
                 btn:SetShown(value ~= nil)
@@ -9156,8 +9141,8 @@ function uiModule.ShowIconPicker(onPick)
     end
     local frame = GC_IconPicker
     frame.onPick = onPick
-    local totalRows = math.ceil(#LoadGameIcons() / PICKER_COLS)
-    frame.slider:SetMinMaxValues(0, math.max(0, totalRows - PICKER_ROWS))
+    local totalRows = math.ceil(#LoadGameIcons() / PICKER.cols)
+    frame.slider:SetMinMaxValues(0, math.max(0, totalRows - PICKER.rows))
     frame.slider:SetValue(0)
     frame.offset = 0
     frame.Render()
@@ -10032,8 +10017,7 @@ end
 -- =========================================================================
 -- 10. PANEL DE CHAT (HERMANDAD, SUSURROS, BANDA Y GRUPO; CONTRAÍBLE, DEBAJO DE LA VENTANA)
 -- =========================================================================
-local CHAT_EXPANDED_HEIGHT, CHAT_COLLAPSED_HEIGHT = 190, 30
-local CHAT_MAX_PERSON_TABS = 4
+local CHAT_SIZES = { expanded = 190, collapsed = 30, maxPersonTabs = 4 }
 
 -- Pestañas fijas: "all" muestra todo; el resto, un canal. Las de persona usan el nombre corto.
 local CHAT_CHANNEL_TABS = {
@@ -10115,7 +10099,7 @@ local function EntryMatchesTab(entry, tabName)
 end
 
 local function BuildChatPanel(parent)
-    local panel = CreateBackdropBox(parent, 1300, CHAT_EXPANDED_HEIGHT)
+    local panel = CreateBackdropBox(parent, 1300, CHAT_SIZES.expanded)
     panel:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, 2)
     panel:SetPoint("TOPRIGHT", parent, "BOTTOMRIGHT", 0, 2)
 
@@ -10323,7 +10307,7 @@ local function BuildChatPanel(parent)
         local tab = FindTab(name)
         if not tab then
             -- Si ya hay demasiadas pestañas de personas, se cierra la más antigua
-            if #tabs - #CHAT_CHANNEL_TABS >= CHAT_MAX_PERSON_TABS then
+            if #tabs - #CHAT_CHANNEL_TABS >= CHAT_SIZES.maxPersonTabs then
                 local oldest = tabs[#CHAT_CHANNEL_TABS + 1]
                 oldest.button:Hide()
                 table.remove(tabs, #CHAT_CHANNEL_TABS + 1)
@@ -10363,7 +10347,7 @@ local function BuildChatPanel(parent)
 
     local function ApplyCollapsed()
         local collapsed = GuildControlDB.settings.chatCollapsed
-        panel:SetHeight(collapsed and CHAT_COLLAPSED_HEIGHT or CHAT_EXPANDED_HEIGHT)
+        panel:SetHeight(collapsed and CHAT_SIZES.collapsed or CHAT_SIZES.expanded)
         messagesFrame:SetShown(not collapsed)
         input:SetShown(not collapsed)
         btnSend:SetShown(not collapsed)
@@ -11331,9 +11315,7 @@ end
 local raidMiniFrame = nil
 local buffFrame = nil
 
-local READY_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
-local NOT_READY_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-NotReady"
-local UNKNOWN_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Waiting"
+local CHECK_TEXTURES = { ready = "Interface\\RaidFrame\\ReadyCheck-Ready", notReady = "Interface\\RaidFrame\\ReadyCheck-NotReady", unknown = "Interface\\RaidFrame\\ReadyCheck-Waiting" }
 
 -- Botón pequeño con letra pequeña y una ayuda al pasar el ratón
 local function MiniButton(parent, text, width, tooltipTitle, tooltipText, onClick)
@@ -11510,7 +11492,7 @@ local function CreateBuffFrame()
     end
 
     local function SetStatus(tex, value)
-        if value == nil then tex:SetTexture(UNKNOWN_TEXTURE) else tex:SetTexture(value and READY_TEXTURE or NOT_READY_TEXTURE) end
+        if value == nil then tex:SetTexture(CHECK_TEXTURES.unknown) else tex:SetTexture(value and CHECK_TEXTURES.ready or CHECK_TEXTURES.notReady) end
     end
 
     function frame.Refresh()
@@ -11531,7 +11513,7 @@ local function CreateBuffFrame()
                 local key = available[b]
                 if key then
                     local _, texture = T.GetBuffInfo(key)
-                    icon:SetTexture(texture or UNKNOWN_TEXTURE)
+                    icon:SetTexture(texture or CHECK_TEXTURES.unknown)
                     local has = scan and scan.buffs[key]
                     icon:SetDesaturated(not has)
                     icon:SetAlpha(has and 1 or 0.3)
@@ -11651,7 +11633,7 @@ local function AfterCombat(fn)
     PrintGC(L["En combate no se puede cambiar de modo: se hará al salir del combate."])
 end
 
-local MINI_WIDTH, MINI_HEIGHT, MINI_PAD, MINI_GAP = 244, 138, 8, 4
+local MINI = { width = 244, height = 138, pad = 8, gap = 4 }
 
 local function SaveMiniPosition(frame)
     local point, _, relativePoint, x, y = frame:GetPoint(1)
@@ -11660,7 +11642,7 @@ end
 
 local function CreateRaidMiniFrame()
     local T = addonTable.RaidTools
-    local frame = CreateBackdropBox(UIParent, MINI_WIDTH, MINI_HEIGHT)
+    local frame = CreateBackdropBox(UIParent, MINI.width, MINI.height)
     frame:SetFrameStrata("MEDIUM")
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
@@ -11682,7 +11664,7 @@ local function CreateRaidMiniFrame()
 
     -- Título y cierre
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + 2, -8)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + 2, -8)
     title:SetText(L["GuildControl · Banda"])
     local btnClose = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     btnClose:SetSize(22, 22)
@@ -11696,13 +11678,13 @@ local function CreateRaidMiniFrame()
     local line = frame:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(1, 1, 1, 0.1)
     line:SetHeight(1)
-    line:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD, -22)
-    line:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -MINI_PAD, -22)
+    line:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -22)
+    line:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -MINI.pad, -22)
 
-    local inner = MINI_WIDTH - MINI_PAD * 2
+    local inner = MINI.width - MINI.pad * 2
 
     -- Fila 1: listos y pull
-    local width1 = (inner - MINI_GAP * 3) / 4
+    local width1 = (inner - MINI.gap * 3) / 4
     local row1 = {
         MiniButton(frame, L["Listos"], width1, L["Comprobación de listos"], L["Lanza la comprobación de listos (líder o ayudante)."], function() T.ReadyCheck() end),
         MiniButton(frame, L["Pull 10"], width1, L["Pull 10"], L["Cuenta atrás de 10 segundos para todo el grupo."], function() T.Pull(10) end),
@@ -11710,7 +11692,7 @@ local function CreateRaidMiniFrame()
         MiniButton(frame, L["Cancelar"], width1, L["Cancelar pull"], L["Cancela la cuenta atrás."], function() T.CancelPull() end),
     }
     for i, btn in ipairs(row1) do
-        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width1 + MINI_GAP), -28)
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (width1 + MINI.gap), -28)
     end
 
     -- Fila 2: marcas en el objetivo (8) y quitar marca
@@ -11722,7 +11704,7 @@ local function CreateRaidMiniFrame()
         local btn = CreateFrame("Button", "GC_RaidMiniMark" .. i, frame, "SecureActionButtonTemplate")
         btn:SetSize(MARK_SIZE, MARK_SIZE)
         btn:RegisterForClicks("AnyUp", "AnyDown")
-        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (MARK_SIZE + markGap), -55)
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (MARK_SIZE + markGap), -55)
         local index = i <= 8 and i or 0
         if index > 0 then
             btn:SetNormalTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. index)
@@ -11744,7 +11726,7 @@ local function CreateRaidMiniFrame()
     end
 
     -- Fila 3: descanso, ventana de buffos y modo normal
-    local width3 = (inner - MINI_GAP * 2) / 3
+    local width3 = (inner - MINI.gap * 2) / 3
     -- Al pulsarlo se elige la duración: rápidas, la última usada u "Otro..." para escribirla
     local btnBreak
     btnBreak = MiniButton(frame, L["Descanso"], width3, L["Descanso"],
@@ -11780,11 +11762,11 @@ local function CreateRaidMiniFrame()
         end),
     }
     for i, btn in ipairs(row3) do
-        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD + (i - 1) * (width3 + MINI_GAP), -82)
+        btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (width3 + MINI.gap), -82)
     end
     -- Fila 4: volver a la ventana completa
     local btnNormal = MiniButton(frame, L["Modo normal"], inner, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
-    btnNormal:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI_PAD, -108)
+    btnNormal:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -108)
     return frame
 end
 
