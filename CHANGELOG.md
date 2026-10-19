@@ -14,6 +14,22 @@ Mejoras traídas de GuildControl Forever:
 - **Logo** de la hermandad incluido y predeterminado. El enfoque de Mi perfil se aplica al pulsarlo. Amigos BattleTag: se invita con la invitación de Battle.net.
 - Corregido: los prefijos «GuildControlCraft» y «GuildControlGreet» tenían 17 caracteres (el juego admite 16) y no se enviaban: las recetas de los demás no llegaban y el saludo y la bienvenida no se coordinaban entre clientes. Ahora son GuildControlCrft y GuildControlGrt. Los trozos de recetas y la lista de deseos se cortan por tamaño (255 bytes).
 
+Segunda tanda desde GuildControl Forever:
+
+- **Pizarra** para explicar un jefe (botón en Raid o `/gct pizarra`): marcas de banda, iconos de rol, textos y dibujo a mano alzada en varios colores, con Deshacer, Limpiar y Borrar. Una pizarra por jefe de las bandas de la expansión actual y una libre. El líder, un ayudante o un oficial la enseña al grupo; con **En vivo**, el grupo ve cada cambio mientras lo haces.
+- **Roles por clase**: tanque solo guerrero, paladín, druida, caballero de la muerte, monje y cazador de demonios; sanador solo paladín, druida, sacerdote, chamán, monje y evocador; cazador, pícaro, mago y brujo tienen el rol DPS fijo en Mi perfil. Se respeta en Raid, Buscar grupo y el roster de los oficiales. Al actualizar se corrigen una vez los roles guardados que la clase no puede llevar (los posibles se conservan).
+- **Buscar grupo**: **Me apunto** es una solicitud que el autor acepta (invita al momento) o rechaza; cada anuncio muestra los roles que ya hay en el grupo, cuántos se han apuntado, hace cuánto se publicó y si está **Completo**; filtro por actividad y **Anunciar** en la hermandad con los roles buscados. Los anuncios sobreviven al relog, otros los reenvían si el autor está desconectado y caducan si lleva más de 30 minutos fuera.
+- **Insignias**: premio en DKP por insignia (una vez por jugador), configurable por los oficiales; insignias nuevas creadas por los oficiales que se dan a mano (Configuración y clic derecho en Miembros > Insignias).
+- **Anuncios periódicos comunes a todos los oficiales**: lo que cambia uno lo ven los demás y cada anuncio sale una sola vez.
+- **Botín**: ventana flotante desde el modo minimalista (botón Botín) y barra deslizante para pujar. En el menú, Botín va justo debajo de Raid.
+- **Profesiones**: las once principales siempre en la lista (las que nadie tiene, en gris); la profesión que miras y la segunda profesión en dos contenedores, sin la columna Conexión; cada profesión una sola vez aunque los demás jueguen en otro idioma.
+- **Raid**: los apuntados en contenedores de color por rol (DPS más ancho, a dos columnas).
+- **Chat**: se pueden ocultar también las pestañas Hermandad, Susurros, Banda y Grupo; los canales de idioma se ven en verde.
+- **Encabezado**: botón Discord siempre visible (sin enlace, un oficial va a Configuración y un jugador lo ve en gris) y logo del addon en el botón del minimapa y en la lista de addons.
+- **Configuración** del perfil jugador reordenada. Roster: se quita Anunciar y Mensaje pasa a llamarse Anuncio.
+- **Rendimiento**: Miembros no se redibuja mientras está oculta; insignias de la hermandad con caché; cambios de grupo agrupados en la lista negra; los canales General y Comercio se descartan antes de leerlos.
+- Corregido: error de Lua al recibir una entrada compartida de la lista negra; la tirada de botín solo enseñaba 4 jugadores; el mensaje del día daba ADDON_ACTION_BLOCKED en combate; la lista secreta de C_Club daba error durante un encuentro.
+
 ## 5.0.0-beta5
 
 - **Anuncios**: solo se publican si tienes rango de oficial. Si pierdes el rango, tu cliente deja de enviarlos (se conservan por si lo recuperas).
