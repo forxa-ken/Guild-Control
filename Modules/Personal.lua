@@ -326,7 +326,7 @@ end
 personalModule.BADGES = {
     { key = "veteran", label = "Veterano", icon = "Interface\\Icons\\Achievement_Guildperk_Honorablemention_Rank2", desc = "Un año o más en la hermandad." },
     { key = "loyal", label = "Nunca falta", icon = "Interface\\Icons\\Achievement_Bg_Winwsg", desc = "90 % o más de asistencia (al menos 5 bandas)." },
-    { key = "mythicKiller", label = "Asesino de Mítica", icon = "Interface\\Icons\\Achievement_Boss_Archimonde", desc = "Ha matado un jefe de banda en Mítica con la hermandad." },
+    { key = "mythicKiller", label = "Asesino de Mítica", icon = "Interface\\Icons\\Inv_Misc_Head_Dragon_01", desc = "Ha matado un jefe de banda en Mítica con la hermandad." },
     { key = "keyMaster", label = "Maestro de llaves", icon = "Interface\\Icons\\Inv_Relics_Hourglass", desc = "Puntuación de Míticas+ de 2500 o más." },
     { key = "collector", label = "Coleccionista", icon = "Interface\\Icons\\Achievement_Quests_Completed_08", desc = "20.000 puntos de logro o más." },
     { key = "lucky", label = "Afortunado", icon = "Interface\\Icons\\Inv_Misc_Coin_02", desc = "Ha ganado 10 objetos o más en el reparto." },

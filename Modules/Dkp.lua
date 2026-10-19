@@ -69,7 +69,17 @@ dkpModule.DEFAULT_PRICES = {
 -- Premio en DKP por cada insignia de Tus novedades (Personal.BADGES). Se da una sola vez por
 -- jugador e insignia (badgeAwards["Nombre-Reino:clave"] = 1). Los oficiales pueden cambiar las
 -- cantidades, quitar insignias del premio y volver a estas.
-dkpModule.DEFAULT_BADGE_REWARDS = { veteran = 50, loyal = 30, lucky = 10, artisan = 15, upToDate = 10 }
+dkpModule.DEFAULT_BADGE_REWARDS = { veteran = 50, loyal = 30, mythicKiller = 40, keyMaster = 20, collector = 15, lucky = 10, artisan = 15, upToDate = 10 }
+
+-- Insignia de serie (Personal.BADGES): se puede premiar aunque no tenga premio predeterminado
+local function IsStockKey(key)
+    if dkpModule.DEFAULT_BADGE_REWARDS[key] then return true end
+    local PM = addonTable.Personal
+    for _, badge in ipairs(PM and PM.BADGES or {}) do
+        if badge.key == key then return true end
+    end
+    return false
+end
 
 -- Hueco del objeto -> categoría de precio
 local SLOT_CATEGORY = {
@@ -450,7 +460,7 @@ function dkpModule.GetBadgeReward(key)
 end
 
 function dkpModule.SetBadgeReward(key, amount)
-    if not IsOfficer() or not (dkpModule.DEFAULT_BADGE_REWARDS[key] or State().customBadges[key]) then return false end
+    if not IsOfficer() or not (IsStockKey(key) or State().customBadges[key]) then return false end
     State().settings.badgeRewards[key] = math.max(0, math.min(1000, math.floor(tonumber(amount) or 0)))
     Touch()
     return true
@@ -725,7 +735,7 @@ local function ApplyIncoming(payload, sender)
         if type(payload.settings.badgeRewards) == "table" then
             local rewards = {}
             for key, value in pairs(payload.settings.badgeRewards) do
-                if (dkpModule.DEFAULT_BADGE_REWARDS[key] or IsCustomKey(key)) and tonumber(value) then rewards[key] = Num(value, 0, 1000, 0) end
+                if (IsStockKey(key) or IsCustomKey(key)) and tonumber(value) then rewards[key] = Num(value, 0, 1000, 0) end
             end
             db.settings.badgeRewards = rewards
         end

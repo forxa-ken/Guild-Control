@@ -16,6 +16,7 @@
 - Configuración: subpestaña **Normas** con iconos de banda, viñetas y vista previa; cerrar la ventana al entrar en combate; ocultar el botón del minimapa. Canales del chat: solo el del idioma de tu juego, y lobosespañol ya no tiene pestaña propia (sus mensajes salen en Todo).
 - Tooltips en los botones de Roster, Botín y Configuración.
 - Corregido: los jugadores veían **Publicar de nuevo** en Raid.
+- Corregido: los premios DKP de **Asesino de Mítica**, **Maestro de llaves** y **Coleccionista** no se podían añadir ni cambiar (ahora tienen premio predeterminado: 40, 20 y 15), y Asesino de Mítica salía sin icono.
 
 ## 5.0.0-beta8
 
