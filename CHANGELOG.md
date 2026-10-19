@@ -1,6 +1,6 @@
 # GuildControl
 
-## Próxima versión
+## 5.0.0-beta6
 
 Mejoras traídas de GuildControl Forever:
 
