@@ -324,10 +324,17 @@ function addonTable.CreateMinimapButton()
     button:RegisterForDrag("LeftButton")
     button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
+    -- El logo del addon (Media\logo.tga), recortado en círculo como los demás botones del minimapa
     local icon = button:CreateTexture(nil, "BACKGROUND")
-    icon:SetTexture("Interface\\Icons\\Achievement_GuildPerk_MobileBanking")
-    icon:SetSize(20, 20)
+    icon:SetTexture(addonTable.DEFAULT_LOGO)
+    icon:SetSize(22, 22)
     icon:SetPoint("CENTER")
+    if button.CreateMaskTexture then
+        local mask = button:CreateMaskTexture()
+        mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints(icon)
+        icon:AddMaskTexture(mask)
+    end
 
     local border = button:CreateTexture(nil, "OVERLAY")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")

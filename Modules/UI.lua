@@ -6957,23 +6957,35 @@ local function BuildRaidView(parent)
     countsText:SetPoint("TOPLEFT", signBar, "BOTTOMLEFT", 2, -10)
 
     -- Apuntados por rol, cada rol en un contenedor de su color (como en Roster); debajo, la
-    -- fila de otros estados. col:SetHeader(texto) pone la cabecera y col:SetText(texto) la lista.
-    local function Column(x, width, color)
+    -- fila de otros estados. col:SetHeader(texto) pone la cabecera y col:SetText(texto, texto2)
+    -- la lista (texto2 = segunda columna de nombres, solo en el de DPS, que es más ancho).
+    local function Column(x, width, color, columns)
         local panel = CreateColoredPanel(detail, "", color, width, 232)
         panel:SetPoint("TOPLEFT", detail, "TOPLEFT", x, -164)
-        local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -30)
-        fs:SetWidth(width - 16)
-        fs:SetJustifyH("LEFT")
-        fs:SetJustifyV("TOP")
-        fs:SetSpacing(3)
+        local colWidth = (width - 16) / (columns or 1)
+        local function NamesText(offset)
+            local fs = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            fs:SetPoint("TOPLEFT", panel, "TOPLEFT", 8 + offset, -30)
+            fs:SetWidth(colWidth - 4)
+            fs:SetJustifyH("LEFT")
+            fs:SetJustifyV("TOP")
+            fs:SetSpacing(3)
+            return fs
+        end
+        local fs = NamesText(0)
+        local fs2 = (columns or 1) > 1 and NamesText(colWidth) or nil
+        panel.columns = columns or 1
         panel.SetHeader = function(self, text) self.title:SetText(text) end
-        panel.SetText = function(_, text) fs:SetText(text) end
+        panel.SetText = function(_, text, text2)
+            fs:SetText(text)
+            if fs2 then fs2:SetText(text2 or "") end
+        end
         return panel
     end
-    local tankCol = Column(12, 196, PANEL_COLORS.blue)
-    local healerCol = Column(212, 204, PANEL_COLORS.green)
-    local dpsCol = Column(420, 212, PANEL_COLORS.red)
+    -- Tanques y sanadores suelen ser pocos: sus contenedores son más estrechos que el de DPS
+    local tankCol = Column(12, 150, PANEL_COLORS.blue)
+    local healerCol = Column(166, 160, PANEL_COLORS.green)
+    local dpsCol = Column(330, 302, PANEL_COLORS.red, 2)
     local otherText = detail:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     otherText:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 44)
     otherText:SetPoint("RIGHT", detail, "RIGHT", -14, 0)
@@ -7594,14 +7606,21 @@ local function BuildRaidView(parent)
         local byRole = E.GetSignupsByRole(event)
         local function FillColumn(col, label, role, list)
             col:SetHeader(RoleIcon(role, 16) .. " " .. label .. " |cFFFFFFFF(" .. #list .. ")|r")
-            -- Caben 12 líneas por contenedor; el resto se resume
+            -- Caben 12 líneas por columna de nombres (dos en DPS); el resto se resume
+            local capacity = 12 * col.columns
             local lines = {}
-            local shown = #list > 12 and 11 or #list
+            local shown = #list > capacity and capacity - 1 or #list
             for i = 1, shown do table.insert(lines, SignupName(list[i].name, list[i].signup)) end
             if #list > shown then
                 table.insert(lines, L["|cFF808080y "] .. (#list - shown) .. L[" más (ver Vista de grupos)|r"])
             end
-            col:SetText(#lines > 0 and table.concat(lines, "\n") or L["|cFF808080Nadie todavía|r"])
+            if #lines == 0 then
+                col:SetText(L["|cFF808080Nadie todavía|r"])
+            elseif col.columns > 1 then
+                col:SetText(table.concat(lines, "\n", 1, math.min(12, #lines)), #lines > 12 and table.concat(lines, "\n", 13) or "")
+            else
+                col:SetText(table.concat(lines, "\n"))
+            end
         end
         FillColumn(tankCol, L["Tanques"], "tank", byRole.tank)
         FillColumn(healerCol, L["Sanadores"], "healer", byRole.healer)
@@ -10909,7 +10928,6 @@ local function BuildCommunityView(parent)
         lfgEmpty:SetShown(#posts == 0)
 
         -- Récords
-        local lines = {}
         for _, record in ipairs(PM and PM.GetRecords() or {}) do
             table.insert(lines, "|cFFFFD100" .. L[record.label] .. "|r" .. (record.suffix and ("  |cFF808080" .. record.suffix .. "|r") or ""))
             if #record.entries == 0 then

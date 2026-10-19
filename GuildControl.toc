@@ -5,7 +5,7 @@
 ## Notes-esMX: Gestión completa de la hermandad: bandas con inscripciones, roster y asistencia sincronizados, miembros, Míticas+, profesiones, logros, avisos y lista negra.
 ## Author: Forxaken
 ## Version: @project-version@
-## IconTexture: Interface\Icons\Achievement_GuildPerk_MobileBanking
+## IconTexture: Interface\AddOns\GuildControl\Media\logo
 ## SavedVariables: GuildControlDB
 ## X-Curse-Project-ID: 1745650
 
