@@ -789,6 +789,12 @@ local function OnRollResult(text)
     if not name or not roll or low ~= 1 or high ~= 100 then return end
     local item = lootModule.GetItem(activeKey)
     if not item or item.state ~= "rolling" then return end
+    -- El mensaje de la tirada puede traer el nombre sin reino aunque sea de otro reino
+    -- conectado: el reino se saca del integrante del grupo con ese nombre
+    local unitName, unitRealm = UnitName(name)
+    if unitName and not (issecretvalue and (issecretvalue(unitName) or issecretvalue(unitRealm))) then
+        name = (unitRealm and unitRealm ~= "") and (unitName .. "-" .. unitRealm) or unitName
+    end
     local fullName = NormalizeName(name)
     local entry = item.rolls[fullName] or {}
     if entry.roll then return end           -- solo cuenta la primera tirada
@@ -957,6 +963,17 @@ local function OnLootReceived(...)
     if owner == MyName() and tonumber(itemID) then C_Timer.After(1, function() CheckMyLoot(tonumber(itemID), itemLink) end) end
 end
 
+-- Quien abre las tiradas ve en el chat la petición que no vale (sin DKP suficientes), una vez
+-- por jugador y objeto: así sabe por qué no sale en la lista
+local rejectedWarned = {}
+local function WarnRejected(fullSender, item)
+    if not lootModule.CanManage() or rejectedWarned[item.key .. fullSender] then return end
+    rejectedWarned[item.key .. fullSender] = true
+    local D = addonTable.Dkp
+    print("|cFF00FFFF[GuildControl]|r " .. string.format(L["%s pide %s pero no tiene DKP suficientes (tiene %d): no entra en la lista."],
+        Ambiguate(fullSender, "none"), lootModule.DisplayLink(item.link), D and D.GetBalance(fullSender) or 0))
+end
+
 local function OnAddonMessage(msg, channel, sender)
     local fullSender = NormalizeName(sender)
     local kind = string.sub(msg, 1, 2)
@@ -1077,9 +1094,13 @@ local function OnAddonMessage(msg, channel, sender)
                 -- No se acepta una puja por debajo de la mínima ni por encima de los DKP del jugador
                 bid = math.floor(tonumber(amount) or 0)
                 local D = addonTable.Dkp
-                if bid <= 0 or bid < lootModule.GetMinBid(item) or (D and bid > D.GetBalance(fullSender)) then return end
+                if bid <= 0 or bid < lootModule.GetMinBid(item) or (D and bid > D.GetBalance(fullSender)) then
+                    WarnRejected(fullSender, item)
+                    return
+                end
             elseif IsFixed() and (choice == "need" or choice == "offspec") and not lootModule.CanAfford(fullSender, item, choice) then
-                return   -- precio fijo: no le llegan los DKP para pagarlo
+                WarnRejected(fullSender, item)   -- precio fijo: no le llegan los DKP para pagarlo
+                return
             end
             item.rolls[fullSender] = item.rolls[fullSender] or {}
             item.rolls[fullSender].kind = choice
