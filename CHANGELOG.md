@@ -1,5 +1,19 @@
 # GuildControl
 
+## 5.1.0
+
+- **Botín con el grupo**, aunque no sean de la hermandad: la lista de objetos, las tiradas, el ganador y la nueva sesión llegan a todos los del grupo con GuildControl. El grupo usa el sistema (+1 o DKP) de quien abre las tiradas. Quien entra en el grupo o recarga recibe la lista con los ganadores, y quien no es de la hermandad ve lo ganado en su historial.
+- Botón **Mostrar** en Botín: el líder, un ayudante o un oficial abre el botín a todo el grupo.
+- **Botín personal comerciable**: no se abre tirada de lo que no se puede comerciar. Al asignarlo a otro, al dueño le sale una ventana para comerciárselo y el objeto queda marcado como entregado.
+- Lo ganado en un grupo de **fuera de la hermandad** sale en el historial con esa etiqueta y no suma +1. Un oficial de otra hermandad ya no puede gestionar el botín ni el Ayudante en tu grupo.
+- **Descanso** del Ayudante: barra arriba de la pantalla con el tiempo que queda, también para el grupo.
+- El **Ayudante** solo lo usan los oficiales, el líder del grupo y, en banda, el líder y los ayudantes.
+- La ventana **se ajusta a la pantalla** (también al cambiar de monitor o de resolución) y el botón **Tamaño** del encabezado la hace más pequeña o más grande.
+- Corregido: las cuentas de prueba (Starter) no podían pedir botín en una banda.
+- Corregido: la tirada a veces no llegaba al grupo por el límite de mensajes del juego, y con reinos conectados un jugador podía salir dos veces.
+- Quien abre las tiradas ve en el chat las peticiones descartadas por no tener DKP suficientes.
+- Pizarra: el nombre de la banda y el jefe ya no se cortan, y los jefes salen nada más entrar al juego.
+
 ## 5.0.0
 
 - **Primera versión estable** (release) de GuildControl 5 para Retail: reúne todo lo de las betas 1 a 9.
