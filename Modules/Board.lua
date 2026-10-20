@@ -882,11 +882,6 @@ function boardModule.Open(key)
     Render()
 end
 
--- Enseña al grupo la pizarra que tengo abierta (o la última que abrí), sin abrir la ventana
-function boardModule.ShowCurrent()
-    return boardModule.ShowToGroup(currentKey, KeyTitle(currentKey))
-end
-
 function boardModule.Toggle()
     if boardFrame and boardFrame:IsShown() then
         boardFrame:Hide()

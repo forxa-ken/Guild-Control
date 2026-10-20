@@ -31,6 +31,7 @@ local lootModule = addonTable.Loot
 --              A;clave;ganador;tipo;tirada (asignado: el grupo lo ve aunque no sea de la hermandad)
 --              L (pide la lista al entrar en el grupo o al recargar; responde el líder)
 --              N;idSesión;inicio;título (sesión nueva: el grupo empieza la misma)
+--              O (Mostrar: se abre el botín a todo el grupo; antes van las reglas y los objetos)
 --              M;sistema;modo (reglas del botín de quien abre las tiradas: plusone|dkp, fixed|auction)
 --              T;idObjeto;dueño;1|0 (el dueño dice si puede comerciarlo)
 --              G;idObjeto;dueño;ganador (entregado: lo manda el dueño o el ganador al completar el comercio)
@@ -354,10 +355,23 @@ function lootModule.AddManual(link, owner, difficultyID)
     return item
 end
 
+-- Mostrar: abre el botín (con la lista) a todos los del grupo con GuildControl
+function lootModule.ShowToGroup()
+    if not IsInGroup() then
+        print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No estás en un grupo.|r"])
+        return false
+    end
+    if not lootModule.CanManage() then return false end
+    SendItemList(true)
+    SendGroup("O")
+    print("|cFF00FFFF[GuildControl]|r " .. L["Enseñando el botín a tu grupo."])
+    return true
+end
+
 -- Al pedirlo alguien del grupo, el líder le manda los objetos pendientes (como mucho cada 10 s)
 local lastListSent = 0
-local function SendItemList()
-    if not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10 then return end
+local function SendItemList(force)
+    if not force and (not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10) then return end
     lastListSent = GetTime()
     lootModule.SendRules()
     for _, item in ipairs(lootModule.GetItems()) do SendItem(item) end
@@ -886,6 +900,9 @@ local function OnAddonMessage(msg, channel, sender)
     -- Mensajes del grupo
     if msg == "L" then
         C_Timer.After(1 + math.random() * 2, SendItemList)
+    elseif msg == "O" then
+        if not CanManageName(fullSender) then return end
+        if lootModule.OnShowRequested then lootModule.OnShowRequested(fullSender) end
     elseif kind == "N;" then
         if not CanManageName(fullSender) then return end
         local _, id, startedAt, title = strsplit(";", msg, 4)

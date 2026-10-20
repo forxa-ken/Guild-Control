@@ -9576,6 +9576,11 @@ local function BuildLootView(parent)
     btnNewSession:SetPoint("TOPRIGHT", view, "TOPRIGHT", -10, -10)
     btnNewSession:SetText(L["Nueva sesión"])
     btnNewSession:SetScript("OnClick", function() selectedKey = nil; LT.NewSession() end)
+    view.btnShowLoot = CreateFrame("Button", nil, view, "UIPanelButtonTemplate")
+    view.btnShowLoot:SetSize(90, 22)
+    view.btnShowLoot:SetPoint("RIGHT", btnNewSession, "LEFT", -6, 0)
+    view.btnShowLoot:SetText(L["Mostrar"])
+    view.btnShowLoot:SetScript("OnClick", function() LT.ShowToGroup() end)
 
     -- Caja con título y lista con scroll
     local function ListBox(titleText, color, width, height)
@@ -9893,6 +9898,7 @@ local function BuildLootView(parent)
             SetPreviewText(L[TabHelp("Botín")])
         end
         btnNewSession:SetShown(canManage)
+        view.btnShowLoot:SetShown(canManage and IsInGroup())
         btnReset:SetShown(isOfficer and not dkp)
         btnDkpSettings:SetShown(isOfficer and dkp)
         btnRaidDkp:SetShown(isOfficer and dkp)
@@ -10085,6 +10091,7 @@ local function BuildLootView(parent)
     view:SetScript("OnShow", Refresh)
     uiModule.AddTips({
         { btnNewSession, "Nueva sesión", "Empieza una sesión de botín nueva: la lista de objetos se vacía (el historial se conserva)." },
+        { view.btnShowLoot, "Mostrar", "Abre el botín a todos los del grupo con GuildControl, con la lista de objetos de la sesión." },
         { btnAddItem, "Añadir", "Añade a la sesión el objeto escrito o pegado con Shift+clic." },
         { btnBid, "Pujar", "Envía tu puja por el objeto con los DKP escritos." },
         { btnBidPass, "Pasar", "No pujas por este objeto." },
@@ -10102,6 +10109,8 @@ end
 -- La ventanita de tirada se abre aunque la ventana del addon esté cerrada
 if addonTable.Loot then
     addonTable.Loot.OnRollStarted = function(key) uiModule.ShowLootRollPopup(key) end
+    -- Mostrar del líder: el botín se abre en su ventana flotante
+    addonTable.Loot.OnShowRequested = function() uiModule.ShowLootFloat() end
 end
 
 -- =========================================================================
@@ -12898,19 +12907,14 @@ local function CreateRaidMiniFrame()
     for i, btn in ipairs(row3) do
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (width3 + MINI.gap), -82)
     end
-    -- Fila 4: pizarra de jefes (Board.lua; botones normales, no seguros), enseñarla al grupo y
-    -- volver a la ventana completa
-    local width4 = (inner - 2 * MINI.gap) / 3
+    -- Fila 4: pizarra de jefes (Board.lua; botón normal, no seguro) y volver a la ventana completa
+    local width4 = (inner - MINI.gap) / 2
     local btnBoard = MiniButton(frame, L["Pizarra"], width4, L["Pizarra"],
         L["Abre la pizarra para explicar un jefe con marcas, roles, texto y dibujos; el líder, un ayudante o un oficial puede enseñarla al grupo o ponerla en vivo."],
         function() if addonTable.Board then addonTable.Board.Toggle() end end)
     btnBoard:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -108)
-    local btnShowBoard = MiniButton(frame, L["Mostrar"], width4, L["Mostrar pizarra"],
-        L["Enseña al grupo la pizarra que abriste la última vez, sin abrirla tú: a todos los del grupo con GuildControl se les abre."],
-        function() if addonTable.Board and addonTable.Board.ShowCurrent then addonTable.Board.ShowCurrent() end end)
-    btnShowBoard:SetPoint("LEFT", btnBoard, "RIGHT", MINI.gap, 0)
     local btnNormal = MiniButton(frame, L["Modo normal"], width4, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
-    btnNormal:SetPoint("LEFT", btnShowBoard, "RIGHT", MINI.gap, 0)
+    btnNormal:SetPoint("LEFT", btnBoard, "RIGHT", MINI.gap, 0)
     return frame
 end
 
