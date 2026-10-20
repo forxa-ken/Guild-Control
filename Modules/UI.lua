@@ -377,6 +377,33 @@ local function BuildHeader(parent)
     end)
     btnMore:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Tamaño de la ventana: se ajusta a la pantalla y cada uno lo agranda o achica (settings.windowScale)
+    local btnSize = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+    btnSize:SetSize(78, 18)
+    btnSize:SetPoint("RIGHT", btnMore, "LEFT", -6, 0)
+    btnSize:SetText(L["Tamaño"])
+    btnSize:GetFontString():SetFontObject("GameFontHighlightSmall")
+    btnSize:SetScript("OnClick", function(self)
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle(L["Tamaño de la ventana"])
+            for _, pct in ipairs({ 60, 70, 80, 90, 100, 110, 120 }) do
+                root:CreateRadio(pct == 100 and L["100% (ajustado a la pantalla)"] or (pct .. "%"),
+                    function() return (GuildControlDB.settings.windowScale or 100) == pct end,
+                    function()
+                        GuildControlDB.settings.windowScale = pct
+                        uiModule.ApplyWindowScale()
+                    end)
+            end
+        end)
+    end)
+    btnSize:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Tamaño de la ventana"], 1, 1, 1)
+        GameTooltip:AddLine(L["La ventana se ajusta sola a la pantalla en la que juegas. Aquí la puedes hacer más pequeña o más grande."], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btnSize:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     containers.header = header
     uiModule.UpdateHeader()
 end
@@ -12237,6 +12264,7 @@ function uiModule.CreateUI()
     GC_UI = CreateFrame("Frame", "GuildControlMainFrame", UIParent, "BasicFrameTemplateWithInset")
     GC_UI:SetSize(1300, 650 + (HEADER_HEIGHT - 50) + (ANN_BAR_HEIGHT - 45))
     GC_UI:SetPoint("CENTER")
+    GC_UI:SetClampedToScreen(true)
     GC_UI:SetMovable(true)
     GC_UI:EnableMouse(true)
     GC_UI:RegisterForDrag("LeftButton")
@@ -12427,11 +12455,32 @@ function uiModule.UpdateMemberCounter()
     containers.header.onlineBox.value:SetText(online)
 end
 
--- Configuración > Cerrar al entrar en combate (settings.closeInCombat)
+-- Escala de la ventana: la que cabe en la pantalla (como mucho el 90% de ancho y alto, nunca
+-- más grande que el tamaño de diseño) por el porcentaje elegido (settings.windowScale, 100 = ajustada)
+function uiModule.ApplyWindowScale()
+    if not GC_UI then return end
+    local w, h = GC_UI:GetWidth(), GC_UI:GetHeight()
+    local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+    if not (w > 0 and h > 0 and sw > 0 and sh > 0) then return end
+    local fit = math.min(1, sw * 0.9 / w, sh * 0.9 / h)
+    local pct = (GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.windowScale) or 100
+    -- Nunca más grande que la pantalla
+    local scale = math.min(fit * pct / 100, sw * 0.98 / w, sh * 0.98 / h)
+    GC_UI:SetScale(math.max(0.4, scale))
+end
+
+-- Configuración > Cerrar al entrar en combate (settings.closeInCombat) y escala al cambiar la
+-- resolución o la escala de la interfaz (otra pantalla)
 do
     local combatWatcher = CreateFrame("Frame")
     combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
-    combatWatcher:SetScript("OnEvent", function()
+    combatWatcher:RegisterEvent("UI_SCALE_CHANGED")
+    combatWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    combatWatcher:SetScript("OnEvent", function(_, event)
+        if event ~= "PLAYER_REGEN_DISABLED" then
+            uiModule.ApplyWindowScale()
+            return
+        end
         local s = GuildControlDB and GuildControlDB.settings
         if s and s.closeInCombat and GC_UI and GC_UI:IsShown() then GC_UI:Hide() end
     end)
@@ -12461,6 +12510,7 @@ function uiModule.ToggleUI()
         if uiModule.RefreshList then uiModule.RefreshList() end
         if uiModule.UpdateMemberCounter then uiModule.UpdateMemberCounter() end
         uiModule.UpdateHeader()
+        uiModule.ApplyWindowScale()
         GC_UI:Show()
     end
 end

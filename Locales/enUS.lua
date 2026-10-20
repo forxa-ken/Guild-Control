@@ -1738,4 +1738,8 @@ L[" y %d más"] = " and %d more"
 L["Diario de la hermandad"] = "Guild journal"
 L["todavía no"] = "not yet"
 L["¡Sé el primero!"] = "Be the first!"
+-- Tamaño de la ventana
+L["Tamaño de la ventana"] = "Window size"
+L["100% (ajustado a la pantalla)"] = "100% (fit to screen)"
+L["La ventana se ajusta sola a la pantalla en la que juegas. Aquí la puedes hacer más pequeña o más grande."] = "The window fits itself to the screen you play on. Here you can make it smaller or larger."
 addonTable.RegisterLocale("enUS", "English", L)
