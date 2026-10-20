@@ -75,6 +75,15 @@ local function CanLead()
     return true
 end
 
+-- Quién puede usar el Ayudante: los oficiales siempre; los demás, en banda si son líder o
+-- ayudante y en grupo si son el líder. La pizarra y las tiradas se les abren igual cuando las
+-- abre el líder o un ayudante.
+function toolsModule.CanUseHelper()
+    if addonTable.Profiles and addonTable.Profiles.IsOfficer and addonTable.Profiles.IsOfficer() then return true end
+    if IsInRaid() then return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") end
+    return IsInGroup() and UnitIsGroupLeader("player")
+end
+
 function toolsModule.ReadyCheck()
     if not CanLead() then return end
     if DoReadyCheck then DoReadyCheck() end

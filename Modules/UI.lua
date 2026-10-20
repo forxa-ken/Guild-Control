@@ -9934,7 +9934,8 @@ local function BuildLootView(parent)
             local priceText = (dkp and item.state ~= "done") and ("   |cFFFFD100" .. LT.GetItemPrice(item) .. " DKP|r") or ""
             local wanted = addonTable.Personal and #addonTable.Personal.WhoWants(addonTable.Personal.ItemIdFromLink(item.link)) or 0
             if wanted > 0 and item.state ~= "done" then priceText = priceText .. "   |cFFFFD100*" .. wanted .. "|r" end
-            row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. priceText .. "   " .. state)
+            local tradeText = LT.TradeText and LT.TradeText(item) or ""
+            row.info:SetText(L["Le tocó a "] .. ShortName(item.owner) .. priceText .. "   " .. state .. (tradeText ~= "" and ("   " .. tradeText) or ""))
             row.action:SetShown(canManage and item.state ~= "done")
             row.action:SetText(item.state == "rolling" and L["Asignar"] or (dkp and L["Subastar"] or L["Tirar"]))
             row.action:SetScript("OnClick", function()
@@ -12985,8 +12986,14 @@ function uiModule.ToggleLootFloat()
     if uiModule.IsLootFloatShown() then uiModule.HideLootFloat() else uiModule.ShowLootFloat() end
 end
 
-function uiModule.EnterMiniMode()
+function uiModule.EnterMiniMode(silent)
     if not addonTable.RaidTools then return end
+    if addonTable.RaidTools.CanUseHelper and not addonTable.RaidTools.CanUseHelper() then
+        if not silent then
+            PrintGC(L["|cFFFF3333El Ayudante es para el líder del grupo, o para el líder y los ayudantes en banda. La pizarra y las tiradas se te abren cuando ellos las abren.|r"])
+        end
+        return
+    end
     AfterCombat(function()
         addonTable.InitDB()
         if not raidMiniFrame then raidMiniFrame = CreateRaidMiniFrame() end
@@ -13019,7 +13026,7 @@ miniLoginFrame:SetScript("OnEvent", function(self, _, isInitialLogin, isReloadin
     if not (isInitialLogin or isReloadingUi) then return end
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
     if GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.raidMini then
-        C_Timer.After(1, uiModule.EnterMiniMode)
+        C_Timer.After(1, function() uiModule.EnterMiniMode(true) end)
     end
 end)
 

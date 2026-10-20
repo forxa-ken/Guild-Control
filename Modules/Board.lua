@@ -622,7 +622,7 @@ StaticPopupDialogs["GUILDCONTROL_BOARD_TEXT"] = {
 
 local function CreateWindow()
     local frame = CreateFrame("Frame", "GuildControlBoardFrame", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(CANVAS_W + 120, CANVAS_H + 90)
+    frame:SetSize(CANVAS_W + 120, CANVAS_H + 112)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 30)
     frame:SetFrameStrata("HIGH")
     frame:SetToplevel(true)
@@ -654,9 +654,10 @@ local function CreateWindow()
             end
         end)
     end)
+    -- Banda y jefe en su propia línea, a todo el ancho, para que quepan los nombres largos
     frame.subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.subtitle:SetPoint("LEFT", btnBoss, "RIGHT", 12, 0)
-    frame.subtitle:SetWidth(280)
+    frame.subtitle:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -58)
+    frame.subtitle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -58)
     frame.subtitle:SetJustifyH("LEFT")
     frame.subtitle:SetWordWrap(false)
 
@@ -694,7 +695,7 @@ local function CreateWindow()
     -- Lienzo: fondo oscuro con cuadrícula
     local canvas = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     canvas:SetSize(CANVAS_W, CANVAS_H)
-    canvas:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -60)
+    canvas:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -82)
     canvas:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
         insets = { left = 2, right = 2, top = 2, bottom = 2 } })
     canvas:SetBackdropColor(0.06, 0.07, 0.09, 0.95)
@@ -793,7 +794,7 @@ local function CreateWindow()
 
     -- Herramientas (columna de la izquierda)
     frame.toolButtons = {}
-    local y = -62
+    local y = -84
     local function ToolButton(name, value, texture, atlas, tooltip, col)
         local btn = CreateFrame("Button", nil, frame)
         btn:SetSize(26, 26)

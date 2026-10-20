@@ -31,6 +31,14 @@ local lootModule = addonTable.Loot
 --              A;clave;ganador;tipo;tirada (asignado: el grupo lo ve aunque no sea de la hermandad)
 --              L (pide la lista al entrar en el grupo o al recargar; responde el líder)
 --              M;sistema;modo (reglas del botín de quien abre las tiradas: plusone|dkp, fixed|auction)
+--              T;idObjeto;dueño;1|0 (el dueño dice si puede comerciarlo)
+--              G;idObjeto;dueño;ganador (entregado: lo manda el dueño o el ganador al completar el comercio)
+--
+-- Botín personal (Retail): el objeto le cae a uno y solo puede dárselo a otro del grupo durante
+-- 2 horas y si no le mejora su equipo. El cliente del dueño mira el tooltip al recibirlo
+-- (item.tradeable, item.tradeUntil); no se abre tirada de lo que no se puede comerciar. Al
+-- asignarlo a otro, al dueño le sale la ventana de entrega y, al completar el comercio, queda
+-- como entregado (item.delivered) para todo el grupo.
 --   hermandad: W;id;clave;ganador;tipo;tirada;hora;sesión;enlace (asignado)   Z;hora (reinicio de +1)
 --              Q (petición al entrar)   P;nombre;puntos;hora (puntos de un jugador, en respuesta)
 
@@ -426,6 +434,11 @@ end
 function lootModule.StartRoll(key)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return false end
+    if item.tradeable == false then
+        print("|cFF00FFFF[GuildControl]|r " .. string.format(L["|cFFFF3333%s no puede comerciar este objeto (le mejora el equipo): se lo queda.|r"],
+            Ambiguate(item.owner or "?", "none")))
+        return false
+    end
     OpenRoll(key)
     lootModule.SendRules()
     -- Con DKP, el precio va antes que el objeto para que la ventanita ya lo muestre
@@ -562,8 +575,12 @@ function lootModule.Award(key, winnerName)
     else
         extra = (winner.kind == "need" and L[" (+1, tirada "] or L[" (off-spec, tirada "]) .. tostring(winner.roll or "-")
     end
+    local deliver = ""
+    if item.owner and item.owner ~= "?" and item.owner ~= winner.name then
+        deliver = " " .. string.format(L["%s, entrégaselo por comercio."], Ambiguate(item.owner, "none"))
+    end
     Announce(L["Ganador de "] .. item.link .. ": " .. short .. extra .. ")."
-        .. (alreadyWon > 0 and (L[" Ya había ganado "] .. alreadyWon .. L[" objeto(s) en esta banda."]) or ""))
+        .. (alreadyWon > 0 and (L[" Ya había ganado "] .. alreadyWon .. L[" objeto(s) en esta banda."]) or "") .. deliver)
     return winner
 end
 
@@ -582,6 +599,7 @@ function lootModule.ApplyAward(award)
     local item = lootModule.GetItem(award.key)
     if item then
         item.state, item.winner, item.kind, item.roll = "done", award.winner, award.kind, award.roll
+        if lootModule.CheckDelivery then lootModule.CheckDelivery(item) end
     end
     if activeKey == award.key then activeKey = nil end
     Notify()
@@ -659,6 +677,152 @@ local function OnRollResult(text)
     Notify()
 end
 
+-- =========================================================================
+-- BOTÍN PERSONAL: COMERCIABLE Y ENTREGA
+-- =========================================================================
+local TRADE_WINDOW = 2 * 3600
+local tradePrefix = BIND_TRADE_TIME_REMAINING and string.match(BIND_TRADE_TIME_REMAINING, "^(.-)%%s")
+
+-- Objeto de la sesión por id, dueño y (si se da) ganador: las claves pueden no coincidir entre
+-- clientes, así que lo del botín personal se busca así
+local function FindSessionItem(itemID, owner, winner)
+    for _, item in ipairs(lootModule.GetItems()) do
+        if item.owner == owner and tonumber(string.match(item.link or "", "item:(%d+)")) == itemID
+            and (not winner or item.winner == winner) then
+            return item
+        end
+    end
+end
+
+-- Hueco de las bolsas con ese objeto (el mismo enlace si puede ser)
+local function FindInBags(itemID, link)
+    if not (C_Container and C_Container.GetContainerNumSlots) then return nil end
+    local fallbackBag, fallbackSlot
+    for bag = 0, NUM_BAG_SLOTS or 4 do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if info and info.itemID == itemID then
+                if info.hyperlink == link then return bag, slot end
+                fallbackBag, fallbackSlot = fallbackBag or bag, fallbackSlot or slot
+            end
+        end
+    end
+    return fallbackBag, fallbackSlot
+end
+
+-- true/false si se sabe (por la línea «Puedes comerciar con este objeto...» del tooltip)
+local function IsTradeable(bag, slot)
+    if not (tradePrefix and C_TooltipInfo and C_TooltipInfo.GetBagItem) then return nil end
+    local ok, data = pcall(C_TooltipInfo.GetBagItem, bag, slot)
+    if not ok or type(data) ~= "table" or type(data.lines) ~= "table" then return nil end
+    for _, line in ipairs(data.lines) do
+        local text = line.leftText
+        if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and string.find(text, tradePrefix, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function SetTradeable(item, tradeable)
+    item.tradeable = tradeable
+    item.tradeUntil = tradeable and ((item.at or GetServerTime()) + TRADE_WINDOW) or nil
+end
+
+-- Al recibir yo un objeto: miro si puedo comerciarlo y lo digo al grupo (reintenta si aún
+-- no está en las bolsas)
+local function CheckMyLoot(itemID, link, tries)
+    local bag, slot = FindInBags(itemID, link)
+    local tradeable = nil
+    if bag then tradeable = IsTradeable(bag, slot) end
+    if tradeable == nil then
+        if (tries or 0) < 4 then C_Timer.After(2, function() CheckMyLoot(itemID, link, (tries or 0) + 1) end) end
+        return
+    end
+    local me = MyName()
+    local item = FindSessionItem(itemID, me)
+    if item then SetTradeable(item, tradeable); Notify() end
+    SendGroup(table.concat({ "T", itemID, me, tradeable and "1" or "0" }, ";"))
+end
+
+-- Texto del estado del comercio para la lista de Botín
+function lootModule.TradeText(item)
+    local left = item.tradeUntil and (item.tradeUntil - GetServerTime()) or nil
+    local clock = (left and left > 0) and string.format(" %d:%02d h", math.floor(left / 3600), math.floor(left % 3600 / 60)) or ""
+    if item.state == "done" then
+        if not item.owner or item.owner == "?" or item.owner == item.winner then return "" end
+        if item.delivered then return L["|cFF00FF00entregado|r"] end
+        if left and left <= 0 then return L["|cFFFF3333sin entregar|r"] end
+        return L["|cFFFF8000pendiente de entregar|r"] .. clock
+    end
+    if item.tradeable == false then return L["|cFFFF3333no comerciable|r"] end
+    if item.tradeable then
+        if left and left <= 0 then return L["|cFFFF3333ya no se puede comerciar|r"] end
+        return L["|cFF00FF00comerciable|r"] .. clock
+    end
+    return ""
+end
+
+StaticPopupDialogs["GUILDCONTROL_LOOT_DELIVER"] = {
+    text = "%s",
+    button1 = TRADE or "Comerciar",
+    button2 = CANCEL,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnAccept = function(self, data)
+        if not data then return end
+        local unit = Ambiguate(data.winner, "none")
+        if not UnitExists(unit) then
+            print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No encuentro al ganador en tu grupo.|r"])
+            return
+        end
+        if not pcall(InitiateTrade, unit) then
+            print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333No se pudo abrir el comercio: acércate al ganador.|r"])
+        end
+    end,
+}
+
+-- Tras asignar: si el objeto es mío y lo gana otro, me sale la ventana de entrega
+function lootModule.CheckDelivery(item)
+    local me = MyName()
+    if item.state ~= "done" or item.owner ~= me or not item.winner or item.winner == me or item.delivered then return end
+    local popup = StaticPopup_Show("GUILDCONTROL_LOOT_DELIVER",
+        string.format(L["%s es para %s. Ábrele el comercio y pon el objeto (tienes hasta 2 horas desde que cayó)."],
+            lootModule.DisplayLink(item.link), Ambiguate(item.winner, "none")))
+    if popup then popup.data = { winner = item.winner, key = item.key } end
+end
+
+-- Comercio: se apunta lo que hay en la ventana; al completarse, lo asignado queda entregado
+local trade = { target = nil, given = {}, received = {} }
+
+local function SnapshotTrade()
+    for i = 1, (MAX_TRADE_ITEMS or 7) - 1 do
+        trade.given[i] = GetTradePlayerItemLink and GetTradePlayerItemLink(i) or nil
+        trade.received[i] = GetTradeTargetItemLink and GetTradeTargetItemLink(i) or nil
+    end
+end
+
+local function MarkDelivered(owner, winner, links)
+    for _, link in pairs(links) do
+        local itemID = tonumber(string.match(link, "item:(%d+)"))
+        local item = itemID and FindSessionItem(itemID, owner, winner)
+        if item and item.state == "done" and not item.delivered then
+            item.delivered = GetServerTime()
+            SendGroup(table.concat({ "G", itemID, owner, winner }, ";"))
+        end
+    end
+end
+
+local function OnTradeComplete()
+    if not trade.target then return end
+    local me = MyName()
+    MarkDelivered(me, trade.target, trade.given)      -- yo lo entrego
+    MarkDelivered(trade.target, me, trade.received)   -- me lo entregan
+    trade.target = nil
+    Notify()
+end
+
 local function OnLootReceived(...)
     local _, itemID, itemLink, _, playerName = ...
     if issecretvalue and (issecretvalue(itemLink) or issecretvalue(playerName)) then return end
@@ -669,6 +833,7 @@ local function OnLootReceived(...)
     -- La misma entrega puede llegar dos veces: clave por objeto, dueño y minuto
     AddItem(tostring(itemID) .. ":" .. owner .. ":" .. math.floor(GetServerTime() / 60), itemLink, owner)
     Notify()
+    if owner == MyName() and tonumber(itemID) then C_Timer.After(1, function() CheckMyLoot(tonumber(itemID), itemLink) end) end
 end
 
 local function OnAddonMessage(msg, channel, sender)
@@ -712,6 +877,16 @@ local function OnAddonMessage(msg, channel, sender)
     -- Mensajes del grupo
     if msg == "L" then
         C_Timer.After(1 + math.random() * 2, SendItemList)
+    elseif kind == "T;" then
+        local _, itemID, owner, flag = strsplit(";", msg)
+        if owner ~= fullSender then return end   -- solo lo dice el dueño
+        local item = FindSessionItem(tonumber(itemID), owner)
+        if item then SetTradeable(item, flag == "1"); Notify() end
+    elseif kind == "G;" then
+        local _, itemID, owner, winner = strsplit(";", msg)
+        if fullSender ~= owner and fullSender ~= winner then return end
+        local item = FindSessionItem(tonumber(itemID), owner, winner)
+        if item and not item.delivered then item.delivered = GetServerTime(); Notify() end
     elseif kind == "M;" then
         if not CanManageName(fullSender) then return end
         local _, system, mode = strsplit(";", msg)
@@ -739,6 +914,7 @@ local function OnAddonMessage(msg, channel, sender)
         if item and winner and (wkind == "need" or wkind == "offspec" or wkind == "bid") then
             item.state, item.winner, item.kind, item.roll = "done", winner, wkind, tonumber(roll)
             if activeKey == key then activeKey = nil end
+            lootModule.CheckDelivery(item)
             Notify()
         end
     elseif kind == "S;" then
@@ -800,6 +976,11 @@ frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("GROUP_JOINED")
 frame:RegisterEvent("GROUP_LEFT")
+frame:RegisterEvent("TRADE_SHOW")
+frame:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED")
+frame:RegisterEvent("TRADE_TARGET_ITEM_CHANGED")
+frame:RegisterEvent("TRADE_ACCEPT_UPDATE")
+frame:RegisterEvent("UI_INFO_MESSAGE")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
     if event == "PLAYER_ENTERING_WORLD" then
@@ -807,6 +988,18 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if isInitialLogin or isReloadingUi then
             C_Timer.After(18, function() SendGuild("Q") end)
             C_Timer.After(20, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
+        end
+    elseif event == "TRADE_SHOW" then
+        local name, realm = UnitName("NPC")
+        trade.target = (name and not (issecretvalue and issecretvalue(name)))
+            and NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name) or nil
+        wipe(trade.given); wipe(trade.received)
+    elseif event == "TRADE_PLAYER_ITEM_CHANGED" or event == "TRADE_TARGET_ITEM_CHANGED" or event == "TRADE_ACCEPT_UPDATE" then
+        if trade.target then SnapshotTrade() end
+    elseif event == "UI_INFO_MESSAGE" then
+        local _, text = ...
+        if trade.target and type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text == ERR_TRADE_COMPLETE then
+            OnTradeComplete()
         end
     elseif event == "GROUP_LEFT" then
         if groupRules then groupRules = nil; Notify() end
