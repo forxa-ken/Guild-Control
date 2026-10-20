@@ -272,6 +272,7 @@ function dkpModule.SetSystem(system)
     if system == "dkp" and db.lastWeekly == 0 then db.lastWeekly = dkpModule.GetLastWeeklyReset() end
     Touch()
     if system == "dkp" then dkpModule.UpdateSeniority() end
+    if addonTable.Loot and addonTable.Loot.SendRules then addonTable.Loot.SendRules() end
     return true
 end
 
@@ -404,6 +405,7 @@ function dkpModule.SetMode(mode)
     if not IsOfficer() or not dkpModule.MODES[mode] then return false end
     State().settings.mode = mode
     Touch()
+    if addonTable.Loot and addonTable.Loot.SendRules then addonTable.Loot.SendRules() end
     return true
 end
 

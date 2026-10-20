@@ -30,6 +30,7 @@ local lootModule = addonTable.Loot
 --              I;clave;dueño;dificultad;enlace (objeto añadido a mano: así el grupo ve la lista)
 --              A;clave;ganador;tipo;tirada (asignado: el grupo lo ve aunque no sea de la hermandad)
 --              L (pide la lista al entrar en el grupo o al recargar; responde el líder)
+--              M;sistema;modo (reglas del botín de quien abre las tiradas: plusone|dkp, fixed|auction)
 --   hermandad: W;id;clave;ganador;tipo;tirada;hora;sesión;enlace (asignado)   Z;hora (reinicio de +1)
 --              Q (petición al entrar)   P;nombre;puntos;hora (puntos de un jugador, en respuesta)
 
@@ -52,8 +53,14 @@ lootModule.SYSTEMS = {
     { key = "dkp", label = "DKP" },
 }
 
+-- Reglas recibidas de quien abre las tiradas en el grupo (líder, ayudante u oficial): mientras
+-- dure el grupo mandan sobre las de la hermandad, así todos ven el mismo sistema aunque no
+-- sean de la hermandad. Solo en memoria; se borran al salir del grupo o al mandar las mías.
+local groupRules = nil   -- { system, mode, from }
+
 -- Sistema activo: lo deciden los oficiales y se comparte con el estado del DKP
 function lootModule.GetSystem()
+    if groupRules and IsInGroup() then return groupRules.system end
     return addonTable.Dkp and addonTable.Dkp.GetSystem() or "plusone"
 end
 
@@ -220,7 +227,9 @@ function lootModule.GetActiveKey() return activeKey end
 local pendingPrices = {}   -- precio recibido antes que el objeto ("V" llega antes que "S")
 
 local function IsFixed()
-    return IsDkp() and addonTable.Dkp.GetMode() == "fixed"
+    if not IsDkp() then return false end
+    if groupRules and IsInGroup() then return groupRules.mode == "fixed" end
+    return addonTable.Dkp.GetMode() == "fixed"
 end
 lootModule.IsFixed = IsFixed
 
@@ -301,6 +310,16 @@ local function AddItem(key, link, owner)
     return item
 end
 
+-- Manda al grupo mis reglas del botín (al abrir una tirada, al responder a L y al cambiarlas)
+function lootModule.SendRules()
+    if not (IsInGroup() and lootModule.CanManage()) then return end
+    groupRules = nil
+    local D = addonTable.Dkp
+    SendGroup("M;" .. (D and D.GetSystem() or "plusone") .. ";" .. (D and D.GetMode() or "fixed"))
+end
+
+local RULE_LABELS = { plusone = "+1", fixed = "DKP (precio fijo)", auction = "DKP (subasta)" }
+
 -- Envía un objeto de la sesión al grupo (los que salen de la banda ya los ve cada cliente)
 local function SendItem(item)
     if item.state == "done" then return end
@@ -323,6 +342,7 @@ local lastListSent = 0
 local function SendItemList()
     if not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10 then return end
     lastListSent = GetTime()
+    lootModule.SendRules()
     for _, item in ipairs(lootModule.GetItems()) do SendItem(item) end
 end
 
@@ -407,6 +427,7 @@ function lootModule.StartRoll(key)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return false end
     OpenRoll(key)
+    lootModule.SendRules()
     -- Con DKP, el precio va antes que el objeto para que la ventanita ya lo muestre
     if IsDkp() then SendGroup("V;" .. key .. ";" .. lootModule.GetItemPrice(item)) end
     SendGroup(table.concat({ "S", key, item.owner or "?", ShortLink(item.link) }, ";"))
@@ -691,6 +712,18 @@ local function OnAddonMessage(msg, channel, sender)
     -- Mensajes del grupo
     if msg == "L" then
         C_Timer.After(1 + math.random() * 2, SendItemList)
+    elseif kind == "M;" then
+        if not CanManageName(fullSender) then return end
+        local _, system, mode = strsplit(";", msg)
+        if system ~= "plusone" and system ~= "dkp" then return end
+        if mode ~= "fixed" and mode ~= "auction" then mode = "fixed" end
+        local changed = not groupRules or groupRules.system ~= system or groupRules.mode ~= mode
+        groupRules = { system = system, mode = mode, from = fullSender }
+        if changed then
+            print("|cFF00FFFF[GuildControl]|r " .. string.format(L["El botín de este grupo usa %s (lo ha elegido %s)."],
+                L[RULE_LABELS[system == "dkp" and mode or "plusone"]], Ambiguate(fullSender, "none")))
+            Notify()
+        end
     elseif kind == "I;" then
         if not CanManageName(fullSender) then return end
         local _, key, owner, difficultyID, link = strsplit(";", msg, 5)
@@ -766,6 +799,7 @@ frame:RegisterEvent("ENCOUNTER_LOOT_RECEIVED")
 frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("GROUP_JOINED")
+frame:RegisterEvent("GROUP_LEFT")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
     if event == "PLAYER_ENTERING_WORLD" then
@@ -774,6 +808,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
             C_Timer.After(18, function() SendGuild("Q") end)
             C_Timer.After(20, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
         end
+    elseif event == "GROUP_LEFT" then
+        if groupRules then groupRules = nil; Notify() end
     elseif event == "GROUP_JOINED" then
         C_Timer.After(3, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
     elseif event == "ENCOUNTER_LOOT_RECEIVED" then
