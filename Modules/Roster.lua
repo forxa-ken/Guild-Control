@@ -1238,16 +1238,27 @@ function rosterModule.GetInstanceNames()
     return instanceNames
 end
 
--- Nombres de los jefes de una banda, en orden
-function rosterModule.GetRaidBosses(instanceID)
+-- Nombres de los jefes de una banda, en orden. Nada más entrar en el juego el diario puede no
+-- dar los jefes de una banda que no está seleccionada: si sale vacío, se selecciona la banda
+-- (solo con la ventana del diario cerrada, para no cambiársela a quien la mira) y se repite.
+local function ReadBosses(instanceID)
     local bosses = {}
-    if not instanceID or not EJ_GetEncounterInfoByIndex then return bosses end
     local index = 1
     while true do
         local ok, name = pcall(EJ_GetEncounterInfoByIndex, index, instanceID)
         if not ok or not name then break end
         table.insert(bosses, name)
         index = index + 1
+    end
+    return bosses
+end
+
+function rosterModule.GetRaidBosses(instanceID)
+    if not instanceID or not EJ_GetEncounterInfoByIndex then return {} end
+    local bosses = ReadBosses(instanceID)
+    local journalOpen = EncounterJournal and EncounterJournal.IsShown and EncounterJournal:IsShown()
+    if #bosses == 0 and EJ_SelectInstance and not journalOpen then
+        if pcall(EJ_SelectInstance, instanceID) then bosses = ReadBosses(instanceID) end
     end
     return bosses
 end

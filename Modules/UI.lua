@@ -12898,14 +12898,19 @@ local function CreateRaidMiniFrame()
     for i, btn in ipairs(row3) do
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad + (i - 1) * (width3 + MINI.gap), -82)
     end
-    -- Fila 4: pizarra de jefes (Board.lua; botón normal, no seguro) y volver a la ventana completa
-    local width4 = (inner - MINI.gap) / 2
+    -- Fila 4: pizarra de jefes (Board.lua; botones normales, no seguros), enseñarla al grupo y
+    -- volver a la ventana completa
+    local width4 = (inner - 2 * MINI.gap) / 3
     local btnBoard = MiniButton(frame, L["Pizarra"], width4, L["Pizarra"],
         L["Abre la pizarra para explicar un jefe con marcas, roles, texto y dibujos; el líder, un ayudante o un oficial puede enseñarla al grupo o ponerla en vivo."],
         function() if addonTable.Board then addonTable.Board.Toggle() end end)
     btnBoard:SetPoint("TOPLEFT", frame, "TOPLEFT", MINI.pad, -108)
+    local btnShowBoard = MiniButton(frame, L["Mostrar"], width4, L["Mostrar pizarra"],
+        L["Enseña al grupo la pizarra que abriste la última vez, sin abrirla tú: a todos los del grupo con GuildControl se les abre."],
+        function() if addonTable.Board and addonTable.Board.ShowCurrent then addonTable.Board.ShowCurrent() end end)
+    btnShowBoard:SetPoint("LEFT", btnBoard, "RIGHT", MINI.gap, 0)
     local btnNormal = MiniButton(frame, L["Modo normal"], width4, L["Modo normal"], L["Vuelve a la ventana completa de GuildControl."], function() uiModule.ExitMiniMode() end)
-    btnNormal:SetPoint("LEFT", btnBoard, "RIGHT", MINI.gap, 0)
+    btnNormal:SetPoint("LEFT", btnShowBoard, "RIGHT", MINI.gap, 0)
     return frame
 end
 

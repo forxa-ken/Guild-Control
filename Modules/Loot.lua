@@ -30,6 +30,7 @@ local lootModule = addonTable.Loot
 --              I;clave;dueño;dificultad;enlace (objeto añadido a mano: así el grupo ve la lista)
 --              A;clave;ganador;tipo;tirada (asignado: el grupo lo ve aunque no sea de la hermandad)
 --              L (pide la lista al entrar en el grupo o al recargar; responde el líder)
+--              N;idSesión;inicio;título (sesión nueva: el grupo empieza la misma)
 --              M;sistema;modo (reglas del botín de quien abre las tiradas: plusone|dkp, fixed|auction)
 --              T;idObjeto;dueño;1|0 (el dueño dice si puede comerciarlo)
 --              G;idObjeto;dueño;ganador (entregado: lo manda el dueño o el ganador al completar el comercio)
@@ -189,16 +190,24 @@ end
 -- =========================================================================
 function lootModule.GetSession() return Store().session end
 
-function lootModule.NewSession(title)
+-- received = { id, startedAt } cuando la sesión nueva llega del grupo (no se reenvía)
+function lootModule.NewSession(title, received)
     local instanceName = GetInstanceInfo()
     local session = {
-        id = (UnitName("player") or "?") .. "-" .. GetServerTime(),
+        id = received and received.id or ((UnitName("player") or "?") .. "-" .. GetServerTime()),
         title = (title and title ~= "") and title or (instanceName or L["Banda"]),
-        startedAt = GetServerTime(),
+        startedAt = received and received.startedAt or GetServerTime(),
         items = {}, order = {},
     }
     Store().session = session
     activeKey = nil
+    if not received and lootModule.CanManage() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        local channel = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
+        if channel then
+            C_ChatInfo.SendAddonMessage(PREFIX, "N;" .. session.id .. ";" .. session.startedAt .. ";"
+                .. string.sub(string.gsub(session.title, ";", ""), 1, 80), channel)
+        end
+    end
     Notify()
     return session
 end
@@ -877,6 +886,13 @@ local function OnAddonMessage(msg, channel, sender)
     -- Mensajes del grupo
     if msg == "L" then
         C_Timer.After(1 + math.random() * 2, SendItemList)
+    elseif kind == "N;" then
+        if not CanManageName(fullSender) then return end
+        local _, id, startedAt, title = strsplit(";", msg, 4)
+        local current = Store().session
+        if id and tonumber(startedAt) and not (current and current.id == id) then
+            lootModule.NewSession(title, { id = id, startedAt = tonumber(startedAt) })
+        end
     elseif kind == "T;" then
         local _, itemID, owner, flag = strsplit(";", msg)
         if owner ~= fullSender then return end   -- solo lo dice el dueño

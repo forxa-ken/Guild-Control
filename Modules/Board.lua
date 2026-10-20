@@ -584,8 +584,9 @@ local function Render()
         suffix = " |cFF808080· " .. L["enviada por "] .. board.from .. "|r"
     end
     boardFrame.subtitle:SetText(title .. suffix)
-    boardFrame.btnShow:SetEnabled(boardModule.CanShow())
-    boardFrame.btnLive:SetEnabled(live.key ~= nil or boardModule.CanShow())
+    -- Enseñar y En vivo solo se ven si puedes usarlos (líder, ayudante u oficial)
+    boardFrame.btnShow:SetShown(boardModule.CanShow())
+    boardFrame.btnLive:SetShown(live.key ~= nil or boardModule.CanShow())
     boardFrame.btnLive:SetText(live.key and L["|cFFFF3333Parar directo|r"] or L["En vivo"])
     for name, btn in pairs(boardFrame.toolButtons) do
         btn:SetAlpha((name == tool .. ":" .. tostring(toolValue)) and 1 or 0.55)
@@ -879,6 +880,11 @@ function boardModule.Open(key)
     boardFrame:Show()
     boardFrame:Raise()
     Render()
+end
+
+-- Enseña al grupo la pizarra que tengo abierta (o la última que abrí), sin abrir la ventana
+function boardModule.ShowCurrent()
+    return boardModule.ShowToGroup(currentKey, KeyTitle(currentKey))
 end
 
 function boardModule.Toggle()
