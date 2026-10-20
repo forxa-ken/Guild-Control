@@ -121,7 +121,7 @@ end
 local sendQueue, sendTicker = {}, nil
 
 local function TrySend(item)
-    local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, item.msg, item.channel)
+    local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, item.msg, item.channel, item.target)
     return ok and (result == nil or result == true or result == 0
         or (Enum and Enum.SendAddonMessageResult and result == Enum.SendAddonMessageResult.Success))
 end
@@ -137,13 +137,35 @@ local function ProcessQueue()
     if TrySend(item) or item.tries > 40 then table.remove(sendQueue, 1) end
 end
 
-local function SendGroup(msg)
-    local channel = GroupChannel()
-    if not (channel and C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
-    local item = { msg = msg, channel = channel }
+local function QueueSend(item)
     if #sendQueue == 0 and TrySend(item) then return end
     table.insert(sendQueue, item)
     if not sendTicker then sendTicker = C_Timer.NewTicker(0.4, ProcessQueue) end
+end
+
+-- Las cuentas de prueba (Starter) no pueden escribir en el canal de banda, tampoco mensajes de
+-- addon: en banda lo mandan a su subgrupo y susurrado a quien abre las tiradas (o al líder)
+local function IsTrial()
+    return (IsTrialAccount and IsTrialAccount()) or (IsVeteranTrialAccount and IsVeteranTrialAccount()) or false
+end
+
+local function RollMasterName()
+    if groupRules and groupRules.from then return groupRules.from end
+    for i = 1, GetNumGroupMembers() do
+        if UnitIsGroupLeader("raid" .. i) then return GetUnitName("raid" .. i, true) end
+    end
+end
+
+local function SendGroup(msg)
+    local channel = GroupChannel()
+    if not (channel and C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    if channel == "RAID" and IsTrial() then
+        QueueSend({ msg = msg, channel = "PARTY" })
+        local target = RollMasterName()
+        if target and not addonTable.IsMe(target) then QueueSend({ msg = msg, channel = "WHISPER", target = target }) end
+        return
+    end
+    QueueSend({ msg = msg, channel = channel })
 end
 
 local function SendGuild(msg)
@@ -363,10 +385,13 @@ end
 
 local RULE_LABELS = { plusone = "+1", fixed = "DKP (precio fijo)", auction = "DKP (subasta)" }
 
--- Envía un objeto de la sesión al grupo (los que salen de la banda ya los ve cada cliente)
+-- Envía un objeto de la sesión al grupo (los que salen de la banda ya los ve cada cliente). Si
+-- ya está asignado va seguido de su A: quien no estaba o hizo /reload ve también el ganador.
 local function SendItem(item)
-    if item.state == "done" then return end
     SendGroup(table.concat({ "I", item.key, item.owner or "?", tostring(item.difficultyID or 0), ShortLink(item.link) }, ";"))
+    if item.state == "done" and item.winner then
+        SendGroup(table.concat({ "A", item.key, item.winner, item.kind or "need", tostring(item.roll or 0) }, ";"))
+    end
 end
 
 -- Añadir a mano (enlace de objeto pegado con Shift+clic); difficultyID opcional
