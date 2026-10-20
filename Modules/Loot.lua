@@ -208,9 +208,31 @@ local function Announce(text)
     end
 end
 
--- Puede abrir y asignar tiradas: oficial, líder o ayudante del grupo
+-- ¿Es un grupo de mi hermandad? (sin grupo, o el líder es de mi hermandad). Ser oficial solo
+-- cuenta en estos: en una banda ajena manda su líder, aunque seas oficial de tu hermandad.
+function lootModule.IsGuildGroup()
+    if not IsInGroup() or UnitIsGroupLeader("player") then return true end
+    if not IsInGuild() then return false end
+    local raid = IsInRaid()
+    for i = 1, raid and GetNumGroupMembers() or 4 do
+        local unit = (raid and "raid" or "party") .. i
+        if UnitExists(unit) and UnitIsGroupLeader(unit) then
+            if UnitIsInMyGuild then return UnitIsInMyGuild(unit) and true or false end
+            local name, realm = UnitName(unit)
+            local full = name and NormalizeName((realm and realm ~= "") and (name .. "-" .. realm) or name)
+            return full and GuildControlDB.members and GuildControlDB.members[full] ~= nil or false
+        end
+    end
+    return false
+end
+
+local function IsOfficerHere()
+    return addonTable.Profiles and addonTable.Profiles.IsOfficer() and lootModule.IsGuildGroup() or false
+end
+
+-- Puede abrir y asignar tiradas: oficial (en un grupo de su hermandad), líder o ayudante del grupo
 function lootModule.CanManage()
-    if addonTable.Profiles and addonTable.Profiles.IsOfficer() then return true end
+    if IsOfficerHere() then return true end
     return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
 end
 
@@ -324,7 +346,7 @@ end
 -- Un oficial cambia el precio (nil = volver al predeterminado). Si está en tirada se avisa al grupo.
 function lootModule.SetItemPrice(key, price)
     local item = lootModule.GetItem(key)
-    if not item or not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then return false end
+    if not item or not IsOfficerHere() then return false end
     item.price = price and math.max(0, math.floor(tonumber(price) or 0)) or nil
     if item.state == "rolling" then SendGroup("V;" .. key .. ";" .. lootModule.GetItemPrice(item)) end
     Notify()
@@ -606,7 +628,7 @@ function lootModule.Award(key, winnerName)
     local item = lootModule.GetItem(key)
     if not item or not lootModule.CanManage() then return nil end
     -- Con DKP solo asignan los oficiales: son los que llevan los saldos
-    if IsDkp() and not (addonTable.Profiles and addonTable.Profiles.IsOfficer()) then
+    if IsDkp() and not IsOfficerHere() then
         print("|cFF00FFFF[GuildControl]|r " .. L["|cFFFF3333Con DKP solo un oficial puede asignar el objeto.|r"])
         return nil
     end
@@ -636,7 +658,8 @@ function lootModule.Award(key, winnerName)
     local alreadyWon = lootModule.GetSessionWins(winner.name)
     local kind, roll = paid and "bid" or winner.kind, paid or winner.roll
     lootModule.ApplyAward({ id = id, key = key, winner = winner.name, kind = kind, roll = roll,
-                            at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName() })
+                            at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName(),
+                            external = not IsInGuild() or nil })
     SendGuild(table.concat({ "W", id, key, winner.name, kind, tostring(roll or 0), at, session.id, ShortLink(item.link) }, ";"))
     -- Al grupo va antes que E: así no vuelve a pendiente en quien no recibe la W (fuera de la hermandad)
     SendGroup(table.concat({ "A", key, winner.name, kind, tostring(roll or 0), id, at }, ";"))
@@ -666,7 +689,8 @@ function lootModule.ApplyAward(award)
     end
     table.insert(db.history, 1, award)
     while #db.history > HISTORY_MAX do table.remove(db.history) end
-    if award.kind == "need" then
+    -- Lo repartido en un grupo ajeno (external) se apunta, pero no suma +1 de la hermandad
+    if award.kind == "need" and not award.external then
         db.points[award.winner] = (db.points[award.winner] or 0) + 1
         db.pointsAt[award.winner] = award.at
     end
@@ -1017,10 +1041,12 @@ local function OnAddonMessage(msg, channel, sender)
         at = tonumber(at)
         if id and id ~= "" and at and at > 0 then
             -- Con el id va también al historial (sin repetir la W de la hermandad): así lo ve quien no es de ella
+            -- Asignado fuera de la hermandad: quien lo asigna no es de ella ni lo es el líder del grupo
             local session = Store().session
+            local external = not (IsInGuild() and ((GuildControlDB.members or {})[fullSender] or lootModule.IsGuildGroup()))
             lootModule.ApplyAward({ id = id, key = key, winner = winner, kind = wkind, roll = tonumber(roll), at = at,
                                     session = session and session.id, sessionTitle = session and session.title,
-                                    link = item.link, by = fullSender })
+                                    link = item.link, by = fullSender, external = external or nil })
         else
             item.state, item.winner, item.kind, item.roll = "done", winner, wkind, tonumber(roll)
             if activeKey == key then activeKey = nil end

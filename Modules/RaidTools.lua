@@ -79,7 +79,9 @@ end
 -- ayudante y en grupo si son el líder. La pizarra y las tiradas se les abren igual cuando las
 -- abre el líder o un ayudante.
 function toolsModule.CanUseHelper()
-    if addonTable.Profiles and addonTable.Profiles.IsOfficer and addonTable.Profiles.IsOfficer() then return true end
+    -- Ser oficial solo cuenta en un grupo de tu hermandad (en una banda ajena manda su líder)
+    local guildGroup = not (addonTable.Loot and addonTable.Loot.IsGuildGroup) or addonTable.Loot.IsGuildGroup()
+    if guildGroup and addonTable.Profiles and addonTable.Profiles.IsOfficer and addonTable.Profiles.IsOfficer() then return true end
     if IsInRaid() then return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") end
     return IsInGroup() and UnitIsGroupLeader("player")
 end

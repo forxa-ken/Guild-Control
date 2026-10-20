@@ -9965,7 +9965,7 @@ local function BuildLootView(parent)
         for _, btn in pairs(chooseButtons) do btn:SetShown(false) end
         for _, w in ipairs(bidControls) do w:SetShown(false) end
         btnStartRoll:SetShown(false); btnAward:SetShown(false); btnCancelRoll:SetShown(false)
-        btnPrice:SetShown(hasItem and dkp and isOfficer and item.state ~= "done")
+        btnPrice:SetShown(hasItem and dkp and isOfficer and canManage and item.state ~= "done")
         if hasItem then
             local link = LT.DisplayLink(item.link)
             rollItem.link = link
@@ -10080,7 +10080,8 @@ local function BuildLootView(parent)
             if entry.kind == "bid" then kindText = " |cFFFFD100-" .. tostring(entry.roll or 0) .. " DKP|r  "
             elseif entry.kind == "need" then kindText = " |cFFFFD100+1|r  "
             else kindText = L[" |cFF66B3FF(off)|r  "] end
-            row.text:SetText("|cFF808080" .. date("%d/%m", entry.at or 0) .. "|r  " .. ClassName(entry.winner) .. kindText .. link)
+            row.text:SetText("|cFF808080" .. date("%d/%m", entry.at or 0) .. "|r  " .. ClassName(entry.winner) .. kindText .. link
+                .. (entry.external and L[" |cFF66B3FF[fuera de la hermandad]|r"] or ""))
             row:Show()
         end
         historyBox.child:SetHeight(math.max(1, shown * 16))
