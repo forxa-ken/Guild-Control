@@ -4,7 +4,7 @@ local L = addonTable.L
 addonTable.RaidTools = {}
 local toolsModule = addonTable.RaidTools
 
--- Herramientas de banda (sin frames): comprobación de listos, cuenta atrás de pull y buff
+-- Herramientas de banda (sin frames, salvo la barra del descanso): comprobación de listos, cuenta atrás de pull y buff
 -- check. Las marcas no están aquí: SetRaidTarget está protegida y se ponen con botones
 -- seguros en UI.lua. La UI (Ayudante y ventana de buffos) está en UI.lua.
 --
@@ -109,6 +109,62 @@ function toolsModule.IsOnBreak()
     return #breakTimers > 0
 end
 
+-- Barra del descanso arriba de la pantalla: la ve quien lo empieza y el grupo con GuildControl
+-- ("R;segundos" al empezar, "R;0" al cancelar). Se puede mover y cerrar; la posición se guarda
+-- en settings.breakBarPos.
+local breakBar = nil
+
+local function CreateBreakBar()
+    local bar = CreateFrame("StatusBar", "GuildControlBreakBar", UIParent, "BackdropTemplate")
+    bar:SetSize(320, 22)
+    bar:SetFrameStrata("HIGH")
+    bar:SetClampedToScreen(true)
+    bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    bar:SetStatusBarColor(0.2, 0.6, 1)
+    bar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 } })
+    bar:SetBackdropColor(0, 0, 0, 0.7)
+    local pos = GuildControlDB and GuildControlDB.settings and GuildControlDB.settings.breakBarPos
+    if type(pos) == "table" and pos.x and pos.y then
+        bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+    else
+        bar:SetPoint("TOP", UIParent, "TOP", 0, -140)
+    end
+    bar:SetMovable(true)
+    bar:EnableMouse(true)
+    bar:RegisterForDrag("LeftButton")
+    bar:SetScript("OnDragStart", bar.StartMoving)
+    bar:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local x, y = self:GetCenter()
+        if GuildControlDB and GuildControlDB.settings and x and y then GuildControlDB.settings.breakBarPos = { x = x, y = y } end
+    end)
+    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    bar.text:SetPoint("CENTER")
+    local close = CreateFrame("Button", nil, bar, "UIPanelCloseButton")
+    close:SetSize(20, 20)
+    close:SetPoint("LEFT", bar, "RIGHT", 0, 0)
+    close:SetScript("OnClick", function() bar:Hide() end)
+    bar:SetScript("OnUpdate", function(self)
+        local left = (self.endsAt or 0) - GetTime()
+        if left <= 0 then self:Hide(); return end
+        self:SetValue(left)
+        self.text:SetText(string.format(L["Descanso: %d:%02d"], math.floor(left / 60), math.floor(left % 60)))
+    end)
+    return bar
+end
+
+local function ShowBreakBar(seconds)
+    if not seconds or seconds <= 0 then
+        if breakBar then breakBar:Hide() end
+        return
+    end
+    breakBar = breakBar or CreateBreakBar()
+    breakBar:SetMinMaxValues(0, seconds)
+    breakBar.endsAt = GetTime() + seconds
+    breakBar:Show()
+end
+
 local function BreakSay(text)
     local channel = (IsInRaid() and "RAID_WARNING") or "PARTY"
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
@@ -120,6 +176,8 @@ function toolsModule.CancelBreak()
     for _, timer in ipairs(breakTimers) do timer:Cancel() end
     wipe(breakTimers)
     BreakSay(L["Descanso cancelado"])
+    ShowBreakBar(0)
+    SendGroup("R;0")
     Notify()
 end
 
@@ -144,6 +202,8 @@ function toolsModule.Break(minutes)
         Say(L["¡Fin del descanso! Todos a sus puestos."])
         Notify()
     end))
+    ShowBreakBar(minutes * 60)
+    SendGroup("R;" .. (minutes * 60))
     Notify()
 end
 
@@ -335,5 +395,11 @@ frame:SetScript("OnEvent", function(_, event, prefix, msg, channel, sender)
             food = tonumber(food) or 0, runes = tonumber(runes) or 0, at = GetTime(),
         }
         Notify()
+    elseif string.sub(msg, 1, 2) == "R;" then
+        -- Descanso: solo del líder o de un ayudante
+        local unit = Ambiguate(sender, "none")
+        if not (UnitIsGroupLeader(unit) or (IsInRaid() and UnitIsGroupAssistant(unit))) then return end
+        local seconds = tonumber(string.sub(msg, 3))
+        if seconds then ShowBreakBar(math.min(seconds, toolsModule.BREAK_MAX * 60)) end
     end
 end)

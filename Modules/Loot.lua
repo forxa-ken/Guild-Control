@@ -27,6 +27,9 @@ local lootModule = addonTable.Loot
 -- Mensajes (prefijo GuildControlLoot):
 --   grupo:     S;clave;dueño;enlace (abre tirada)   K;clave;tipo[;puja] (lo que pido)   E;clave (cancela)
 --              V;clave;precio (precio DKP del objeto; se envía antes que S)
+--              I;clave;dueño;dificultad;enlace (objeto añadido a mano: así el grupo ve la lista)
+--              A;clave;ganador;tipo;tirada (asignado: el grupo lo ve aunque no sea de la hermandad)
+--              L (pide la lista al entrar en el grupo o al recargar; responde el líder)
 --   hermandad: W;id;clave;ganador;tipo;tirada;hora;sesión;enlace (asignado)   Z;hora (reinicio de +1)
 --              Q (petición al entrar)   P;nombre;puntos;hora (puntos de un jugador, en respuesta)
 
@@ -298,13 +301,29 @@ local function AddItem(key, link, owner)
     return item
 end
 
--- Añadir a mano (enlace de objeto pegado con Shift+clic)
-function lootModule.AddManual(link, owner)
+-- Envía un objeto de la sesión al grupo (los que salen de la banda ya los ve cada cliente)
+local function SendItem(item)
+    if item.state == "done" then return end
+    SendGroup(table.concat({ "I", item.key, item.owner or "?", tostring(item.difficultyID or 0), ShortLink(item.link) }, ";"))
+end
+
+-- Añadir a mano (enlace de objeto pegado con Shift+clic); difficultyID opcional
+function lootModule.AddManual(link, owner, difficultyID)
     if not link or not string.find(link, "|Hitem:", 1, true) then return nil end
     local itemID = string.match(link, "item:(%d+)") or "0"
     local item = AddItem(itemID .. ":" .. (owner or "?") .. ":" .. GetServerTime(), link, owner or "?")
+    if difficultyID then item.difficultyID = difficultyID end
+    if lootModule.CanManage() then SendItem(item) end
     Notify()
     return item
+end
+
+-- Al pedirlo alguien del grupo, el líder le manda los objetos pendientes (como mucho cada 10 s)
+local lastListSent = 0
+local function SendItemList()
+    if not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10 then return end
+    lastListSent = GetTime()
+    for _, item in ipairs(lootModule.GetItems()) do SendItem(item) end
 end
 
 -- =========================================================================
@@ -511,6 +530,8 @@ function lootModule.Award(key, winnerName)
     lootModule.ApplyAward({ id = id, key = key, winner = winner.name, kind = kind, roll = roll,
                             at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName() })
     SendGuild(table.concat({ "W", id, key, winner.name, kind, tostring(roll or 0), at, session.id, ShortLink(item.link) }, ";"))
+    -- Al grupo va antes que E: así no vuelve a pendiente en quien no recibe la W (fuera de la hermandad)
+    SendGroup(table.concat({ "A", key, winner.name, kind, tostring(roll or 0) }, ";"))
     SendGroup("E;" .. key)
     if paid and addonTable.Dkp then addonTable.Dkp.Spend(winner.name, paid, item.link) end
     local short = Ambiguate(winner.name, "none")
@@ -668,7 +689,26 @@ local function OnAddonMessage(msg, channel, sender)
     end
 
     -- Mensajes del grupo
-    if kind == "S;" then
+    if msg == "L" then
+        C_Timer.After(1 + math.random() * 2, SendItemList)
+    elseif kind == "I;" then
+        if not CanManageName(fullSender) then return end
+        local _, key, owner, difficultyID, link = strsplit(";", msg, 5)
+        if not key or not link or not string.find(link, "item:", 1, true) then return end
+        local item = AddItem(key, link, owner)
+        difficultyID = tonumber(difficultyID)
+        if difficultyID and difficultyID > 0 then item.difficultyID = difficultyID end
+        Notify()
+    elseif kind == "A;" then
+        if not CanManageName(fullSender) then return end
+        local _, key, winner, wkind, roll = strsplit(";", msg)
+        local item = lootModule.GetItem(key)
+        if item and winner and (wkind == "need" or wkind == "offspec" or wkind == "bid") then
+            item.state, item.winner, item.kind, item.roll = "done", winner, wkind, tonumber(roll)
+            if activeKey == key then activeKey = nil end
+            Notify()
+        end
+    elseif kind == "S;" then
         if not CanManageName(fullSender) then return end
         local _, key, owner, link = strsplit(";", msg, 4)
         if not key or not link then return end
@@ -725,11 +765,17 @@ frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ENCOUNTER_LOOT_RECEIVED")
 frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:RegisterEvent("CHAT_MSG_ADDON")
+frame:RegisterEvent("GROUP_JOINED")
 frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
-        if isInitialLogin or isReloadingUi then C_Timer.After(18, function() SendGuild("Q") end) end
+        if isInitialLogin or isReloadingUi then
+            C_Timer.After(18, function() SendGuild("Q") end)
+            C_Timer.After(20, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
+        end
+    elseif event == "GROUP_JOINED" then
+        C_Timer.After(3, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
     elseif event == "ENCOUNTER_LOOT_RECEIVED" then
         OnLootReceived(...)
     elseif event == "CHAT_MSG_SYSTEM" then
