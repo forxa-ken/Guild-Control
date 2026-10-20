@@ -9924,7 +9924,9 @@ local function BuildLootView(parent)
         -- Objetos
         local items = LT.GetItems()
         local activeKey = LT.GetActiveKey()
-        if not selectedKey and activeKey then selectedKey = activeKey end
+        -- Al abrirse una tirada nueva (también la del líder) se selecciona sola
+        if activeKey and (not selectedKey or activeKey ~= view.lastActiveKey) then selectedKey = activeKey end
+        view.lastActiveKey = activeKey
         for _, row in ipairs(itemsBox.rows) do row:Hide() end
         for i, item in ipairs(items) do
             local row = AcquireItemRow(i)

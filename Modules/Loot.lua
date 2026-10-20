@@ -74,7 +74,7 @@ local hasOutsiders = false
 
 local function CountOutsiders()
     if not IsInGroup() then return false end
-    if addonTable.Dev and addonTable.Dev.IsGroupTest and addonTable.Dev.IsGroupTest() then return false end
+    if addonTable.Dev and addonTable.Dev.GroupIsGuild and addonTable.Dev.GroupIsGuild() then return false end
     if not IsInGuild() then return true end
     local raid = IsInRaid()
     for i = 1, GetNumGroupMembers() do
@@ -155,9 +155,35 @@ local function GroupChannel()
     return nil
 end
 
+-- Cola de envío al grupo, en orden: si el juego frena los mensajes del prefijo (lista de
+-- objetos, reglas, precio y tirada juntos), el que no sale se reintenta en el siguiente turno
+-- en vez de perderse.
+local sendQueue, sendTicker = {}, nil
+
+local function TrySend(item)
+    local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, item.msg, item.channel)
+    return ok and (result == nil or result == true or result == 0
+        or (Enum and Enum.SendAddonMessageResult and result == Enum.SendAddonMessageResult.Success))
+end
+
+local function ProcessQueue()
+    local item = sendQueue[1]
+    if not item then
+        if sendTicker then sendTicker:Cancel() end
+        sendTicker = nil
+        return
+    end
+    item.tries = (item.tries or 0) + 1
+    if TrySend(item) or item.tries > 40 then table.remove(sendQueue, 1) end
+end
+
 local function SendGroup(msg)
     local channel = GroupChannel()
-    if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then C_ChatInfo.SendAddonMessage(PREFIX, msg, channel) end
+    if not (channel and C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    local item = { msg = msg, channel = channel }
+    if #sendQueue == 0 and TrySend(item) then return end
+    table.insert(sendQueue, item)
+    if not sendTicker then sendTicker = C_Timer.NewTicker(0.4, ProcessQueue) end
 end
 
 local function SendGuild(msg)
@@ -245,12 +271,8 @@ function lootModule.NewSession(title, received, auto)
     }
     Store().session = session
     activeKey = nil
-    if not received and not auto and lootModule.CanManage() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        local channel = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
-        if channel then
-            C_ChatInfo.SendAddonMessage(PREFIX, "N;" .. session.id .. ";" .. session.startedAt .. ";"
-                .. string.sub(string.gsub(session.title, ";", ""), 1, 80), channel)
-        end
+    if not received and not auto and lootModule.CanManage() and IsInGroup() then
+        SendGroup("N;" .. session.id .. ";" .. session.startedAt .. ";" .. string.sub(string.gsub(session.title, ";", ""), 1, 80))
         lootModule.SendRules()
     end
     Notify()
