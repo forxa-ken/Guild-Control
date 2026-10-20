@@ -390,7 +390,8 @@ local RULE_LABELS = { plusone = "+1", fixed = "DKP (precio fijo)", auction = "DK
 local function SendItem(item)
     SendGroup(table.concat({ "I", item.key, item.owner or "?", tostring(item.difficultyID or 0), ShortLink(item.link) }, ";"))
     if item.state == "done" and item.winner then
-        SendGroup(table.concat({ "A", item.key, item.winner, item.kind or "need", tostring(item.roll or 0) }, ";"))
+        SendGroup(table.concat({ "A", item.key, item.winner, item.kind or "need", tostring(item.roll or 0),
+                                 item.awardId or "", tostring(item.awardAt or 0) }, ";"))
     end
 end
 
@@ -638,7 +639,7 @@ function lootModule.Award(key, winnerName)
                             at = at, session = session.id, sessionTitle = session.title, link = item.link, by = MyName() })
     SendGuild(table.concat({ "W", id, key, winner.name, kind, tostring(roll or 0), at, session.id, ShortLink(item.link) }, ";"))
     -- Al grupo va antes que E: así no vuelve a pendiente en quien no recibe la W (fuera de la hermandad)
-    SendGroup(table.concat({ "A", key, winner.name, kind, tostring(roll or 0) }, ";"))
+    SendGroup(table.concat({ "A", key, winner.name, kind, tostring(roll or 0), id, at }, ";"))
     SendGroup("E;" .. key)
     if paid and addonTable.Dkp then addonTable.Dkp.Spend(winner.name, paid, item.link) end
     local short = Ambiguate(winner.name, "none")
@@ -672,6 +673,7 @@ function lootModule.ApplyAward(award)
     local item = lootModule.GetItem(award.key)
     if item then
         item.state, item.winner, item.kind, item.roll = "done", award.winner, award.kind, award.roll
+        item.awardId, item.awardAt = award.id, award.at
         if lootModule.CheckDelivery then lootModule.CheckDelivery(item) end
     end
     if activeKey == award.key then activeKey = nil end
@@ -1009,9 +1011,17 @@ local function OnAddonMessage(msg, channel, sender)
         Notify()
     elseif kind == "A;" then
         if not CanManageName(fullSender) then return end
-        local _, key, winner, wkind, roll = strsplit(";", msg)
+        local _, key, winner, wkind, roll, id, at = strsplit(";", msg)
         local item = lootModule.GetItem(key)
-        if item and winner and (wkind == "need" or wkind == "offspec" or wkind == "bid") then
+        if not (item and winner and (wkind == "need" or wkind == "offspec" or wkind == "bid")) then return end
+        at = tonumber(at)
+        if id and id ~= "" and at and at > 0 then
+            -- Con el id va también al historial (sin repetir la W de la hermandad): así lo ve quien no es de ella
+            local session = Store().session
+            lootModule.ApplyAward({ id = id, key = key, winner = winner, kind = wkind, roll = tonumber(roll), at = at,
+                                    session = session and session.id, sessionTitle = session and session.title,
+                                    link = item.link, by = fullSender })
+        else
             item.state, item.winner, item.kind, item.roll = "done", winner, wkind, tonumber(roll)
             if activeKey == key then activeKey = nil end
             lootModule.CheckDelivery(item)
