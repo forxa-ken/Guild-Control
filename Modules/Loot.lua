@@ -90,11 +90,29 @@ end
 function lootModule.HasOutsiders() return hasOutsiders end
 
 -- Sistema activo: lo deciden los oficiales y se comparte con el estado del DKP
-function lootModule.GetSystem()
-    if groupRules and IsInGroup() then return groupRules.system end
+-- Sistema que toca ahora (el de la hermandad, o +1 si hay alguien de fuera)
+local function CurrentSystem()
     local system = addonTable.Dkp and addonTable.Dkp.GetSystem() or "plusone"
     if system == "dkp" and hasOutsiders then return "plusone" end
     return system
+end
+
+local function CurrentMode()
+    return addonTable.Dkp and addonTable.Dkp.GetMode() or "fixed"
+end
+
+-- La sesión guarda el sistema con el que empezó (session.system, session.mode): una banda que
+-- empieza con +1 termina con +1, aunque entre o salga gente o un oficial cambie el sistema
+-- (el cambio vale para la siguiente sesión).
+local function SessionRules()
+    local db = GuildControlDB and GuildControlDB.loot
+    local session = type(db) == "table" and db.session or nil
+    if session and session.system then return session.system, session.mode end
+end
+
+function lootModule.GetSystem()
+    if groupRules and IsInGroup() then return groupRules.system end
+    return SessionRules() or CurrentSystem()
 end
 
 local function IsDkp() return lootModule.GetSystem() == "dkp" end
@@ -214,23 +232,26 @@ end
 -- =========================================================================
 function lootModule.GetSession() return Store().session end
 
--- received = { id, startedAt } cuando la sesión nueva llega del grupo (no se reenvía)
-function lootModule.NewSession(title, received)
+-- received = { id, startedAt } cuando la sesión nueva llega del grupo (no se reenvía); auto =
+-- la abre el addon al salir botín (cada cliente la suya, no se envía: borraría lo de los demás)
+function lootModule.NewSession(title, received, auto)
     local instanceName = GetInstanceInfo()
     local session = {
         id = received and received.id or ((UnitName("player") or "?") .. "-" .. GetServerTime()),
         title = (title and title ~= "") and title or (instanceName or L["Banda"]),
         startedAt = received and received.startedAt or GetServerTime(),
         items = {}, order = {},
+        system = CurrentSystem(), mode = CurrentMode(),
     }
     Store().session = session
     activeKey = nil
-    if not received and lootModule.CanManage() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+    if not received and not auto and lootModule.CanManage() and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         local channel = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
         if channel then
             C_ChatInfo.SendAddonMessage(PREFIX, "N;" .. session.id .. ";" .. session.startedAt .. ";"
                 .. string.sub(string.gsub(session.title, ";", ""), 1, 80), channel)
         end
+        lootModule.SendRules()
     end
     Notify()
     return session
@@ -239,7 +260,7 @@ end
 local function EnsureSession()
     local session = Store().session
     if not session or GetServerTime() - (session.startedAt or 0) > SESSION_MAX_AGE then
-        session = lootModule.NewSession()
+        session = lootModule.NewSession(nil, nil, true)
     end
     return session
 end
@@ -270,7 +291,9 @@ local pendingPrices = {}   -- precio recibido antes que el objeto ("V" llega ant
 local function IsFixed()
     if not IsDkp() then return false end
     if groupRules and IsInGroup() then return groupRules.mode == "fixed" end
-    return addonTable.Dkp.GetMode() == "fixed"
+    local system, mode = SessionRules()
+    if system then return mode == "fixed" end
+    return CurrentMode() == "fixed"
 end
 lootModule.IsFixed = IsFixed
 
@@ -355,8 +378,22 @@ end
 function lootModule.SendRules()
     if not (IsInGroup() and lootModule.CanManage()) then return end
     groupRules = nil
-    local D = addonTable.Dkp
-    SendGroup("M;" .. lootModule.GetSystem() .. ";" .. (D and D.GetMode() or "fixed"))
+    local system, mode = SessionRules()
+    SendGroup("M;" .. (system or CurrentSystem()) .. ";" .. (mode or CurrentMode()))
+end
+
+-- Un oficial ha cambiado el sistema o el modo: vale ya si la sesión no tiene objetos; si no,
+-- desde la siguiente
+function lootModule.OnSystemChanged()
+    local db = GuildControlDB and GuildControlDB.loot
+    local session = type(db) == "table" and db.session or nil
+    if session and #session.order > 0 then
+        print("|cFF00FFFF[GuildControl]|r " .. L["El cambio de sistema vale desde la próxima sesión: esta banda sigue con el que empezó (pulsa Nueva sesión para aplicarlo ya)."])
+    elseif session then
+        session.system, session.mode = CurrentSystem(), CurrentMode()
+    end
+    lootModule.SendRules()
+    Notify()
 end
 
 -- Al cambiar el grupo: si entra o sale alguien de fuera de la hermandad cambia el sistema
@@ -365,7 +402,7 @@ local function UpdateOutsiders()
     hasOutsiders = CountOutsiders()
     if before == hasOutsiders then return end
     local D = addonTable.Dkp
-    if D and D.GetSystem() == "dkp" and not groupRules then
+    if D and D.GetSystem() == "dkp" and not groupRules and not SessionRules() then
         print("|cFF00FFFF[GuildControl]|r " .. (hasOutsiders
             and L["Hay gente de fuera de la hermandad en el grupo: el botín se reparte con +1."]
             or L["Ya solo hay gente de la hermandad en el grupo: el botín vuelve a DKP."]))
@@ -394,6 +431,15 @@ function lootModule.AddManual(link, owner, difficultyID)
     return item
 end
 
+-- Al pedirlo alguien del grupo, el líder le manda los objetos pendientes (como mucho cada 10 s)
+local lastListSent = 0
+local function SendItemList(force)
+    if not force and (not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10) then return end
+    lastListSent = GetTime()
+    lootModule.SendRules()
+    for _, item in ipairs(lootModule.GetItems()) do SendItem(item) end
+end
+
 -- Mostrar: abre el botín (con la lista) a todos los del grupo con GuildControl
 function lootModule.ShowToGroup()
     if not IsInGroup() then
@@ -405,15 +451,6 @@ function lootModule.ShowToGroup()
     SendGroup("O")
     print("|cFF00FFFF[GuildControl]|r " .. L["Enseñando el botín a tu grupo."])
     return true
-end
-
--- Al pedirlo alguien del grupo, el líder le manda los objetos pendientes (como mucho cada 10 s)
-local lastListSent = 0
-local function SendItemList(force)
-    if not force and (not UnitIsGroupLeader("player") or GetTime() - lastListSent < 10) then return end
-    lastListSent = GetTime()
-    lootModule.SendRules()
-    for _, item in ipairs(lootModule.GetItems()) do SendItem(item) end
 end
 
 -- =========================================================================
