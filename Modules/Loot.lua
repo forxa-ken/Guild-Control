@@ -68,51 +68,11 @@ lootModule.SYSTEMS = {
 -- sean de la hermandad. Solo en memoria; se borran al salir del grupo o al mandar las mías.
 local groupRules = nil   -- { system, mode, from }
 
--- El DKP es de la hermandad: si en el grupo hay alguien de fuera, se reparte con +1 para todos.
--- Se recalcula al cambiar el grupo. (Dev: con Prueba con el grupo cuentan como de la hermandad.)
-local hasOutsiders = false
-
-local function CountOutsiders()
-    if not IsInGroup() then return false end
-    if addonTable.Dev and addonTable.Dev.GroupIsGuild and addonTable.Dev.GroupIsGuild() then return false end
-    if not IsInGuild() then return true end
-    local raid = IsInRaid()
-    for i = 1, GetNumGroupMembers() do
-        local unit = raid and ("raid" .. i) or (i < GetNumGroupMembers() and ("party" .. i) or nil)
-        if unit and UnitExists(unit) and not UnitIsUnit(unit, "player") then
-            local ok, inGuild = pcall(UnitIsInMyGuild, unit)
-            if ok and inGuild == false then return true end
-        end
-    end
-    return false
-end
-
-function lootModule.HasOutsiders() return hasOutsiders end
-
--- Sistema activo: lo deciden los oficiales y se comparte con el estado del DKP
--- Sistema que toca ahora (el de la hermandad, o +1 si hay alguien de fuera)
-local function CurrentSystem()
-    local system = addonTable.Dkp and addonTable.Dkp.GetSystem() or "plusone"
-    if system == "dkp" and hasOutsiders then return "plusone" end
-    return system
-end
-
-local function CurrentMode()
-    return addonTable.Dkp and addonTable.Dkp.GetMode() or "fixed"
-end
-
--- La sesión guarda el sistema con el que empezó (session.system, session.mode): una banda que
--- empieza con +1 termina con +1, aunque entre o salga gente o un oficial cambie el sistema
--- (el cambio vale para la siguiente sesión).
-local function SessionRules()
-    local db = GuildControlDB and GuildControlDB.loot
-    local session = type(db) == "table" and db.session or nil
-    if session and session.system then return session.system, session.mode end
-end
-
+-- Sistema activo: lo deciden los oficiales y se comparte con el estado del DKP; en un grupo,
+-- el de quien abre las tiradas
 function lootModule.GetSystem()
     if groupRules and IsInGroup() then return groupRules.system end
-    return SessionRules() or CurrentSystem()
+    return addonTable.Dkp and addonTable.Dkp.GetSystem() or "plusone"
 end
 
 local function IsDkp() return lootModule.GetSystem() == "dkp" end
@@ -267,7 +227,6 @@ function lootModule.NewSession(title, received, auto)
         title = (title and title ~= "") and title or (instanceName or L["Banda"]),
         startedAt = received and received.startedAt or GetServerTime(),
         items = {}, order = {},
-        system = CurrentSystem(), mode = CurrentMode(),
     }
     Store().session = session
     activeKey = nil
@@ -313,9 +272,7 @@ local pendingPrices = {}   -- precio recibido antes que el objeto ("V" llega ant
 local function IsFixed()
     if not IsDkp() then return false end
     if groupRules and IsInGroup() then return groupRules.mode == "fixed" end
-    local system, mode = SessionRules()
-    if system then return mode == "fixed" end
-    return CurrentMode() == "fixed"
+    return addonTable.Dkp.GetMode() == "fixed"
 end
 lootModule.IsFixed = IsFixed
 
@@ -400,39 +357,9 @@ end
 function lootModule.SendRules()
     if not (IsInGroup() and lootModule.CanManage()) then return end
     groupRules = nil
-    local system, mode = SessionRules()
-    SendGroup("M;" .. (system or CurrentSystem()) .. ";" .. (mode or CurrentMode()))
-end
-
--- Un oficial ha cambiado el sistema o el modo: vale ya si la sesión no tiene objetos; si no,
--- desde la siguiente
-function lootModule.OnSystemChanged()
-    local db = GuildControlDB and GuildControlDB.loot
-    local session = type(db) == "table" and db.session or nil
-    if session and #session.order > 0 then
-        print("|cFF00FFFF[GuildControl]|r " .. L["El cambio de sistema vale desde la próxima sesión: esta banda sigue con el que empezó (pulsa Nueva sesión para aplicarlo ya)."])
-    elseif session then
-        session.system, session.mode = CurrentSystem(), CurrentMode()
-    end
-    lootModule.SendRules()
-    Notify()
-end
-
--- Al cambiar el grupo: si entra o sale alguien de fuera de la hermandad cambia el sistema
-local function UpdateOutsiders()
-    local before = hasOutsiders
-    hasOutsiders = CountOutsiders()
-    if before == hasOutsiders then return end
     local D = addonTable.Dkp
-    if D and D.GetSystem() == "dkp" and not groupRules and not SessionRules() then
-        print("|cFF00FFFF[GuildControl]|r " .. (hasOutsiders
-            and L["Hay gente de fuera de la hermandad en el grupo: el botín se reparte con +1."]
-            or L["Ya solo hay gente de la hermandad en el grupo: el botín vuelve a DKP."]))
-        if lootModule.CanManage() then lootModule.SendRules() end
-    end
-    Notify()
+    SendGroup("M;" .. (D and D.GetSystem() or "plusone") .. ";" .. (D and D.GetMode() or "fixed"))
 end
-lootModule.UpdateOutsiders = UpdateOutsiders
 
 local RULE_LABELS = { plusone = "+1", fixed = "DKP (precio fijo)", auction = "DKP (subasta)" }
 
@@ -1128,7 +1055,6 @@ frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("GROUP_JOINED")
 frame:RegisterEvent("GROUP_LEFT")
-frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("TRADE_SHOW")
 frame:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED")
 frame:RegisterEvent("TRADE_TARGET_ITEM_CHANGED")
@@ -1138,7 +1064,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if not GuildControlDB then return end
     if event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
-        C_Timer.After(2, UpdateOutsiders)
         if isInitialLogin or isReloadingUi then
             C_Timer.After(18, function() SendGuild("Q") end)
             C_Timer.After(20, function() if not UnitIsGroupLeader("player") then SendGroup("L") end end)
@@ -1155,8 +1080,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if trade.target and type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text == ERR_TRADE_COMPLETE then
             OnTradeComplete()
         end
-    elseif event == "GROUP_ROSTER_UPDATE" then
-        UpdateOutsiders()
     elseif event == "GROUP_LEFT" then
         if groupRules then groupRules = nil; Notify() end
     elseif event == "GROUP_JOINED" then
