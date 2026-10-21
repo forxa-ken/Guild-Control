@@ -107,19 +107,29 @@ local function OnInsertLink(fn)
 end
 
 -- Tooltip con título y explicación (también con el botón desactivado). Si el control ya tiene
--- su propio OnEnter no se toca. tips = { {control, "Título", "Texto"}, ... } (textos sin traducir)
+-- un OnEnter (las plantillas de Blizzard traen uno, como UIPanelButtonTemplate en Forever) se
+-- añade con HookScript para no quitarle el resaltado. tips = { {control, "Título", "Texto"}, ... }
+-- (textos sin traducir)
 function uiModule.AddTips(tips)
     for _, tip in ipairs(tips) do
         local widget, titleText, text = tip[1], tip[2], tip[3]
-        if widget and not widget:GetScript("OnEnter") then
+        if widget and not widget.gcTip then
+            widget.gcTip = true
             if widget.SetMotionScriptsWhileDisabled then widget:SetMotionScriptsWhileDisabled(true) end
-            widget:SetScript("OnEnter", function(self)
+            local function OnEnter(self)
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 GameTooltip:SetText(L[titleText], 1, 1, 1)
                 GameTooltip:AddLine(L[text], 0.8, 0.8, 0.8, true)
                 GameTooltip:Show()
-            end)
-            widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end
+            local function OnLeave() GameTooltip:Hide() end
+            if widget:GetScript("OnEnter") then
+                widget:HookScript("OnEnter", OnEnter)
+                widget:HookScript("OnLeave", OnLeave)
+            else
+                widget:SetScript("OnEnter", OnEnter)
+                widget:SetScript("OnLeave", OnLeave)
+            end
         end
     end
 end
@@ -7064,6 +7074,7 @@ local function BuildProfessionsView(parent)
             else sortKey, sortAsc = self.key, self.key ~= "skill" and self.key ~= "otherSkill" end
             Refresh()
         end)
+        uiModule.AddTips({ { hb, col.title, "Clic para ordenar por esta columna. Otro clic invierte el orden." } })
         table.insert(headerButtons, hb)
     end
 
@@ -7301,6 +7312,10 @@ local function BuildProfessionsView(parent)
         row.whisper:SetSize(78, 22)
         row.whisper:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         row.whisper:SetText(L["Susurrar"])
+        uiModule.AddTips({
+            { row.order, "Pedir", "Encarga esta receta a un artesano que la conoce. Si la conocen varios, eliges a quién." },
+            { row.whisper, "Susurrar", "Abre un susurro al primer artesano conectado que conoce la receta." },
+        })
         resultRows[index] = row
         return row
     end
@@ -7404,6 +7419,14 @@ local function BuildProfessionsView(parent)
     forMeBox.clear:SetScript("OnClick", function() if C and C.ClearClosedOrders then C.ClearClosedOrders("forMe") end end)
     mineBox.clear:SetScript("OnClick", function() if C and C.ClearClosedOrders then C.ClearClosedOrders("mine") end end)
 
+    local ORDER_TIPS = {
+        [L["Aceptar"]]  = L["Aceptas hacer este pedido. Quien lo pidió recibe el aviso."],
+        [L["Rechazar"]] = L["Rechazas el pedido. Quien lo pidió recibe el aviso."],
+        [L["Hecho"]]    = L["Marca el pedido como terminado. Quien lo pidió recibe el aviso."],
+        [L["Susurrar"]] = L["Abre un susurro con la otra persona del pedido."],
+        [L["Cancelar"]] = L["Cancelas tu pedido. El artesano recibe el aviso."],
+    }
+
     local function AcquireOrderRow(box, index)
         local row = box.rows[index]
         if row then return row end
@@ -7428,6 +7451,18 @@ local function BuildProfessionsView(parent)
         row.b2 = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         row.b2:SetSize(62, 18)
         row.b2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -2, 2)
+        for _, btn in ipairs({ row.b1, row.b2 }) do
+            if btn.SetMotionScriptsWhileDisabled then btn:SetMotionScriptsWhileDisabled(true) end
+            btn:SetScript("OnEnter", function(self)
+                local tipText = self.tipKey and ORDER_TIPS[self.tipKey]
+                if not tipText then return end
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(self.tipKey, 1, 1, 1)
+                GameTooltip:AddLine(tipText, 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
         row:EnableMouse(true)
         row:SetScript("OnEnter", function(self)
             if not self.order or not self.order.note or self.order.note == "" then return end
@@ -7442,6 +7477,7 @@ local function BuildProfessionsView(parent)
     end
 
     local function SetButton(btn, text, onClick)
+        btn.tipKey = text
         if not text then btn:Hide() return end
         btn:SetText(text)
         btn:SetScript("OnClick", onClick)
@@ -7528,6 +7564,16 @@ local function BuildProfessionsView(parent)
     end
 
     view:SetScript("OnShow", function() if mode == "crafts" then RefreshCraftPanel() else Refresh() end end)
+    uiModule.AddTips({
+        { btnMyProf, "Mi profesión", "Abre la ventana de tu profesión (si tienes varias, eliges cuál). Al cerrarla, tus recetas se envían a la hermandad." },
+        { searchBox, "Buscar miembro", "Filtra la lista por el nombre del miembro." },
+        { chkOnline, "Solo conectados", "Muestra solo a los miembros conectados ahora." },
+        { craftSearch, "Buscar receta", "Escribe el nombre de una receta, haz Shift+clic en un objeto o pega un enlace de Wowhead para ver quién de la hermandad sabe hacerlo." },
+        { forMeBox.clear, "Limpiar cerrados", "Quita de la lista los pedidos que te hicieron y ya están hechos, rechazados o cancelados." },
+        { mineBox.clear, "Limpiar cerrados", "Quita de la lista tus pedidos que ya están hechos, rechazados o cancelados." },
+        { btnCrafts, "Artesanos y pedidos", "Busca quién de la hermandad sabe hacer una receta, pídesela y sigue tus pedidos." },
+        { btnMembers, "Ver miembros", "Vuelve a la lista de profesiones de los miembros." },
+    })
     containers.views["Profesiones"] = view
 end
 
@@ -13230,6 +13276,11 @@ function uiModule.ShowOrderDialog(crafter, recipeID, recipeName)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 14)
         f.cancel:SetText(CANCEL)
         f.cancel:SetScript("OnClick", function() f:Hide() end)
+        uiModule.AddTips({
+            { f.note, "Nota", "Cantidad, calidad o lo que quieras decirle al artesano. Intro envía el pedido." },
+            { f.mats, "Aporto los materiales", "Marca esta casilla si le darás tú los materiales al artesano." },
+            { f.send, "Pedir", "Envía el pedido al artesano. Le llega un aviso y lo verá en «Me piden»." },
+        })
         local function Send()
             local C = addonTable.Community
             if C and C.CreateOrder and f.crafter then
