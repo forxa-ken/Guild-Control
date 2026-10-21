@@ -1,5 +1,10 @@
 # GuildControl
 
+## 5.1.1
+
+- **Profesiones**: tooltips en los botones, las cabeceras de columna, Artesanos y pedidos (Pedir, Susurrar, Aceptar, Rechazar, Hecho, Cancelar) y la ventana de pedido.
+- Corregido: algunos botones no mostraban su explicación al pasar el ratón.
+
 ## 5.1.0
 
 - **Botín con el grupo**, aunque no sean de la hermandad: la lista de objetos, las tiradas, el ganador y la nueva sesión llegan a todos los del grupo con GuildControl. El grupo usa el sistema (+1 o DKP) de quien abre las tiradas. Quien entra en el grupo o recarga recibe la lista con los ganadores, y quien no es de la hermandad ve lo ganado en su historial.
